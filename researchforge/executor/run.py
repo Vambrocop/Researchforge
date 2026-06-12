@@ -556,6 +556,83 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"K-means 执行失败：{err}")
 
+    elif entry.id == "pca":
+        features = [
+            c.name
+            for c in fp.columns
+            if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+        ]
+        X = df[features].dropna()
+        if len(features) < 2 or len(X) < 3:
+            summary.append("PCA 跳过：连续特征不足或样本太少。")
+        else:
+            try:
+                from sklearn.preprocessing import StandardScaler
+                from sklearn.decomposition import PCA
+                import numpy as np
+                import pandas as pd
+
+                Xs = StandardScaler().fit_transform(X)
+                n_comp = min(len(features), 10, len(X) - 1)
+                pca = PCA(n_components=n_comp).fit(Xs)
+                evr = pca.explained_variance_ratio_
+
+                # explained_variance.csv: component (PC1..), explained_variance_ratio, cumulative
+                ev_df = pd.DataFrame({
+                    "component": [f"PC{i+1}" for i in range(n_comp)],
+                    "explained_variance_ratio": evr,
+                    "cumulative": np.cumsum(evr),
+                })
+                ev_df.to_csv(d / "explained_variance.csv", index=False, encoding="utf-8")
+                files.append("explained_variance.csv")
+
+                # loadings.csv: rows=features, cols=PC1..n
+                load_df = pd.DataFrame(
+                    pca.components_.T,
+                    index=features,
+                    columns=[f"PC{i+1}" for i in range(n_comp)],
+                )
+                load_df.to_csv(d / "loadings.csv", encoding="utf-8")
+                files.append("loadings.csv")
+
+                # scree plot (bar of evr) -> pca_scree.png
+                try:
+                    import matplotlib
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(6, 4))
+                    ax.bar([f"PC{i+1}" for i in range(n_comp)], evr)
+                    ax.set_xlabel("component")
+                    ax.set_ylabel("explained variance ratio")
+                    ax.set_title("PCA scree plot")
+                    fig.tight_layout()
+                    fig.savefig(d / "pca_scree.png", dpi=120)
+                    plt.close(fig)
+                    files.append("pca_scree.png")
+                except Exception:
+                    pass
+
+                estimates["pc1_explained_ratio"] = float(evr[0])
+                estimates["n_components"] = float(n_comp)
+                estimates["cum_explained_top2"] = float(np.cumsum(evr)[min(1, n_comp - 1)])
+                summary.append(
+                    f"{entry.method} 完成：{len(features)} 个连续特征 -> {n_comp} 个主成分，"
+                    f"PC1 解释方差={evr[0]:.1%}"
+                )
+                code += [
+                    "from sklearn.preprocessing import StandardScaler",
+                    "from sklearn.decomposition import PCA",
+                    "import numpy as np",
+                    f"features = {features!r}",
+                    "X = df[features].dropna()",
+                    "Xs = StandardScaler().fit_transform(X)",
+                    f"pca = PCA(n_components={n_comp}).fit(Xs)",
+                    "print('explained variance ratio:', pca.explained_variance_ratio_)",
+                ]
+            except Exception as err:
+                summary.append(f"PCA 执行失败：{err}")
+
     elif entry.id == "arima":
         time_col = fp.time_col
         # value_col: forecast the first continuous column. Time columns are

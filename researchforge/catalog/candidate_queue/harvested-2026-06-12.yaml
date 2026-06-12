@@ -82,8 +82,8 @@
       - scale sensitivity
       - linear-structure assumption
   source: "CRAN Environmetrics ordination (vegan/ade4)"
-  status: pending
-  notes: "待接执行器: sklearn PCA(标准化 + 解释方差 + 载荷 + biplot); 接近 kmeans 模式"
+  status: ready
+  notes: "executor 已接(镜像 kmeans); 测试 + Fable 复审通过(探索型, 低风险)"
 
 - entry:
     id: diversity_indices

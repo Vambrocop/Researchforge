@@ -21,3 +21,27 @@
   biases:
   - not causal (predictive only)
   - overfitting if untuned
+- id: pca
+  method: Principal component analysis (ordination)
+  domain: machine learning
+  family: ml
+  goal: explore
+  description: Unsupervised dimension reduction / ordination over standardized continuous
+    features.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 20
+    min_continuous: 3
+    requires_binary_outcome: null
+    requires_group: null
+  produces:
+  - explained variance
+  - loadings
+  - biplot
+  executor_ref: scikit-learn
+  biases:
+  - scale sensitivity
+  - linear-structure assumption
