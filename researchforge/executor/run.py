@@ -5,6 +5,7 @@ to outputs/<timestamp>_<analysis>/. Reuses the empirical-analysis-python stack
 from __future__ import annotations
 
 import datetime
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -131,42 +132,79 @@ def _coef_plot(model, rhs_vars, path: Path) -> None:
         pass
 
 
-def _init_mpl_style() -> None:
-    """Apply one clean, modern, publication-friendly look to every figure this
-    run produces. Called once per analysis; best-effort so a missing/old
+# Per-theme color cycles (theme-specific rc overrides are built in _init_mpl_style).
+_THEME_COLORS = {
+    "default": ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B3", "#937860", "#DA8BC3", "#8C8C8C"],
+    "nature": ["#E64B35", "#4DBBD5", "#00A087", "#3C5488", "#F39B7F", "#8491B4", "#91D1C2", "#7E6148"],
+    "aer": ["#000000", "#666666", "#999999", "#333333", "#BBBBBB", "#555555"],
+    "dark": ["#4C9BE0", "#FF8C42", "#5CD08A", "#E45757", "#B083E0", "#E0C04C"],
+}
+
+
+def _init_mpl_style(theme: str | None = None) -> None:
+    """Apply one clean, publication-friendly look to every figure this run
+    produces. Theme is chosen by arg or the RF_THEME env var (default | nature |
+    aer | dark). Called once per analysis; best-effort so a missing/old
     matplotlib never breaks an analysis."""
+    theme = (theme or os.environ.get("RF_THEME", "default")).strip().lower()
+    if theme not in _THEME_COLORS:
+        theme = "default"
     try:
         import matplotlib
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        plt.rcParams.update(
-            {
-                "figure.dpi": 150,
-                "savefig.dpi": 150,
-                "savefig.bbox": "tight",
-                "figure.facecolor": "white",
-                "font.size": 10,
-                "axes.titlesize": 11,
-                "axes.titleweight": "bold",
-                "axes.labelsize": 10,
-                "axes.edgecolor": "#444444",
-                "axes.linewidth": 0.8,
-                "axes.spines.top": False,
-                "axes.spines.right": False,
-                "axes.grid": True,
-                "grid.color": "#cccccc",
-                "grid.alpha": 0.4,
-                "grid.linewidth": 0.6,
-                "axes.prop_cycle": plt.cycler(
-                    color=[
-                        "#4C72B0", "#DD8452", "#55A868", "#C44E52",
-                        "#8172B3", "#937860", "#DA8BC3", "#8C8C8C",
-                    ]
-                ),
-            }
-        )
+        rc = {
+            "figure.dpi": 150,
+            "savefig.dpi": 150,
+            "savefig.bbox": "tight",
+            "figure.facecolor": "white",
+            "savefig.facecolor": "white",
+            "axes.facecolor": "white",
+            "font.size": 10,
+            "axes.titlesize": 11,
+            "axes.titleweight": "bold",
+            "axes.labelsize": 10,
+            "axes.edgecolor": "#444444",
+            "axes.linewidth": 0.8,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.grid": True,
+            "grid.color": "#cccccc",
+            "grid.alpha": 0.4,
+            "grid.linewidth": 0.6,
+            "axes.prop_cycle": plt.cycler(color=_THEME_COLORS[theme]),
+        }
+        if theme == "nature":  # NPG palette, sans-serif, tighter
+            rc.update({
+                "font.family": "sans-serif",
+                "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+                "font.size": 9,
+                "axes.linewidth": 0.6,
+                "lines.linewidth": 1.3,
+            })
+        elif theme == "aer":  # economics: serif, grayscale-safe, no grid
+            rc.update({
+                "font.family": "serif",
+                "font.serif": ["Times New Roman", "DejaVu Serif"],
+                "axes.grid": False,
+                "axes.titleweight": "normal",
+            })
+        elif theme == "dark":  # dashboard dark background
+            rc.update({
+                "figure.facecolor": "#1e1e1e",
+                "savefig.facecolor": "#1e1e1e",
+                "axes.facecolor": "#1e1e1e",
+                "axes.edgecolor": "#cccccc",
+                "axes.labelcolor": "#eeeeee",
+                "axes.titlecolor": "#eeeeee",
+                "text.color": "#eeeeee",
+                "xtick.color": "#cccccc",
+                "ytick.color": "#cccccc",
+                "grid.color": "#444444",
+            })
+        plt.rcParams.update(rc)
     except Exception:
         pass
 
