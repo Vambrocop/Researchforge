@@ -171,7 +171,9 @@ def run_analysis(
             kname = f"Q('{rhs_vars[0]}')"
             if kname in model.params.index:
                 key = f"，关键系数 {rhs_vars[0]} = {model.params[kname]:.4f} (p={model.pvalues[kname]:.3g})"
-        summary.append(f"{entry.method} 完成：因变量 {y}{key}")
+        n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
+        dv_note = f"（数据有 {n_cont} 个连续列，默认取 {y} 为因变量）" if n_cont > 1 else ""
+        summary.append(f"{entry.method} 完成：因变量 {y}{key}{dv_note}")
         code += [
             "import statsmodels.formula.api as smf",
             f'model = smf.ols("{formula}", data=df).fit(cov_type="HC1")',
@@ -181,9 +183,15 @@ def run_analysis(
     elif entry.id == "group_comparison":
         from scipy import stats
 
-        group_cols = [c.name for c in fp.columns if c.kind in {"binary", "categorical"}]
+        _excl = {fp.unit_col, fp.time_col}
+        bin_cols = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
+        cat_cols = [c.name for c in fp.columns if c.kind == "categorical" and c.name not in _excl]
+        # prefer a binary group; otherwise the lowest-cardinality categorical, so a
+        # high-cardinality unit/id column is never picked as the grouping variable.
+        cat_cols.sort(key=lambda name: int(df[name].nunique()))
+        group_candidates = bin_cols + cat_cols
         cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
-        group_col = group_cols[0] if group_cols else None
+        group_col = group_candidates[0] if group_candidates else None
         outcome = cont_cols[0] if cont_cols else None
 
         if group_col is None or outcome is None:
@@ -498,8 +506,12 @@ def run_analysis(
     elif entry.id == "logistic_regression":
         import statsmodels.formula.api as smf
 
-        # identify outcome (first binary column) and predictors
-        binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
+        # identify outcome (first binary column, excluding unit/time) and predictors
+        binary_cols = [
+            c.name
+            for c in fp.columns
+            if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}
+        ]
         outcome = binary_cols[0] if binary_cols else None
         exclude = {outcome, fp.unit_col, fp.time_col}
         predictors = [
@@ -530,7 +542,12 @@ def run_analysis(
                     kname = f"Q('{predictors[0]}')"
                     if kname in model.params.index:
                         key = f"，关键系数 {predictors[0]} = {model.params[kname]:.4f} (p={model.pvalues[kname]:.3g})"
-                summary.append(f"{entry.method} 完成：结果变量 {outcome}{key}")
+                amb = (
+                    f"（数据有 {len(binary_cols)} 个二值列，已取 {outcome}；若它实为处理/标志变量请改选）"
+                    if len(binary_cols) > 1
+                    else ""
+                )
+                summary.append(f"{entry.method} 完成：结果变量 {outcome}{key}{amb}")
                 code += [
                     "import statsmodels.formula.api as smf",
                     f'model = smf.logit("{formula}", data=df).fit(disp=False)',
@@ -538,6 +555,12 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"逻辑回归未收敛/失败：{err}")
+
+    elif entry.id == "iv_regression":
+        summary.append(
+            "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"
+            "请在指定工具变量后手动运行；或先用 panel_fixed_effects / did 作为可自动执行的替代。"
+        )
 
     else:
         summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")

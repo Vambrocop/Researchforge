@@ -3,7 +3,7 @@
 > 来源：Opus 对已合并执行器分支的 supplement sweep。优先级 P1>P2>P3。
 > 每条 = 问题 + 一句理由 + 涉及文件。
 
-## P1 — 尽快修（静默错误结果 / 正确性风险）
+## P1 — 尽快修（静默错误结果 / 正确性风险） ✅ 已完成（2026-06-12，Opus 双审 LGTM）
 
 - [ ] **`_regression` 第一个连续列被当因变量**（ols/panel_fixed_effects/did）：多连续列数据上会静默选错 DV（同随机森林修过的那类 bug）。→ 加目标列选择透明 + 更稳的选法。`executor/run.py`
 - [ ] **`group_comparison` 可能拿 `unit` id 当分组变量**：未排除 `unit_col`/`time_col`，高基数 id 当组 → 几十个单例组的无意义 ANOVA。`executor/run.py`
