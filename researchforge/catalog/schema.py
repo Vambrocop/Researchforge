@@ -21,6 +21,7 @@ class Precondition(BaseModel):
     requires_binary_outcome: Optional[bool] = None
     requires_group: Optional[bool] = None
     requires_count_outcome: Optional[bool] = None
+    min_count_cols: Optional[int] = None
 
 
 class AnalysisEntry(BaseModel):

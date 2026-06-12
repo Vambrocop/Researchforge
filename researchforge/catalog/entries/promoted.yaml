@@ -112,3 +112,25 @@
   executor_ref: statsmodels
   biases:
   - model-family choice (Poisson vs NB)
+- id: diversity_indices
+  method: Ecological diversity indices
+  domain: ecology
+  family: ecology
+  goal: describe
+  description: Shannon / Simpson / richness over a site x species abundance matrix.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 2
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: null
+    min_count_cols: 2
+  produces:
+  - per-site diversity table
+  executor_ref: numpy
+  biases:
+  - sampling-effort dependence

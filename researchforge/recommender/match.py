@@ -30,5 +30,11 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要分组变量（分类/二值）")
     if pre.requires_count_outcome and not any(c.kind == "count" for c in fp.columns):
         unmet.append("需要计数型结果变量")
+    if pre.min_count_cols is not None:
+        n_count = sum(
+            1 for c in fp.columns if c.kind == "count" and c.name not in {fp.unit_col, fp.time_col}
+        )
+        if n_count < pre.min_count_cols:
+            unmet.append(f"需要 ≥ {pre.min_count_cols} 个计数列（物种丰度，现有 {n_count}）")
 
     return (len(unmet) == 0, unmet)

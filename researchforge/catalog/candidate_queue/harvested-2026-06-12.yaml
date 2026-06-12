@@ -93,7 +93,7 @@
     goal: describe
     description: Shannon / Simpson / richness over a site x species abundance matrix.
     preconditions:
-      min_continuous: 2
+      min_count_cols: 2
       min_rows: 2
     produces:
       - per-site diversity table
@@ -101,5 +101,5 @@
     biases:
       - sampling-effort dependence
   source: "CRAN Environmetrics diversity (vegan)"
-  status: pending
-  notes: "待接执行器: 纯 numpy(Shannon/Simpson/richness); 需识别'物种丰度矩阵'(多 count 列)"
+  status: ready
+  notes: "executor 已接(numpy Shannon/Simpson/richness); min_count_cols:2 门控; Fable 自审(描述型, 低风险)"
