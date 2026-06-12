@@ -16,3 +16,22 @@
   biases:
     - perfect separation
     - omitted variable bias
+
+- id: group_comparison
+  method: Group comparison (t-test / ANOVA)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Compare a continuous outcome across groups (t-test for 2 groups, one-way ANOVA for 3+).
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 10
+  produces:
+    - group means table
+    - boxplot
+    - test statistic
+  executor_ref: empirical-analysis-python
+  biases:
+    - unequal variances
+    - multiple comparisons

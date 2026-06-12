@@ -178,6 +178,68 @@ def run_analysis(
             "print(model.summary())",
         ]
 
+    elif entry.id == "group_comparison":
+        from scipy import stats
+
+        group_cols = [c.name for c in fp.columns if c.kind in {"binary", "categorical"}]
+        cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
+        group_col = group_cols[0] if group_cols else None
+        outcome = cont_cols[0] if cont_cols else None
+
+        if group_col is None or outcome is None:
+            summary.append("组间比较失败：未找到分组变量或连续结果变量。")
+        else:
+            # Per-group means/counts
+            group_means = df.groupby(group_col)[outcome].agg(["mean", "count", "std"])
+            group_means.to_csv(d / "group_means.csv", encoding="utf-8")
+            files.append("group_means.csv")
+
+            # Split outcome by group levels, drop NaN
+            levels = df[group_col].dropna().unique().tolist()
+            groups = [df.loc[df[group_col] == lv, outcome].dropna().values for lv in levels]
+            n_groups = len(groups)
+
+            if n_groups == 2:
+                stat, p = stats.ttest_ind(groups[0], groups[1], equal_var=False)
+                test_name = "Welch t-test"
+            else:
+                stat, p = stats.f_oneway(*groups)
+                test_name = "one-way ANOVA"
+
+            estimates["statistic"] = float(stat)
+            estimates["pvalue"] = float(p)
+
+            # Boxplot
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(figsize=(5, 4))
+                plot_data = [df.loc[df[group_col] == lv, outcome].dropna().values for lv in levels]
+                ax.boxplot(plot_data, tick_labels=[str(lv) for lv in levels])
+                ax.set_xlabel(group_col)
+                ax.set_ylabel(outcome)
+                ax.set_title(f"{outcome} by {group_col}")
+                fig.tight_layout()
+                fig.savefig(d / "boxplot.png", dpi=120)
+                plt.close(fig)
+                files.append("boxplot.png")
+            except Exception:
+                pass
+
+            summary.append(
+                f"{entry.method} 完成：{outcome} 按 {group_col} 分 {n_groups} 组，"
+                f"统计量={stat:.4f}，p={p:.3g}"
+            )
+            code += [
+                "from scipy import stats",
+                f"groups = [df.loc[df['{group_col}'] == lv, '{outcome}'].dropna().values",
+                f"         for lv in df['{group_col}'].dropna().unique()]",
+                "stat, p = stats.ttest_ind(*groups[:2], equal_var=False)  # or f_oneway(*groups)",
+                "print(f'statistic={stat:.4f}, p={p:.3g}')",
+            ]
+
     elif entry.id == "logistic_regression":
         import statsmodels.formula.api as smf
 

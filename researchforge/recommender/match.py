@@ -26,5 +26,7 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
             unmet.append(f"需要 ≥ {pre.min_continuous} 个连续变量（现有 {n_cont}）")
     if pre.requires_binary_outcome and not any(c.kind == "binary" for c in fp.columns):
         unmet.append("需要二值结果变量")
+    if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
+        unmet.append("需要分组变量（分类/二值）")
 
     return (len(unmet) == 0, unmet)

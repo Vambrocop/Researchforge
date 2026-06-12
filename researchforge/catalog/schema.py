@@ -19,6 +19,7 @@ class Precondition(BaseModel):
     min_rows: Optional[int] = None
     min_continuous: Optional[int] = None
     requires_binary_outcome: Optional[bool] = None
+    requires_group: Optional[bool] = None
 
 
 class AnalysisEntry(BaseModel):
