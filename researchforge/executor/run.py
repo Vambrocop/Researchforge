@@ -810,6 +810,62 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"泊松回归失败：{err}")
 
+    elif entry.id == "negative_binomial_regression":
+        import statsmodels.formula.api as smf
+        import numpy as np
+
+        _excl = {fp.unit_col, fp.time_col}
+        count_cols = [
+            c.name for c in fp.columns if c.kind == "count" and c.name not in _excl
+        ]
+        outcome = count_cols[0] if count_cols else None
+
+        if outcome is None:
+            summary.append("负二项回归失败：未找到计数型结果变量。")
+        else:
+            amb = (
+                f"（数据有 {len(count_cols)} 个计数列，已取 {outcome}；若它实为 ID/编码而非计数结果，请改选）"
+                if len(count_cols) > 1
+                else ""
+            )
+            exclude = {outcome, fp.unit_col, fp.time_col}
+            predictors = [
+                c.name
+                for c in fp.columns
+                if c.kind in {"continuous", "binary"} and c.name not in exclude
+            ][:5]
+            rhs = [f"Q('{v}')" for v in predictors]
+            formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
+            recipe = (
+                "import statsmodels.formula.api as smf\n"
+                f'model = smf.negativebinomial("{formula}", data=df).fit(disp=False)\n'
+                "print(model.summary())"
+            )
+            try:
+                model = smf.negativebinomial(formula, data=df).fit(disp=False)
+                (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                files.append("summary.txt")
+                tab = model.summary2().tables[1].copy()
+                # model.params includes an 'alpha' (dispersion) row at the end;
+                # summary2().tables[1] also includes it — lengths always match,
+                # so exp() of all rows is safe (exp(alpha) is a positive scalar,
+                # harmless alongside the log-rate coefficients).
+                tab["rate_ratio"] = np.exp(model.params.values)
+                tab.to_csv(d / "coefficients.csv", encoding="utf-8")
+                files.append("coefficients.csv")
+                _coef_plot(model, predictors, d / "coefficients.png")
+                files.append("coefficients.png")
+                for v in predictors:
+                    kn = f"Q('{v}')"
+                    if kn in model.params.index:
+                        estimates[v] = float(model.params[kn])
+                summary.append(
+                    f"{entry.method} 完成：计数结果 {outcome}，{len(predictors)} 个预测变量{amb}"
+                )
+                code += [recipe]
+            except Exception as err:
+                summary.append(f"负二项回归失败：{err}")
+
     elif entry.id == "mixed_effects":
         import statsmodels.formula.api as smf
 

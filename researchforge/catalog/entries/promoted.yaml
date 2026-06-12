@@ -90,3 +90,25 @@
   biases:
   - overdispersion (consider negative binomial)
   - excess zeros
+- id: negative_binomial_regression
+  method: Negative binomial regression (overdispersed counts)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: GLM for overdispersed count outcomes where variance exceeds the mean.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 30
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: true
+  produces:
+  - rate ratios
+  - dispersion estimate
+  executor_ref: statsmodels
+  biases:
+  - model-family choice (Poisson vs NB)

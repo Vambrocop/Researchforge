@@ -51,7 +51,7 @@
     goal: explain
     description: GLM for overdispersed count outcomes where variance exceeds the mean.
     preconditions:
-      min_continuous: 1
+      requires_count_outcome: true
       min_rows: 30
     produces:
       - rate ratios
@@ -60,8 +60,8 @@
     biases:
       - model-family choice (Poisson vs NB)
   source: "agronomy count-data practice"
-  status: pending
-  notes: "待接执行器: statsmodels GLM(family=NegativeBinomial); 与 poisson 配套(过度离散时)"
+  status: ready
+  notes: "executor 已接(statsmodels 离散NB, 估计α; 镜像poisson); requires_count_outcome; Fable+Opus 双审 LGTM"
 
 - entry:
     id: pca
