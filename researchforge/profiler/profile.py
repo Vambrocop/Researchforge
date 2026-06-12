@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
+from researchforge.profiler.quality import diagnose
 from researchforge.profiler.types import infer_kind
 
 _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day", "week"}
@@ -36,6 +37,7 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
         path=str(path), n_rows=int(len(df)), n_cols=int(df.shape[1]), columns=columns
     )
     _detect_structure(df, fp)
+    fp.issues = diagnose(df)
     return fp
 
 

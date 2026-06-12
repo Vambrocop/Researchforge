@@ -26,6 +26,16 @@ class ColumnInfo(BaseModel):
     n_unique: int
 
 
+class Issue(BaseModel):
+    """A data-quality finding produced by the Profiler, consumed by Cleaning."""
+
+    kind: str  # missing | duplicate_rows | constant | outliers | high_cardinality
+    severity: str  # low | medium | high
+    detail: str
+    column: Optional[str] = None
+    count: int = 0
+
+
 class DataFingerprint(BaseModel):
     path: str
     n_rows: int
@@ -37,6 +47,7 @@ class DataFingerprint(BaseModel):
     is_timeseries: bool = False
     has_geo: bool = False
     treatment_candidates: list[str] = Field(default_factory=list)
+    issues: list[Issue] = Field(default_factory=list)
 
     def column(self, name: str) -> Optional[ColumnInfo]:
         for c in self.columns:
