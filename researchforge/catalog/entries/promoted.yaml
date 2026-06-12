@@ -208,3 +208,28 @@
   biases:
   - local minima / stress
   - dimensionality choice
+- id: permanova
+  method: PERMANOVA (group composition test)
+  domain: ecology
+  family: ecology
+  goal: explain
+  description: Permutation test of whether community composition differs between groups
+    (distance-based).
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 10
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: true
+    requires_count_outcome: null
+    min_count_cols: 2
+  produces:
+  - pseudo-F
+  - p-value
+  executor_ref: numpy
+  biases:
+  - dispersion heterogeneity (check betadisper)
+  - unbalanced groups

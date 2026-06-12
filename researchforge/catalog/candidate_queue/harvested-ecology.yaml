@@ -82,5 +82,5 @@
       - dispersion heterogeneity (check betadisper)
       - unbalanced groups
   source: "biostatsquid / OMA (PERMANOVA adonis2)"
-  status: pending
-  notes: "自实现 permutation pseudo-F on Bray-Curtis + 分组变量"
+  status: ready
+  notes: "executor 已接(自实现 Anderson2001 pseudo-F + 999置换); Opus 双审 LGTM(对照 skbio 验证公式)"

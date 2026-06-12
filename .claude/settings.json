@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git --no-pager grep -n \"# compute\" -- researchforge/executor/run.py)",
+      "Bash(git --no-pager grep -n \"code += \\\\[\" -- researchforge/executor/run.py)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {
