@@ -89,7 +89,7 @@ def _heatmap(corr, path: Path) -> None:
         ax.set_yticklabels(corr.index)
         fig.colorbar(im)
         fig.tight_layout()
-        fig.savefig(path, dpi=120)
+        fig.savefig(path, dpi=150)
         plt.close(fig)
     except Exception:
         pass
@@ -125,7 +125,83 @@ def _coef_plot(model, rhs_vars, path: Path) -> None:
         ax.set_yticklabels(labels)
         ax.set_xlabel("coefficient (95% CI)")
         fig.tight_layout()
-        fig.savefig(path, dpi=120)
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
+def _init_mpl_style() -> None:
+    """Apply one clean, modern, publication-friendly look to every figure this
+    run produces. Called once per analysis; best-effort so a missing/old
+    matplotlib never breaks an analysis."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        plt.rcParams.update(
+            {
+                "figure.dpi": 150,
+                "savefig.dpi": 150,
+                "savefig.bbox": "tight",
+                "figure.facecolor": "white",
+                "font.size": 10,
+                "axes.titlesize": 11,
+                "axes.titleweight": "bold",
+                "axes.labelsize": 10,
+                "axes.edgecolor": "#444444",
+                "axes.linewidth": 0.8,
+                "axes.spines.top": False,
+                "axes.spines.right": False,
+                "axes.grid": True,
+                "grid.color": "#cccccc",
+                "grid.alpha": 0.4,
+                "grid.linewidth": 0.6,
+                "axes.prop_cycle": plt.cycler(
+                    color=[
+                        "#4C72B0", "#DD8452", "#55A868", "#C44E52",
+                        "#8172B3", "#937860", "#DA8BC3", "#8C8C8C",
+                    ]
+                ),
+            }
+        )
+    except Exception:
+        pass
+
+
+def _quantile_process_plot(qr, predictors, path: Path) -> None:
+    """Koenker quantile-process plot: each predictor's coefficient (±95% CI)
+    traced across the quantile grid τ=0.1…0.9, so the reader sees how the
+    effect shifts down the outcome distribution — the signature quantile-reg
+    figure, far more informative than a single median coefficient."""
+    try:
+        import numpy as np
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        taus = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+        fits = {t: qr.fit(q=t) for t in taus}
+        names = [v for v in predictors if f"Q('{v}')" in fits[0.5].params.index]
+        if not names:
+            return
+        fig, axes = plt.subplots(1, len(names), figsize=(3.2 * len(names), 3.0), squeeze=False)
+        for ax, v in zip(axes[0], names):
+            kn = f"Q('{v}')"
+            coef = np.array([fits[t].params[kn] for t in taus])
+            se = np.array([fits[t].bse[kn] for t in taus])
+            ax.plot(taus, coef, "-o", color="#4C72B0", lw=1.6, ms=4)
+            ax.fill_between(taus, coef - 1.96 * se, coef + 1.96 * se, color="#4C72B0", alpha=0.18)
+            ax.axhline(0, color="grey", ls="--", lw=0.8)
+            ax.set_title(v)
+            ax.set_xlabel("quantile τ")
+        axes[0][0].set_ylabel("coefficient (95% CI)")
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
         plt.close(fig)
     except Exception:
         pass
@@ -156,6 +232,7 @@ def run_analysis(
 ) -> RunResult:
     df = read_table(Path(fp.path))
     d = _run_dir(output_root, entry.id)
+    _init_mpl_style()
     files: list[str] = []
     summary: list[str] = []
     estimates: dict[str, float] = {}
@@ -263,7 +340,7 @@ def run_analysis(
                 ax.set_ylabel(outcome)
                 ax.set_title(f"{outcome} by {group_col}")
                 fig.tight_layout()
-                fig.savefig(d / "boxplot.png", dpi=120)
+                fig.savefig(d / "boxplot.png", dpi=150)
                 plt.close(fig)
                 files.append("boxplot.png")
             except Exception:
@@ -350,7 +427,7 @@ def run_analysis(
                     ax.set_xlabel("importance")
                     ax.set_title(f"Feature importances — {outcome}")
                     fig.tight_layout()
-                    fig.savefig(d / "feature_importances.png", dpi=120)
+                    fig.savefig(d / "feature_importances.png", dpi=150)
                     plt.close(fig)
                     files.append("feature_importances.png")
                 except Exception:
@@ -450,7 +527,7 @@ def run_analysis(
                     ax.set_xlabel("importance")
                     ax.set_title(f"Feature importances — {outcome}")
                     fig.tight_layout()
-                    fig.savefig(d / "feature_importances.png", dpi=120)
+                    fig.savefig(d / "feature_importances.png", dpi=150)
                     plt.close(fig)
                     files.append("feature_importances.png")
                 except Exception:
@@ -542,7 +619,7 @@ def run_analysis(
                         ax.set_ylabel("PC2" if n_components == 2 else "")
                         ax.set_title(f"K-means (k={k}) — PCA projection")
                         fig.tight_layout()
-                        fig.savefig(d / "pca_scatter.png", dpi=120)
+                        fig.savefig(d / "pca_scatter.png", dpi=150)
                         plt.close(fig)
                         files.append("pca_scatter.png")
                     except Exception:
@@ -617,7 +694,7 @@ def run_analysis(
                     ax.set_ylabel("explained variance ratio")
                     ax.set_title("PCA scree plot")
                     fig.tight_layout()
-                    fig.savefig(d / "pca_scree.png", dpi=120)
+                    fig.savefig(d / "pca_scree.png", dpi=150)
                     plt.close(fig)
                     files.append("pca_scree.png")
                 except Exception:
@@ -692,7 +769,7 @@ def run_analysis(
                     ax.set_title(f"ARIMA(1,1,1) — {value_col}")
                     ax.legend()
                     fig.tight_layout()
-                    fig.savefig(d / "forecast.png", dpi=120)
+                    fig.savefig(d / "forecast.png", dpi=150)
                     plt.close(fig)
                     files.append("forecast.png")
                 except Exception:
@@ -917,6 +994,9 @@ def run_analysis(
                 files.append("coefficients.csv")
                 _coef_plot(med, predictors, d / "coefficients.png")
                 files.append("coefficients.png")
+                _quantile_process_plot(qr, predictors, d / "quantile_process.png")
+                if (d / "quantile_process.png").exists():
+                    files.append("quantile_process.png")
                 for v in predictors:
                     kn = f"Q('{v}')"
                     if kn in med.params.index:
@@ -1152,7 +1232,7 @@ def run_analysis(
                     dendrogram(Z, ax=ax, no_labels=(n > 30))
                     ax.set_title(f"Hierarchical clustering (Ward, k={k})")
                     fig.tight_layout()
-                    fig.savefig(d / "dendrogram.png", dpi=120)
+                    fig.savefig(d / "dendrogram.png", dpi=150)
                     plt.close(fig)
                     files.append("dendrogram.png")
                 except Exception:
@@ -1211,7 +1291,7 @@ def run_analysis(
                     fig.colorbar(im)
                     ax.set_title("Bray-Curtis dissimilarity")
                     fig.tight_layout()
-                    fig.savefig(d / "bray_curtis_heatmap.png", dpi=120)
+                    fig.savefig(d / "bray_curtis_heatmap.png", dpi=150)
                     plt.close(fig)
                     files.append("bray_curtis_heatmap.png")
                 except Exception:
@@ -1279,7 +1359,7 @@ def run_analysis(
                         ax.set_ylabel("NMDS2")
                         ax.set_title(f"NMDS ordination (stress={mds.stress_:.3f})")
                         fig.tight_layout()
-                        fig.savefig(d / "nmds_ordination.png", dpi=120)
+                        fig.savefig(d / "nmds_ordination.png", dpi=150)
                         plt.close(fig)
                         files.append("nmds_ordination.png")
                     except Exception:
