@@ -62,6 +62,20 @@ def _cmd_run(path: str, analysis_id: str) -> int:
     return 0
 
 
+def _cmd_ingest() -> int:
+    from researchforge.ingestion import ingest_inbox
+
+    items = ingest_inbox()
+    if not items:
+        print("skills_inbox 无可登记项。")
+        return 0
+    print(f"已登记 {len(items)} 项：")
+    for i in items:
+        desc = (i.description[:60] + "…") if len(i.description) > 60 else i.description
+        print(f"  - [{i.kind}] {i.name} — {desc}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8()
     parser = argparse.ArgumentParser(prog="researchforge")
@@ -72,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="run a chosen analysis and save outputs")
     run_p.add_argument("path", help="path to a CSV/Excel file")
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
+    sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -81,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_recommend(args.path)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis)
+    if args.command == "ingest":
+        return _cmd_ingest()
 
     parser.print_help()
     return 0
