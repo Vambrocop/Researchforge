@@ -1,0 +1,105 @@
+# 半自动 harvest 起草的候选（pending；待接执行器 + 过质量门才能 promote）。
+# 来源: CRAN Task View Environmetrics; 农学田间试验/计数数据实践。
+
+- entry:
+    id: mixed_effects
+    method: Linear mixed-effects model
+    domain: statistics
+    family: statistics
+    goal: explain
+    description: Fixed effects + random effects for grouped / nested / repeated-measures data (e.g. split-plot field trials).
+    preconditions:
+      requires_group: true
+      min_continuous: 1
+      min_rows: 20
+    produces:
+      - fixed-effect estimates
+      - variance components
+    executor_ref: statsmodels
+    biases:
+      - random-effects structure misspecification
+  source: "CRAN Environmetrics; agronomy split-plot practice"
+  status: pending
+  notes: "待接执行器: statsmodels MixedLM (outcome ~ fixed + group RE); 适合田间试验/嵌套/重复测量"
+
+- entry:
+    id: poisson_regression
+    method: Poisson regression (count outcome)
+    domain: statistics
+    family: statistics
+    goal: explain
+    description: GLM for non-negative count outcomes (e.g. insect / weed / species counts).
+    preconditions:
+      min_continuous: 1
+      min_rows: 20
+    produces:
+      - rate ratios
+      - coefficient table
+    executor_ref: statsmodels
+    biases:
+      - overdispersion (consider negative binomial)
+      - excess zeros
+  source: "agronomy count-data practice (MDPI; Springer GLMM)"
+  status: pending
+  notes: "待接执行器: statsmodels GLM(family=Poisson); 需 count 类结果变量(待加 requires_count_outcome 前提)"
+
+- entry:
+    id: negative_binomial_regression
+    method: Negative binomial regression (overdispersed counts)
+    domain: statistics
+    family: statistics
+    goal: explain
+    description: GLM for overdispersed count outcomes where variance exceeds the mean.
+    preconditions:
+      min_continuous: 1
+      min_rows: 30
+    produces:
+      - rate ratios
+      - dispersion estimate
+    executor_ref: statsmodels
+    biases:
+      - model-family choice (Poisson vs NB)
+  source: "agronomy count-data practice"
+  status: pending
+  notes: "待接执行器: statsmodels GLM(family=NegativeBinomial); 与 poisson 配套(过度离散时)"
+
+- entry:
+    id: pca
+    method: Principal component analysis (ordination)
+    domain: machine learning
+    family: ml
+    goal: explore
+    description: Unsupervised dimension reduction / ordination over standardized continuous features.
+    preconditions:
+      min_continuous: 3
+      min_rows: 20
+    produces:
+      - explained variance
+      - loadings
+      - biplot
+    executor_ref: scikit-learn
+    biases:
+      - scale sensitivity
+      - linear-structure assumption
+  source: "CRAN Environmetrics ordination (vegan/ade4)"
+  status: pending
+  notes: "待接执行器: sklearn PCA(标准化 + 解释方差 + 载荷 + biplot); 接近 kmeans 模式"
+
+- entry:
+    id: diversity_indices
+    method: Ecological diversity indices
+    domain: ecology
+    family: ecology
+    goal: describe
+    description: Shannon / Simpson / richness over a site x species abundance matrix.
+    preconditions:
+      min_continuous: 2
+      min_rows: 2
+    produces:
+      - per-site diversity table
+    executor_ref: numpy
+    biases:
+      - sampling-effort dependence
+  source: "CRAN Environmetrics diversity (vegan)"
+  status: pending
+  notes: "待接执行器: 纯 numpy(Shannon/Simpson/richness); 需识别'物种丰度矩阵'(多 count 列)"
