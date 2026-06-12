@@ -36,5 +36,12 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         )
         if n_count < pre.min_count_cols:
             unmet.append(f"需要 ≥ {pre.min_count_cols} 个计数列（物种丰度，现有 {n_count}）")
+    if pre.requires_ordinal and not any(
+        c.kind in {"count", "categorical"}
+        and 3 <= c.n_unique <= 10
+        and c.name not in {fp.unit_col, fp.time_col}
+        for c in fp.columns
+    ):
+        unmet.append("需要有序结果变量（3–10 个有序等级，如 Likert 量表）")
 
     return (len(unmet) == 0, unmet)

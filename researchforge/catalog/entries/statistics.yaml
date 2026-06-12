@@ -17,6 +17,25 @@
     - perfect separation
     - omitted variable bias
 
+- id: ordered_logit
+  method: Ordered logistic regression (proportional odds)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Model an ordinal outcome (e.g. Likert scale, satisfaction or adoption-intensity levels) on covariates via the proportional-odds cumulative logit.
+  preconditions:
+    requires_ordinal: true
+    min_rows: 30
+  produces:
+    - proportional-odds coefficient table
+    - threshold cutpoints
+    - coefficient plot
+  executor_ref: empirical-analysis-python
+  biases:
+    - proportional-odds (parallel lines) assumption may not hold
+    - outcome level order is assumed, not verified
+    - sparse top/bottom categories destabilize thresholds
+
 - id: quantile_regression
   method: Quantile regression
   domain: statistics

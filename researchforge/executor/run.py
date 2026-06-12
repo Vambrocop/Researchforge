@@ -102,12 +102,22 @@ def _coef_plot(model, rhs_vars, path: Path) -> None:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        names = [f"Q('{v}')" for v in rhs_vars if f"Q('{v}')" in model.params.index]
+        # match formula-style names Q('v') first, else raw names (array-API
+        # models like OrderedModel index params by the bare column name).
+        names: list[str] = []
+        labels: list[str] = []
+        for v in rhs_vars:
+            qn = f"Q('{v}')"
+            if qn in model.params.index:
+                names.append(qn)
+                labels.append(v)
+            elif v in model.params.index:
+                names.append(v)
+                labels.append(v)
         if not names:
             return
         coefs = model.params[names]
         errs = model.bse[names]
-        labels = [v for v in rhs_vars if f"Q('{v}')" in model.params.index]
         fig, ax = plt.subplots(figsize=(5, 3))
         ax.errorbar(coefs.values, range(len(names)), xerr=1.96 * errs.values, fmt="o")
         ax.axvline(0, color="grey", ls="--")
@@ -918,6 +928,74 @@ def run_analysis(
                 code += [recipe]
             except Exception as err:
                 summary.append(f"分位数回归失败：{err}")
+
+    elif entry.id == "ordered_logit":
+        import pandas as pd
+        from statsmodels.miscmodels.ordinal_model import OrderedModel
+
+        _excl = {fp.unit_col, fp.time_col}
+        # ordinal outcome: a small ordered scale (3–10 levels). Prefer numeric
+        # (count) where the level order is unambiguous; fall back to categorical.
+        ord_cols = [
+            c
+            for c in fp.columns
+            if c.kind in {"count", "categorical"}
+            and 3 <= c.n_unique <= 10
+            and c.name not in _excl
+        ]
+        ord_cols.sort(key=lambda c: 0 if c.kind == "count" else 1)
+        outcome = ord_cols[0].name if ord_cols else None
+
+        if outcome is None:
+            summary.append("有序 Logit 失败：未找到有序结果变量（3–10 个等级）。")
+        else:
+            exclude = {outcome, fp.unit_col, fp.time_col}
+            predictors = [
+                c.name
+                for c in fp.columns
+                if c.kind in {"continuous", "binary", "count"} and c.name not in exclude
+            ][:5]
+            try:
+                if not predictors:
+                    raise ValueError("没有可用预测变量")
+                yc = pd.Categorical(df[outcome], ordered=True)
+                levels = list(yc.categories)
+                model = OrderedModel(yc, df[predictors], distr="logit").fit(
+                    method="bfgs", disp=False
+                )
+                (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                files.append("summary.txt")
+                # OrderedResults lacks summary2(); build the table from arrays.
+                # Rows include predictor slopes plus threshold cutpoints (e.g. 1/2).
+                pd.DataFrame(
+                    {
+                        "coef": model.params,
+                        "std_err": model.bse,
+                        "z": model.tvalues,
+                        "P>|z|": model.pvalues,
+                    }
+                ).to_csv(d / "coefficients.csv", encoding="utf-8")
+                files.append("coefficients.csv")
+                _coef_plot(model, predictors, d / "coefficients.png")
+                files.append("coefficients.png")
+                for v in predictors:
+                    if v in model.params.index:
+                        estimates[v] = float(model.params[v])
+                is_text = df[outcome].dtype == object or str(df[outcome].dtype) == "string"
+                note = f"（等级顺序假定为 {levels}；若不符请重新编码）" if is_text else ""
+                summary.append(
+                    f"{entry.method} 完成：有序结果 {outcome}（{len(levels)} 级），"
+                    f"{len(predictors)} 个预测变量{note}"
+                )
+                code += [
+                    "from statsmodels.miscmodels.ordinal_model import OrderedModel",
+                    f"yc = pd.Categorical(df['{outcome}'], ordered=True)",
+                    f"model = OrderedModel(yc, df[{predictors!r}], distr='logit')"
+                    ".fit(method='bfgs', disp=False)",
+                    "print(model.summary())",
+                ]
+            except Exception as err:
+                summary.append(f"有序 Logit 未收敛/失败：{err}")
 
     elif entry.id == "mixed_effects":
         import statsmodels.formula.api as smf

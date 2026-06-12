@@ -22,6 +22,7 @@ class Precondition(BaseModel):
     requires_group: Optional[bool] = None
     requires_count_outcome: Optional[bool] = None
     min_count_cols: Optional[int] = None
+    requires_ordinal: Optional[bool] = None
 
 
 class AnalysisEntry(BaseModel):
