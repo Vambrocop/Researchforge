@@ -55,7 +55,7 @@
 ### 横切机制
 
 - **A. Ingestion（随时添加，多渠道）**：`skills_inbox/` 投递 → 提炼（领域/方法/前提/产出）→ 登记进分析目录（catalog）→ 原件归档 `_processed/`。让"随时添加"成为一等公民。**三个投递渠道**：① **手动** skill（`SKILL.md`）放入 inbox；② **论文吸收**——放入 PDF/DOI，抽取其方法/数据前提/分析并登记（可顺带定位其复现代码）；③ **GitHub 采集器**（§7.4）自动发现 skill/代码/方法后入列。
-- **B. Portability（便携性，跨平台）**：一切进 Git 仓库；引擎依赖的 skill 通过 `setup` 脚本安装到 `~/.claude/skills/`（或仓库内打包）；换电脑 = `git clone` + `setup`。**必须跨平台兼容 Windows / macOS / Linux**——Python 用 `pathlib`、不写死盘符路径；setup 提供跨平台版本（Python 脚本，或 `.sh` + `.ps1`）。
+- **B. Portability（便携性，跨平台）**：一切进 Git 仓库；引擎依赖的 skill 通过 `setup` 脚本安装到 `~/.claude/skills/`（或仓库内打包）；换电脑 = `git clone` + `setup`。**必须跨平台兼容 Windows / macOS / Linux**——Python 用 `pathlib`、不写死盘符路径；setup 提供跨平台版本（Python 脚本，或 `.sh` + `.ps1`）。**轻量数据原则**：仓库只存代码 + 合成数据生成器（`synth`）+ 网络数据引用；真实/大数据走 `.gitignore` 不入库。**GitHub 为单一事实源**，本地少存、易转移、丢了能从云端恢复。
 - **C. Frontier & Novelty（前沿与创新性）**：在推荐层挂"新颖度透镜"（文献扫描标注白地），并可选地用自动循环跑"前沿监视器"持续追新论文。详见 §7。
 
 ### 实现风格：AI-agent 驱动 + 双模获取（自动 / 手动）
