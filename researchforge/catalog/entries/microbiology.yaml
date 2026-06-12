@@ -1,0 +1,19 @@
+# Microbiology catalog entries.
+
+- id: rarefaction
+  method: Rarefaction curves (Hurlbert)
+  domain: microbiology
+  family: ecology
+  goal: describe
+  description: Estimate expected species/OTU richness as a function of sampling depth (analytic Hurlbert rarefaction) to judge whether sequencing/sampling effort was sufficient.
+  preconditions:
+    min_count_cols: 2
+    min_rows: 1
+  produces:
+    - rarefaction curves
+    - expected richness table
+  executor_ref: numpy
+  biases:
+    - interpolation only — no extrapolation beyond observed sample size
+    - assumes random sampling of individuals (independence)
+    - sensitive to rare-taxa detection and sequencing artefacts
