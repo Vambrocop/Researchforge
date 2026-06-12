@@ -240,6 +240,106 @@ def run_analysis(
                 "print(f'statistic={stat:.4f}, p={p:.3g}')",
             ]
 
+    elif entry.id == "random_forest":
+        cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
+        binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
+
+        # Prefer a continuous outcome (regression). Classify a binary outcome only
+        # when there is no continuous column — a lone binary is usually a
+        # treatment / flag *feature*, not the prediction target. This prevents
+        # silently running the wrong analysis on the common "outcome + indicator" shape.
+        if cont_cols:
+            outcome, is_clf = cont_cols[0], False
+        elif binary_cols:
+            outcome, is_clf = binary_cols[0], True
+        else:
+            outcome, is_clf = None, False
+
+        exclude = {outcome, fp.unit_col, fp.time_col}
+        features = [
+            c.name
+            for c in fp.columns
+            if c.kind in {"continuous", "count", "binary"} and c.name not in exclude
+        ]
+
+        if outcome is None:
+            summary.append("随机森林失败：未找到合适的结果变量（需要连续型或二值列）。")
+        elif not features:
+            summary.append("随机森林失败：未找到可用的特征列。")
+        else:
+            try:
+                from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+                from sklearn.model_selection import train_test_split
+
+                mask = df[features].notna().all(axis=1) & df[outcome].notna()
+                X = df.loc[mask, features]
+                y = df.loc[mask, outcome]
+
+                if y.nunique() < 2:
+                    raise ValueError(f"结果变量 {outcome} 取值不足两类，无法建模")
+
+                split_kwargs = {"test_size": 0.25, "random_state": 0}
+                if is_clf and int(y.value_counts().min()) >= 2:
+                    split_kwargs["stratify"] = y
+                X_train, X_test, y_train, y_test = train_test_split(X, y, **split_kwargs)
+
+                model = (
+                    RandomForestClassifier(n_estimators=200, random_state=0)
+                    if is_clf
+                    else RandomForestRegressor(n_estimators=200, random_state=0)
+                )
+
+                model.fit(X_train, y_train)
+                score = model.score(X_test, y_test)
+
+                import pandas as pd
+                imp_df = pd.DataFrame(
+                    {"feature": features, "importance": model.feature_importances_}
+                ).sort_values("importance", ascending=False)
+                imp_df.to_csv(d / "feature_importances.csv", index=False, encoding="utf-8")
+                files.append("feature_importances.csv")
+
+                try:
+                    import matplotlib
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(6, max(3, len(features) * 0.4)))
+                    ax.barh(imp_df["feature"][::-1], imp_df["importance"][::-1])
+                    ax.set_xlabel("importance")
+                    ax.set_title(f"Feature importances — {outcome}")
+                    fig.tight_layout()
+                    fig.savefig(d / "feature_importance.png", dpi=120)
+                    plt.close(fig)
+                    files.append("feature_importance.png")
+                except Exception:
+                    pass
+
+                estimates["test_score"] = float(score)
+                score_label = "accuracy" if is_clf else "R²"
+                task_label = "分类" if is_clf else "回归"
+                summary.append(
+                    f"{entry.method} 完成：{task_label}预测 {outcome}，"
+                    f"测试集得分={score:.4f}（{score_label}）"
+                )
+                code += [
+                    "from sklearn.ensemble import "
+                    + ("RandomForestClassifier" if is_clf else "RandomForestRegressor"),
+                    "from sklearn.model_selection import train_test_split",
+                    f"features = {features!r}",
+                    f"X = df[features].dropna()",
+                    f"y = df.loc[X.index, '{outcome}'].dropna()",
+                    f"X = X.loc[y.index]",
+                    "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=0)",
+                    "model = "
+                    + ("RandomForestClassifier" if is_clf else "RandomForestRegressor")
+                    + "(n_estimators=200, random_state=0)",
+                    "model.fit(X_train, y_train)",
+                    f"print('score:', model.score(X_test, y_test))",
+                ]
+            except Exception as err:
+                summary.append(f"随机森林执行失败：{err}")
+
     elif entry.id == "logistic_regression":
         import statsmodels.formula.api as smf
 

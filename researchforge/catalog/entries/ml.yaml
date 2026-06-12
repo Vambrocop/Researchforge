@@ -1,0 +1,17 @@
+# Machine-learning catalog entries — predictive (non-causal) methods.
+
+- id: random_forest
+  method: Random forest (prediction)
+  domain: machine learning
+  family: ml
+  goal: predict
+  description: Random-forest regression (continuous outcome) or classification (binary outcome) with feature importances.
+  preconditions:
+    min_rows: 50
+  produces:
+    - test-set score
+    - feature importances
+  executor_ref: scikit-learn
+  biases:
+    - not causal (predictive only)
+    - overfitting if untuned

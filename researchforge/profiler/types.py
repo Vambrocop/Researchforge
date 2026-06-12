@@ -27,7 +27,7 @@ def infer_kind(s: pd.Series) -> ColumnKind:
 
     if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
         uniq = set(nn.unique().tolist())
-        if uniq <= {0, 1}:
+        if uniq <= {0, 1} and len(uniq) == 2:
             return "binary"
         if name in _GEO_NAMES:
             return "geo"
