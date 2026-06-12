@@ -575,6 +575,45 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
     return sol_str, tab
 
 
+def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
+    """QCA necessity analysis via R superSubset on fuzzy-calibrated data. Returns
+    a DataFrame [expression, inclN(consistency), RoN, covN(coverage)]. RoN flags
+    trivially-necessary (always-high) conditions. Raises on no result."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    cols_r = ", ".join(f'"{c}"' for c in [outcome, *conditions])
+    conds_r = ", ".join(f'"{c}"' for c in conditions)
+    rcode = (
+        "suppressMessages(library(QCA))\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f"cols <- c({cols_r})\n"
+        "calib <- function(x) {\n"
+        "  thr <- as.numeric(quantile(x, c(0.1,0.5,0.9), na.rm=TRUE))\n"
+        "  rng <- diff(range(x, na.rm=TRUE)); eps <- if (rng>0) rng*1e-6 else 1e-6\n"
+        "  if (thr[2] <= thr[1]) thr[2] <- thr[1] + eps\n"
+        "  if (thr[3] <= thr[2]) thr[3] <- thr[2] + eps\n"
+        '  calibrate(x, type="fuzzy", thresholds=thr)\n'
+        "}\n"
+        "cal <- as.data.frame(lapply(d[, cols], calib)); names(cal) <- cols\n"
+        f'ss <- superSubset(cal, outcome="{outcome}", conditions=c({conds_r}), '
+        "incl.cut=0.9, cov.cut=0.5)\n"
+        "ic <- ss$incl.cov\n"
+        'for (i in seq_len(nrow(ic))) cat(sprintf("%s|%.4f|%.4f|%.4f\\n", '
+        "rownames(ic)[i], ic$inclN[i], ic$RoN[i], ic$covN[i]))\n"
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    rows = [s.split("|") for s in out.splitlines() if "|" in s and not s.strip().startswith("#")]
+    if not rows:
+        raise RuntimeError("superSubset 未返回必要条件（无满足一致性阈值的必要项）")
+    tab = pd.DataFrame(rows, columns=["expression", "consistency_inclN", "RoN", "coverage_covN"])
+    for c in ("consistency_inclN", "RoN", "coverage_covN"):
+        tab[c] = pd.to_numeric(tab[c], errors="coerce")
+    return tab
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -2084,6 +2123,65 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"fsQCA 失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "qca_necessity":
+        import re
+
+        from researchforge.executor import rbridge
+
+        _excl = {fp.unit_col, fp.time_col}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        outcome = cont[0] if cont else None
+        conditions = cont[1:6]
+        names_safe = outcome is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, *conditions]
+        )
+        if outcome is None or len(conditions) < 2:
+            summary.append("QCA 必要性分析失败：需要 1 个结果变量 + ≥2 个条件变量（均连续）。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("QCA")):
+            summary.append(
+                "QCA 必要性分析需要 R 的 QCA 包（未检测到）。安装：install.packages('QCA')；"
+                "或先用 NCA（必要条件分析，纯 Python，无需 R）。"
+            )
+        elif not names_safe:
+            summary.append("QCA 必要性分析失败：列名需为标识符式（字母/数字/. _）。")
+        else:
+            sub = df[[outcome, *conditions]].dropna()
+            csv = d / "_qca_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                tab = _qca_necessity_via_r(csv, outcome, conditions)
+                tab = tab.sort_values("consistency_inclN", ascending=False).reset_index(drop=True)
+                tab.to_csv(d / "necessity.csv", index=False, encoding="utf-8")
+                files.append("necessity.csv")
+                (d / "necessity.txt").write_text(
+                    f"必要性分析（superSubset） → {outcome}（fuzzy 校准，incl.cut=0.9）:\n"
+                    "inclN=必要性一致性；RoN=必要性相关度(越高越非琐碎)；covN=覆盖度；"
+                    "~X=非 X，+ =或。\n注意：inclN 高但 RoN 低 = 琐碎必要（条件几乎恒为高）；"
+                    "必要性≠因果。\n\n" + tab.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("necessity.txt")
+                top = tab.iloc[0]
+                estimates["max_inclN"] = round(float(tab["consistency_inclN"].max()), 4)
+                estimates["n_necessary_expr"] = float(len(tab))
+                summary.append(
+                    f"{entry.method} 完成（R/QCA）：最强必要项 [{top['expression']}]"
+                    f"（inclN={top['consistency_inclN']:.3f}, RoN={top['RoN']:.3f}, "
+                    f"covN={top['coverage_covN']:.3f}）；共 {len(tab)} 项"
+                    "（RoN 低=琐碎必要；必要性≠因果证明）"
+                )
+                code += [
+                    "library(QCA)  # 必要性: 模糊校准 -> superSubset(incl.cut=0.9, cov.cut=0.5)",
+                    f'# superSubset(cal, outcome="{outcome}", conditions={conditions})',
+                ]
+            except Exception as err:
+                summary.append(f"QCA 必要性分析失败：{err}")
             finally:
                 try:
                     csv.unlink()

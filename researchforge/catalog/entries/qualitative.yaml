@@ -19,6 +19,24 @@
     - asymmetric causation — explaining Y is not explaining not-Y; sufficiency is not causal proof
     - limited diversity / remainders; sensitive to the consistency cutoff
 
+- id: qca_necessity
+  method: QCA necessity analysis (superSubset)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Set-theoretic test of which conditions (or disjunctions) are necessary for an outcome — the outcome is a subset of the condition — using fuzzy calibration and R QCA's superSubset, reporting inclusion (consistency), RoN, and coverage. The set-relational complement to NCA's ceiling logic.
+  preconditions:
+    min_continuous: 3
+    min_rows: 12
+  produces:
+    - necessary conditions / expressions
+    - inclusion (consistency), RoN, coverage
+  executor_ref: QCA (R)
+  biases:
+    - high inclusion but low RoN = trivial necessity (a condition that is almost always high)
+    - results hinge on calibration anchors (auto percentile, mechanical crossover)
+    - necessity is not sufficiency and not causal proof
+
 - id: nca
   method: Necessary Condition Analysis (NCA)
   domain: social science
