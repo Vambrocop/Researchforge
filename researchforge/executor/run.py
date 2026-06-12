@@ -245,6 +245,102 @@ def _quantile_process_plot(qr, predictors, path: Path) -> None:
         pass
 
 
+def _ordinal_prob_plot(model, df, predictors, levels, path: Path) -> None:
+    """Predicted probability of each ordinal level as the first predictor varies
+    (others held at their mean) — shows how the whole response distribution
+    shifts, the most readable ordered-logit figure."""
+    try:
+        import numpy as np
+        import pandas as pd
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        key = predictors[0]
+        grid = np.linspace(float(df[key].min()), float(df[key].max()), 60)
+        base = {p: float(df[p].mean()) for p in predictors}
+        X = pd.DataFrame([{**base, key: g} for g in grid])[predictors]
+        probs = np.asarray(model.predict(X))
+        fig, ax = plt.subplots(figsize=(6, 4))
+        for j, lvl in enumerate(levels):
+            ax.plot(grid, probs[:, j], lw=1.6, label=f"level {lvl}")
+        ax.set_xlabel(key)
+        ax.set_ylabel("predicted probability")
+        ax.set_title(f"predicted level probabilities vs {key}")
+        ax.legend(fontsize=8, ncol=min(len(levels), 4), title="ordinal level")
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
+def _resid_plot(model, path: Path) -> None:
+    """Residuals vs fitted — the basic OLS diagnostic; a funnel flags
+    heteroskedasticity, a curve flags missing non-linearity."""
+    try:
+        import numpy as np
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fitted = np.asarray(model.fittedvalues)
+        resid = np.asarray(model.resid)
+        fig, ax = plt.subplots(figsize=(5, 4))
+        ax.scatter(fitted, resid, s=14, alpha=0.6, edgecolor="none")
+        ax.axhline(0, color="grey", ls="--", lw=0.8)
+        ax.set_xlabel("fitted values")
+        ax.set_ylabel("residuals")
+        ax.set_title("residuals vs fitted")
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
+def _silhouette_plot(X, labels, path: Path) -> None:
+    """Silhouette plot: per-sample silhouette grouped by cluster (cohesion vs
+    separation); dashed line is the mean silhouette score."""
+    try:
+        import numpy as np
+        from sklearn.metrics import silhouette_samples, silhouette_score
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        labels = np.asarray(labels)
+        uniq = sorted(set(labels.tolist()))
+        if len(uniq) < 2:
+            return
+        sil = silhouette_samples(X, labels)
+        avg = float(silhouette_score(X, labels))
+        fig, ax = plt.subplots(figsize=(6, 4))
+        y_lower = 0
+        for k in uniq:
+            vals = np.sort(sil[labels == k])
+            y_upper = y_lower + len(vals)
+            ax.fill_betweenx(np.arange(y_lower, y_upper), 0, vals, alpha=0.75)
+            ax.text(-0.05, y_lower + len(vals) / 2, str(k), va="center", fontsize=8)
+            y_lower = y_upper + 10
+        ax.axvline(avg, color="red", ls="--", lw=1, label=f"mean={avg:.2f}")
+        ax.set_xlabel("silhouette coefficient")
+        ax.set_ylabel("samples grouped by cluster")
+        ax.set_title("silhouette plot")
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -303,6 +399,9 @@ def run_analysis(
         files.append("coefficients.csv")
         _coef_plot(model, rhs_vars, d / "coefficients.png")
         files.append("coefficients.png")
+        _resid_plot(model, d / "residuals_vs_fitted.png")
+        if (d / "residuals_vs_fitted.png").exists():
+            files.append("residuals_vs_fitted.png")
         for v in rhs_vars:
             kn = f"Q('{v}')"
             if kn in model.params.index:
@@ -662,6 +761,10 @@ def run_analysis(
                         files.append("pca_scatter.png")
                     except Exception:
                         pass
+
+                    _silhouette_plot(Xs, labels, d / "silhouette.png")
+                    if (d / "silhouette.png").exists():
+                        files.append("silhouette.png")
 
                     estimates["silhouette"] = float(score)
                     estimates["k"] = float(k)
@@ -1096,6 +1199,9 @@ def run_analysis(
                 files.append("coefficients.csv")
                 _coef_plot(model, predictors, d / "coefficients.png")
                 files.append("coefficients.png")
+                _ordinal_prob_plot(model, df, predictors, levels, d / "predicted_probabilities.png")
+                if (d / "predicted_probabilities.png").exists():
+                    files.append("predicted_probabilities.png")
                 for v in predictors:
                     if v in model.params.index:
                         estimates[v] = float(model.params[v])
@@ -1275,6 +1381,10 @@ def run_analysis(
                     files.append("dendrogram.png")
                 except Exception:
                     pass
+
+                _silhouette_plot(Xs, labels, d / "silhouette.png")
+                if (d / "silhouette.png").exists():
+                    files.append("silhouette.png")
 
                 estimates["n_clusters"] = float(len(set(labels)))
                 estimates["cophenetic_corr"] = round(float(coph), 4)
