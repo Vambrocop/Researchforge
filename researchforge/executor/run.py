@@ -575,6 +575,75 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
     return sol_str, tab
 
 
+def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, lat: str):
+    """Spatial regression via R spdep/spatialreg: OLS residual Moran test, then
+    SAR (lag) and SEM (error) on k-NN weights, AIC model choice. Reports the
+    PREFERRED model's variable effects — SEM betas are marginal effects; for SAR
+    the betas are NOT marginal, so impacts() direct/indirect/total are reported
+    instead. Returns (diagnostics dict, preferred str, effects DataFrame)."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rhs = " + ".join(predictors)
+    preds_r = ", ".join(f'"{p}"' for p in predictors)
+    rcode = (
+        "suppressMessages({library(spdep); library(spatialreg)})\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f'coords <- as.matrix(d[, c("{lon}","{lat}")])\n'
+        "lw <- nb2listw(knn2nb(knearneigh(coords, k=min(6, nrow(d)-1))), style=\"W\")\n"
+        f'f <- as.formula("{outcome} ~ {rhs}")\n'
+        "ols <- lm(f, data=d); mt <- lm.morantest(ols, lw)\n"
+        "sar <- lagsarlm(f, data=d, listw=lw); sem <- errorsarlm(f, data=d, listw=lw)\n"
+        'pref <- if (AIC(sar) <= AIC(sem)) "SAR" else "SEM"\n'
+        'cat("##DIAG\\n")\n'
+        'cat(sprintf("resid_moran_p|%.5g\\n", mt$p.value))\n'
+        'cat(sprintf("ols_aic|%.3f\\n", AIC(ols)))\n'
+        'cat(sprintf("sar_aic|%.3f\\nsar_rho|%.4f\\n", AIC(sar), sar$rho))\n'
+        'cat(sprintf("sem_aic|%.3f\\nsem_lambda|%.4f\\n", AIC(sem), sem$lambda))\n'
+        'cat("##PREF\\n"); cat(pref, "\\n")\n'
+        f"preds <- c({preds_r})\n"
+        'cat("##COEF\\n")\n'
+        'if (pref == "SAR") {\n'
+        "  imp <- impacts(sar, listw=lw)\n"
+        "  for (i in seq_along(preds)) cat(sprintf('%s|%.5f|%.5f|%.5f\\n', "
+        "preds[i], imp$direct[i], imp$indirect[i], imp$total[i]))\n"
+        "} else {\n"
+        "  co <- summary(sem)$Coef\n"
+        "  for (nm in preds) cat(sprintf('%s|%.5f|%.5f|%.5g\\n', nm, co[nm,1], co[nm,2], co[nm,4]))\n"
+        "}\n"
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, diag, pref, crows = None, {}, "", []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##DIAG":
+            section = "D"
+        elif s == "##PREF":
+            section = "P"
+        elif s == "##COEF":
+            section = "C"
+        elif section == "P" and s:
+            pref = s
+        elif "|" in s and section == "D":
+            k, v = s.split("|", 1)
+            diag[k] = float(v)
+        elif "|" in s and section == "C":
+            crows.append(s.split("|"))
+    if not crows or not pref:
+        raise RuntimeError("spatialreg 未返回系数")
+    cols = (
+        ["term", "direct", "indirect", "total"]
+        if pref == "SAR"
+        else ["term", "estimate", "std_err", "p_value"]
+    )
+    coef = pd.DataFrame(crows, columns=cols)
+    for c in cols[1:]:
+        coef[c] = pd.to_numeric(coef[c], errors="coerce")
+    return diag, pref, coef
+
+
 def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
     """QCA necessity analysis via R superSubset on fuzzy-calibrated data. Returns
     a DataFrame [expression, inclN(consistency), RoN, covN(coverage)]. RoN flags
@@ -2465,6 +2534,118 @@ def run_analysis(
                     "import numpy as np  # Local Moran's I (LISA, Anselin 1995)",
                     "# I_i = (z_i/m2) * mean(z over kNN neighbours); conditional permutation p",
                 ]
+
+    elif entry.id == "spatial_regression":
+        import re
+
+        from researchforge.executor import rbridge
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        _exc = {fp.unit_col, fp.time_col, *geo}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc]
+        outcome = cont[0] if cont else None
+        predictors = cont[1:6]
+        lon = next((g for g in geo if "lon" in g.lower() or "lng" in g.lower()), geo[-1] if geo else None)
+        lat = next((g for g in geo if g != lon), geo[0] if geo else None)
+        names_safe = outcome is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, *predictors, *geo]
+        )
+        have_r = (
+            rbridge.r_available()
+            and rbridge.r_package_available("spdep")
+            and rbridge.r_package_available("spatialreg")
+        )
+        if len(geo) < 2 or outcome is None or not predictors:
+            summary.append("空间回归失败：需要经纬度 + 连续结果变量 + ≥1 个连续预测变量。")
+        elif not have_r:
+            summary.append(
+                "空间回归需要 R 的 spdep + spatialreg 包（未检测到）。"
+                "安装：install.packages(c('spdep','spatialreg'))。"
+            )
+        elif not names_safe:
+            summary.append("空间回归失败：列名需为标识符式（字母/数字/. _）。")
+        else:
+            sub = df[[*geo, outcome, *predictors]].dropna()
+            csv = d / "_sar_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                diag, pref, coef = _spatial_reg_via_r(csv, outcome, predictors, lon, lat)
+                coef.to_csv(d / "spatial_coefficients.csv", index=False, encoding="utf-8")
+                files.append("spatial_coefficients.csv")
+                preferred = "SAR（空间滞后）" if pref == "SAR" else "SEM（空间误差）"
+                # report the PREFERRED model's effects (Opus catch): SEM betas ARE
+                # marginal effects; SAR betas are NOT — report impacts() instead.
+                is_sar = pref == "SAR"
+                effect_col = "total" if is_sar else "estimate"
+                effect_note = (
+                    "SAR 优选 → 报告 impacts（direct 直接 / indirect 溢出 / total 总效应）；"
+                    "注意：空间滞后模型系数本身不是边际效应，total 才是。"
+                    if is_sar
+                    else "SEM 优选 → 系数即边际效应（estimate ± 1.96·se）。"
+                )
+                pmoran = diag.get("resid_moran_p", float("nan"))
+                (d / "diagnostics.txt").write_text(
+                    "空间回归诊断（k-NN 空间权重，k≈6）\n"
+                    f"OLS 残差 Moran's I p = {pmoran:.4g} "
+                    f"（{'有' if pmoran < 0.05 else '无'}显著空间依赖 → "
+                    f"{'需用空间模型' if pmoran < 0.05 else 'OLS 可能已够'}）\n"
+                    f"AIC：OLS={diag.get('ols_aic')}, SAR={diag.get('sar_aic')}, SEM={diag.get('sem_aic')}\n"
+                    f"SAR 空间滞后 ρ = {diag.get('sar_rho')}; SEM 空间误差 λ = {diag.get('sem_lambda')}\n"
+                    f"按 AIC 优选：{preferred}\n{effect_note}\n\n效应表：\n"
+                    + coef.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("diagnostics.txt")
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    cp = coef[~coef["term"].str.contains("Intercept", case=False)]
+                    if len(cp):
+                        fig, ax = plt.subplots(figsize=(5, 3))
+                        if is_sar:  # impacts have no SE here -> bar of total effect
+                            ax.barh(cp["term"], cp["total"], color="#4C72B0")
+                            ax.set_xlabel("total impact (direct + indirect)")
+                        else:
+                            ax.errorbar(
+                                cp["estimate"], range(len(cp)), xerr=1.96 * cp["std_err"], fmt="o"
+                            )
+                            ax.set_yticks(range(len(cp)))
+                            ax.set_yticklabels(cp["term"])
+                            ax.set_xlabel("SEM coefficient (95% CI)")
+                        ax.axvline(0, color="grey", ls="--")
+                        ax.set_title(f"{pref} effects — {outcome}")
+                        fig.tight_layout()
+                        fig.savefig(d / "coefficients.png", dpi=150)
+                        plt.close(fig)
+                        files.append("coefficients.png")
+                except Exception:
+                    pass
+                for kk in ("sar_rho", "resid_moran_p", "ols_aic", "sar_aic", "sem_aic"):
+                    if kk in diag:
+                        estimates[kk] = round(diag[kk], 4)
+                for _, r in coef.iterrows():
+                    if "Intercept" not in str(r["term"]):
+                        estimates[str(r["term"])] = round(float(r[effect_col]), 4)
+                summary.append(
+                    f"{entry.method} 完成（R/spdep）：OLS 残差 Moran p={pmoran:.2g}"
+                    f"（{'有' if pmoran < 0.05 else '无'}显著空间依赖）；SAR ρ={diag.get('sar_rho'):.3f}；"
+                    f"AIC OLS {diag.get('ols_aic'):.1f}/SAR {diag.get('sar_aic'):.1f}/"
+                    f"SEM {diag.get('sem_aic'):.1f} → 优选 {preferred}；{effect_note}"
+                )
+                code += [
+                    "library(spdep); library(spatialreg)  # k-NN 权重",
+                    f'# lagsarlm/errorsarlm({outcome} ~ {" + ".join(predictors)}); 残差 Moran 检验',
+                ]
+            except Exception as err:
+                summary.append(f"空间回归失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
 
     elif entry.id == "getis_ord_gi":
         import numpy as np

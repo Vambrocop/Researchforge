@@ -20,6 +20,26 @@
     - euclidean distance on lat/lon approximates true geodesic neighbours
     - non-stationarity and edge effects
 
+- id: spatial_regression
+  method: Spatial regression (SAR / SEM)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: Regression that accounts for spatial dependence — tests OLS residuals for spatial autocorrelation, then fits spatial-lag (SAR) and spatial-error (SEM) models on k-nearest-neighbour weights and picks the better by AIC. Goes beyond descriptive Moran/Gi*/LISA to corrected coefficient estimates.
+  preconditions:
+    requires_geo: true
+    min_continuous: 2
+    min_rows: 25
+  produces:
+    - SAR/SEM coefficients
+    - residual-autocorrelation diagnostic
+    - AIC model comparison
+  executor_ref: spdep / spatialreg (R)
+  biases:
+    - result depends on the spatial weights definition (k, distance metric)
+    - SAR vs SEM choice is data-driven (AIC) — confirm against theory
+    - euclidean distance on lat/lon approximates true geodesic distance
+
 - id: local_moran
   method: Local Moran's I (LISA)
   domain: gis
