@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Data (默认不入库；replication 数据另行管理)
+data/raw/
+*.xlsx
+*.csv
+!docs/**/*.csv
+
+# Outputs
+outputs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Claude Code 本地状态/运行时（机器相关，不入库；仅保留将来可能的共享 settings.json）
+.claude/*
+!.claude/settings.json
+
+# Skill ingestion 工作区（原件不入库，登记结果入 docs/）
+skills_inbox/_processed/
+skills_inbox/*.zip
