@@ -23,6 +23,24 @@ def test_group_comparison_prefers_binary_over_unit_id(tmp_path):
     assert len(gm) == 2  # 2 groups (treated 0/1), not 8 (unit ids)
 
 
+def test_did_picks_within_unit_varying_treatment(tmp_path):
+    # 'region' is a fixed-within-unit group flag (binary, ordered first); 'treated' is the
+    # real staggered DID treatment. DID must use 'treated', not the first binary 'region'.
+    df = make_panel(n_units=8, n_periods=6, treated=True, seed=1)
+    units = list(df["unit"].unique())
+    region_map = {u: i % 2 for i, u in enumerate(units)}  # constant within unit, binary
+    df["region"] = df["unit"].map(region_map)
+    df = df[["unit", "year", "y", "region", "treated"]]  # region before treated
+    csv = tmp_path / "p.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+
+    res = run_analysis(fp, Catalog.load().by_id("did"), output_root=str(tmp_path / "o"))
+
+    assert "treated" in res.estimates  # within-unit-varying treatment chosen
+    assert "region" not in res.estimates  # fixed group flag NOT used as the treatment
+
+
 def test_iv_regression_gives_honest_message(tmp_path):
     csv = tmp_path / "panel.csv"
     make_panel(seed=2).to_csv(csv, index=False)

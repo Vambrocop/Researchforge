@@ -33,6 +33,19 @@ def _run_dir(root: str, entry_id: str) -> Path:
     return d
 
 
+def _pick_did_treatment(df, fp: DataFingerprint) -> list[str]:
+    """The DID treatment is the binary that varies WITHIN units over time (a
+    treatment that switches on), not a fixed group flag. Returns [] if none vary."""
+    if not (fp.unit_col and fp.time_col):
+        return fp.treatment_candidates[:1]
+    best = None
+    for name in fp.treatment_candidates:
+        frac = float((df.groupby(fp.unit_col)[name].nunique() > 1).mean())
+        if frac > 0 and (best is None or frac > best[0]):
+            best = (frac, name)
+    return [best[1]] if best else []
+
+
 def _regression(df, fp: DataFingerprint, entry: AnalysisEntry):
     import statsmodels.formula.api as smf
 
@@ -47,7 +60,7 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry):
         fe_terms = [f"C(Q('{fp.unit_col}'))", f"C(Q('{fp.time_col}'))"]
 
     if entry.id == "did" and fp.treatment_candidates:
-        rhs_vars = fp.treatment_candidates[:1]
+        rhs_vars = _pick_did_treatment(df, fp) or fp.treatment_candidates[:1]
     else:
         rhs_vars = [
             c.name
@@ -179,6 +192,11 @@ def run_analysis(
         summary.append(f"{entry.method} 完成：因变量 {y}{key}{dv_note}")
         if not rhs_vars:
             summary.append("⚠️ 无可用解释变量，仅拟合了截距模型，结果无解释意义。")
+        if entry.id == "did" and rhs_vars and fp.unit_col:
+            if int(df.groupby(fp.unit_col)[rhs_vars[0]].nunique().max()) <= 1:
+                summary.append(
+                    f"⚠️ 处理变量 {rhs_vars[0]} 在每个单位内不随时间变化，可能不是有效的 DID 处理。"
+                )
         code += [
             "import statsmodels.formula.api as smf",
             f'model = smf.ols("{formula}", data=df).fit(cov_type="HC1")',
