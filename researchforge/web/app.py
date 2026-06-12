@@ -1,9 +1,10 @@
 """FastAPI web application for ResearchForge.
 
 Endpoints:
-  GET  /                 -> serve index.html
-  POST /api/analyze      -> upload CSV, profile + recommend
-  POST /api/run          -> run a chosen analysis
+  GET  /                          -> serve index.html
+  POST /api/analyze               -> upload CSV, profile + recommend
+  POST /api/run                   -> run a chosen analysis
+  GET  /api/download/{run_name}   -> zip and download an outputs/<run_name> dir
 Static mounts:
   /static   -> researchforge/web/static/
   /outputs  -> repo-level outputs/ dir
@@ -11,7 +12,9 @@ Static mounts:
 
 from __future__ import annotations
 
+import tempfile
 import uuid
+import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -122,3 +125,50 @@ def api_run(body: RunRequest) -> JSONResponse:
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Download helper — factored out so tests can import it directly
+# ---------------------------------------------------------------------------
+def _zip_run_dir(run_name: str) -> Path:
+    """Build a zip of outputs/<run_name>/ and return the path to the temp zip.
+
+    Raises HTTPException(400) if run_name looks like a path traversal.
+    Raises HTTPException(404) if the directory does not exist.
+    The caller is responsible for deleting the temp file when done.
+    """
+    # Security: reject any name that contains path separators or dot-dot
+    if "/" in run_name or "\\" in run_name or ".." in run_name:
+        raise HTTPException(status_code=400, detail="invalid run_name")
+
+    run_dir = (_OUTPUTS_DIR / run_name).resolve()
+    # Confirm the resolved path is still inside _OUTPUTS_DIR
+    try:
+        run_dir.relative_to(_OUTPUTS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid run_name")
+
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise HTTPException(status_code=404, detail="run not found")
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    zip_path = Path(tmp.name)
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file in sorted(run_dir.iterdir()):
+            if file.is_file():
+                zf.write(file, arcname=file.name)
+
+    return zip_path
+
+
+@app.get("/api/download/{run_name}")
+def api_download(run_name: str) -> FileResponse:
+    """Zip outputs/<run_name>/ and return as an attachment."""
+    zip_path = _zip_run_dir(run_name)
+    return FileResponse(
+        str(zip_path),
+        media_type="application/zip",
+        filename=f"{run_name}.zip",
+    )

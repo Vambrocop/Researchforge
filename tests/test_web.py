@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -128,3 +130,86 @@ def test_analyze_includes_issues(tmp_path):
     for iss in fp["issues"]:
         for key in ("kind", "column", "severity", "detail"):
             assert key in iss, f"issue missing key '{key}': {iss}"
+
+
+# ---------------------------------------------------------------------------
+# Download endpoint tests
+# ---------------------------------------------------------------------------
+def test_download_zip(tmp_path):
+    """GET /api/download/<run_name> returns a valid zip; bad names return 400/404."""
+    from fastapi.testclient import TestClient
+
+    # -- create a real run so we have an outputs/<dir> to zip --
+    csv = _write_panel(tmp_path)
+    run_out = tmp_path / "outputs"
+    result = run_for_path(csv, "did", output_root=str(run_out))
+    assert "output_dir" in result, "run must succeed"
+
+    run_dir = Path(result["output_dir"])
+    run_name = run_dir.name  # just the basename
+
+    # Patch _OUTPUTS_DIR inside the app to point at our tmp outputs root
+    import researchforge.web.app as web_app
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+
+    try:
+        client = TestClient(web_app.app, raise_server_exceptions=True)
+
+        # -- happy path: real run dir --
+        resp = client.get(f"/api/download/{run_name}")
+        assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text}"
+        assert "zip" in resp.headers.get("content-type", ""), (
+            f"expected zip content-type, got {resp.headers.get('content-type')}"
+        )
+        assert len(resp.content) > 0, "zip body must be non-empty"
+
+        # Verify the body is actually a valid zip
+        zf = zipfile.ZipFile(io.BytesIO(resp.content))
+        names_in_zip = zf.namelist()
+        assert len(names_in_zip) > 0, "zip must contain at least one file"
+        # All entries should be plain filenames (no path separators)
+        for n in names_in_zip:
+            assert "/" not in n and "\\" not in n, f"arcname must be filename only: {n}"
+
+        # -- traversal names must be rejected with 400 --
+        for bad_name in ["..", "../x", "foo/bar", "foo\\bar"]:
+            r = client.get(f"/api/download/{bad_name}")
+            assert r.status_code in (400, 404), (
+                f"traversal name {bad_name!r} should return 400 or 404, got {r.status_code}"
+            )
+
+        # -- non-existent run dir must return 404 --
+        r = client.get("/api/download/does_not_exist_xyz_12345")
+        assert r.status_code == 404, f"missing run should return 404, got {r.status_code}"
+
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+def test_zip_run_dir_helper(tmp_path):
+    """_zip_run_dir helper can be called directly and builds a valid zip."""
+    import researchforge.web.app as web_app
+
+    # Create a fake run dir under tmp
+    run_out = tmp_path / "outputs"
+    csv = _write_panel(tmp_path)
+    result = run_for_path(csv, "did", output_root=str(run_out))
+    assert "output_dir" in result
+
+    run_dir = Path(result["output_dir"])
+    run_name = run_dir.name
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+    try:
+        zip_path = web_app._zip_run_dir(run_name)
+        assert zip_path.exists(), "zip file must be created"
+        assert zip_path.stat().st_size > 0, "zip must be non-empty"
+
+        with zipfile.ZipFile(zip_path) as zf:
+            assert len(zf.namelist()) > 0
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+        if zip_path.exists():
+            zip_path.unlink()

@@ -29,6 +29,7 @@
   .file-links a { display: inline-block; margin: 0.2rem 0.4rem 0.2rem 0; font-size: 0.85rem; color: #0d6efd; text-decoration: none; }
   .file-links a:hover { text-decoration: underline; }
   .error { color: #dc3545; font-size: 0.9rem; margin-top: 0.5rem; }
+  #error { background: #fff3f3; border: 1px solid #f5c6cb; border-radius: 4px; padding: 0.5rem 0.8rem; margin-top: 0.6rem; color: #842029; font-size: 0.9rem; display: none; }
   .spinner { display: none; color: #6c757d; font-size: 0.85rem; margin-left: 0.5rem; }
   #result-section { display: none; }
   #profile-section { display: none; }
@@ -41,10 +42,20 @@
   .btn-clean:hover { background: #e8681a; }
   .btn-reanalyze { background: #6f42c1; color: #fff; margin-top: 0.6rem; }
   .btn-reanalyze:hover { background: #5a32a3; }
+  .btn-download { background: #0d6efd; color: #fff; font-size: 0.85rem; padding: 0.3rem 0.8rem; margin-top: 0.5rem; }
+  .btn-download:hover { background: #0b5ed7; }
   .plan-row { padding: 0.25rem 0; font-size: 0.83rem; border-bottom: 1px solid #f1f3f5; }
   .plan-row:last-child { border-bottom: none; }
   .plan-action { font-weight: 600; color: #198754; min-width: 110px; display: inline-block; }
   .inline-fig { display: block; max-width: 100%; border: 1px solid #dee2e6; border-radius: 4px; margin: 0.5rem 0; }
+  .report { font-size: 0.88rem; line-height: 1.6; }
+  .report h1 { font-size: 1.15rem; margin: 0.8rem 0 0.3rem; }
+  .report h2 { font-size: 1rem; margin: 0.7rem 0 0.25rem; border-bottom: 1px solid #dee2e6; padding-bottom: 0.15rem; }
+  .report h3 { font-size: 0.92rem; margin: 0.6rem 0 0.2rem; }
+  .report ul { margin: 0.2rem 0 0.4rem 1.4rem; padding: 0; }
+  .report li { margin: 0.15rem 0; }
+  .report p { margin: 0.3rem 0; }
+  .report code { background: #f1f3f5; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.85em; }
 </style>
 </head>
 <body>
@@ -52,10 +63,10 @@
 
 <div class="row">
   <input type="file" id="csv-input" accept=".csv">
-  <button class="btn-primary" onclick="doAnalyze()">分析</button>
+  <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()">分析</button>
   <span class="spinner" id="analyze-spinner">处理中...</span>
 </div>
-<div class="error" id="analyze-error"></div>
+<div id="error"></div>
 
 <div id="profile-section">
   <h2>数据概览</h2>
@@ -68,7 +79,7 @@
     <div class="card">
       <div id="issues-list"></div>
       <div style="margin-top:0.6rem">
-        <button class="btn-clean" onclick="doClean()">清洗数据</button>
+        <button class="btn-clean" id="btn-clean" onclick="doClean()">清洗数据</button>
         <span class="spinner" id="clean-spinner">处理中...</span>
       </div>
     </div>
@@ -80,7 +91,7 @@
       <div id="clean-plan"></div>
       <div id="clean-log-summary" class="meta" style="margin-top:0.5rem"></div>
       <div style="margin-top:0.6rem">
-        <button class="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
+        <button class="btn-reanalyze" id="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
         <span class="spinner" id="reanalyze-spinner">处理中...</span>
       </div>
     </div>
@@ -95,9 +106,12 @@
   <div class="card">
     <div id="result-summary" class="meta"></div>
     <h2 style="margin-top:0.8rem">报告</h2>
-    <pre id="result-report"></pre>
+    <div class="report" id="result-report"></div>
     <h2>输出文件</h2>
     <div class="file-links" id="result-files"></div>
+    <div style="margin-top:0.6rem">
+      <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#">下载全部产物</a>
+    </div>
   </div>
 </div>
 
@@ -107,15 +121,88 @@ let cleanedFileId = null;
 
 const DOTS = { green: '🟢', yellow: '🟡', red: '🔴' };
 
-function showError(elId, msg) {
-  document.getElementById(elId).textContent = msg;
+// ---------------------------------------------------------------------------
+// Error banner
+// ---------------------------------------------------------------------------
+function showError(msg) {
+  const el = document.getElementById('error');
+  el.textContent = msg;
+  el.style.display = 'block';
 }
-function clearError(elId) {
-  document.getElementById(elId).textContent = '';
+function clearError() {
+  const el = document.getElementById('error');
+  el.textContent = '';
+  el.style.display = 'none';
 }
 
+// ---------------------------------------------------------------------------
+// Button loading state helpers
+// ---------------------------------------------------------------------------
+function setBusy(btnId, label) {
+  const btn = document.getElementById(btnId);
+  if (btn) { btn._origLabel = btn.textContent; btn.textContent = label || '…处理中'; btn.disabled = true; }
+}
+function setIdle(btnId) {
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.textContent = btn._origLabel || btn.textContent; btn.disabled = false; }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown → HTML (no external lib)
+// ---------------------------------------------------------------------------
+function mdToHtml(md) {
+  if (!md) return '<p>(无报告)</p>';
+
+  // Escape raw HTML first to prevent injection
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Inline: **bold** and `code`
+  function inlineFormat(s) {
+    return esc(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+
+  const lines = md.split('\n');
+  const out = [];
+  let inUl = false;
+
+  function closeUl() { if (inUl) { out.push('</ul>'); inUl = false; } }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+
+    if (/^### /.test(line)) {
+      closeUl();
+      out.push(`<h3>${inlineFormat(line.slice(4))}</h3>`);
+    } else if (/^## /.test(line)) {
+      closeUl();
+      out.push(`<h2>${inlineFormat(line.slice(3))}</h2>`);
+    } else if (/^# /.test(line)) {
+      closeUl();
+      out.push(`<h1>${inlineFormat(line.slice(2))}</h1>`);
+    } else if (/^- /.test(line)) {
+      if (!inUl) { out.push('<ul>'); inUl = true; }
+      out.push(`<li>${inlineFormat(line.slice(2))}</li>`);
+    } else if (line === '') {
+      closeUl();
+      // blank line = paragraph break; no tag needed
+    } else {
+      closeUl();
+      out.push(`<p>${inlineFormat(line)}</p>`);
+    }
+  }
+  closeUl();
+  return out.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Main actions
+// ---------------------------------------------------------------------------
 async function doAnalyze() {
-  clearError('analyze-error');
+  clearError();
   document.getElementById('profile-section').style.display = 'none';
   document.getElementById('result-section').style.display = 'none';
   document.getElementById('issues-section').style.display = 'none';
@@ -123,8 +210,9 @@ async function doAnalyze() {
   cleanedFileId = null;
 
   const input = document.getElementById('csv-input');
-  if (!input.files.length) { showError('analyze-error', '请先选择一个 CSV 文件'); return; }
+  if (!input.files.length) { showError('请先选择一个 CSV 文件'); return; }
 
+  setBusy('btn-analyze', '…处理中');
   const spinner = document.getElementById('analyze-spinner');
   spinner.style.display = 'inline';
 
@@ -135,12 +223,12 @@ async function doAnalyze() {
   try {
     const res = await fetch('/api/analyze', { method: 'POST', body: fd });
     data = await res.json();
-    if (!res.ok) { showError('analyze-error', data.detail || '分析失败'); spinner.style.display = 'none'; return; }
+    if (!res.ok) { showError(data.detail || '分析失败'); setIdle('btn-analyze'); spinner.style.display = 'none'; return; }
   } catch (e) {
-    showError('analyze-error', '网络错误：' + e.message);
-    spinner.style.display = 'none';
-    return;
+    showError('网络错误：' + e.message);
+    setIdle('btn-analyze'); spinner.style.display = 'none'; return;
   }
+  setIdle('btn-analyze');
   spinner.style.display = 'none';
 
   currentFileId = data.file_id;
@@ -178,8 +266,9 @@ function renderIssues(issues) {
 
 async function doClean() {
   if (!currentFileId) return;
-  clearError('analyze-error');
+  clearError();
   document.getElementById('clean-section').style.display = 'none';
+  setBusy('btn-clean', '…处理中');
   const spinner = document.getElementById('clean-spinner');
   spinner.style.display = 'inline';
 
@@ -191,12 +280,12 @@ async function doClean() {
       body: JSON.stringify({ file_id: currentFileId }),
     });
     data = await res.json();
-    if (!res.ok) { showError('analyze-error', data.detail || '清洗失败'); spinner.style.display = 'none'; return; }
+    if (!res.ok) { showError(data.detail || '清洗失败'); setIdle('btn-clean'); spinner.style.display = 'none'; return; }
   } catch (e) {
-    showError('analyze-error', '网络错误：' + e.message);
-    spinner.style.display = 'none';
-    return;
+    showError('网络错误：' + e.message);
+    setIdle('btn-clean'); spinner.style.display = 'none'; return;
   }
+  setIdle('btn-clean');
   spinner.style.display = 'none';
 
   cleanedFileId = data.cleaned_file_id;
@@ -224,7 +313,8 @@ function renderCleanResult(data) {
 
 async function doReanalyze() {
   if (!cleanedFileId) return;
-  clearError('analyze-error');
+  clearError();
+  setBusy('btn-reanalyze', '…处理中');
   const spinner = document.getElementById('reanalyze-spinner');
   spinner.style.display = 'inline';
 
@@ -236,12 +326,12 @@ async function doReanalyze() {
       body: JSON.stringify({ file_id: cleanedFileId }),
     });
     data = await res.json();
-    if (!res.ok) { showError('analyze-error', data.detail || '重新分析失败'); spinner.style.display = 'none'; return; }
+    if (!res.ok) { showError(data.detail || '重新分析失败'); setIdle('btn-reanalyze'); spinner.style.display = 'none'; return; }
   } catch (e) {
-    showError('analyze-error', '网络错误：' + e.message);
-    spinner.style.display = 'none';
-    return;
+    showError('网络错误：' + e.message);
+    setIdle('btn-reanalyze'); spinner.style.display = 'none'; return;
   }
+  setIdle('btn-reanalyze');
   spinner.style.display = 'none';
 
   // Switch to cleaned file as the active file for subsequent runs
@@ -280,7 +370,15 @@ function renderRecs(recs) {
 async function doRun(analysisId) {
   if (!currentFileId) return;
   document.getElementById('result-section').style.display = 'none';
-  clearError('analyze-error');
+  clearError();
+
+  // Find the clicked run button and mark it busy
+  const runBtns = document.querySelectorAll('.btn-run, .btn-override');
+  let activeBtn = null;
+  for (const b of runBtns) {
+    if (b.getAttribute('onclick') === `doRun('${analysisId}')`) { activeBtn = b; break; }
+  }
+  if (activeBtn) { activeBtn._origLabel = activeBtn.textContent; activeBtn.textContent = '…处理中'; activeBtn.disabled = true; }
 
   let data;
   try {
@@ -290,11 +388,15 @@ async function doRun(analysisId) {
       body: JSON.stringify({ file_id: currentFileId, analysis_id: analysisId }),
     });
     data = await res.json();
-    if (!res.ok) { showError('analyze-error', data.detail || '运行失败'); return; }
+    if (!res.ok) {
+      if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
+      showError(data.detail || '运行失败'); return;
+    }
   } catch (e) {
-    showError('analyze-error', '网络错误：' + e.message);
-    return;
+    if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
+    showError('网络错误：' + e.message); return;
   }
+  if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
 
   renderResult(data);
   document.getElementById('result-section').style.display = '';
@@ -303,9 +405,15 @@ async function doRun(analysisId) {
 
 function renderResult(data) {
   document.getElementById('result-summary').textContent = data.summary || '(无摘要)';
-  document.getElementById('result-report').textContent = data.report || '(无报告)';
+  document.getElementById('result-report').innerHTML = mdToHtml(data.report || '');
 
   const outDirBase = data.output_dir.replace(/\\/g, '/').split('/').pop();
+
+  // Download-all button
+  const dlBtn = document.getElementById('btn-download-all');
+  dlBtn.href = `/api/download/${encodeURIComponent(outDirBase)}`;
+  dlBtn.style.display = 'inline-block';
+
   const filesEl = document.getElementById('result-files');
   if (data.files && data.files.length) {
     filesEl.innerHTML = data.files.map(f => {
