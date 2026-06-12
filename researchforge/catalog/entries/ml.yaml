@@ -15,3 +15,22 @@
   biases:
     - not causal (predictive only)
     - overfitting if untuned
+
+- id: kmeans_clustering
+  method: K-means clustering
+  domain: machine learning
+  family: ml
+  goal: explore
+  description: Unsupervised K-means clustering over standardized continuous features; k auto-selected by silhouette.
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - cluster assignments
+    - cluster profile
+    - PCA scatter
+  executor_ref: scikit-learn
+  biases:
+    - scale sensitivity
+    - arbitrary k
+    - count/categorical features are ignored

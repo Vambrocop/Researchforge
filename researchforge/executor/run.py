@@ -340,6 +340,91 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"随机森林执行失败：{err}")
 
+    elif entry.id == "kmeans_clustering":
+        features = [
+            c.name
+            for c in fp.columns
+            if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+        ]
+        X = df[features].dropna()  # keep X.index for alignment
+        if len(features) < 2 or len(X) < 4:
+            summary.append("K-means 跳过：连续特征不足或有效样本太少。")
+        else:
+            try:
+                from sklearn.preprocessing import StandardScaler
+                from sklearn.cluster import KMeans
+                from sklearn.metrics import silhouette_score
+                from sklearn.decomposition import PCA
+                import numpy as np
+                import pandas as pd
+
+                Xs = StandardScaler().fit_transform(X)
+                n = len(Xs)
+                k_max = max(2, min(6, n // 10))
+                best = None  # (score, k, labels)
+                for k in range(2, min(k_max, n - 1) + 1):
+                    labels = KMeans(n_clusters=k, random_state=0, n_init=10).fit_predict(Xs)
+                    if len(set(labels)) < 2:
+                        continue
+                    score = silhouette_score(Xs, labels)
+                    if best is None or score > best[0]:
+                        best = (score, k, labels)
+
+                if best is None:
+                    summary.append("K-means 未能形成有效聚类（数据可能近常数）。")
+                else:
+                    score, k, labels = best
+                    k = len(set(labels))  # actual cluster count (KMeans may collapse on duplicate points)
+                    assign = pd.DataFrame({"row": X.index, "cluster": labels})
+                    assign.to_csv(d / "cluster_assignments.csv", index=False, encoding="utf-8")
+                    files.append("cluster_assignments.csv")
+
+                    profile_out = X.groupby(labels).mean()
+                    size = X.groupby(labels).size()
+                    profile_out["size"] = size.values
+                    profile_out.to_csv(d / "cluster_profile.csv", encoding="utf-8")
+                    files.append("cluster_profile.csv")
+
+                    try:
+                        import matplotlib
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        n_components = min(2, len(features))
+                        pca_coords = PCA(n_components=n_components).fit_transform(Xs)
+                        fig, ax = plt.subplots(figsize=(6, 5))
+                        if n_components == 2:
+                            ax.scatter(pca_coords[:, 0], pca_coords[:, 1], c=labels, cmap="tab10", s=20)
+                        else:
+                            ax.scatter(pca_coords[:, 0], [0] * len(pca_coords), c=labels, cmap="tab10", s=20)
+                        ax.set_xlabel("PC1")
+                        ax.set_ylabel("PC2" if n_components == 2 else "")
+                        ax.set_title(f"K-means (k={k}) — PCA projection")
+                        fig.tight_layout()
+                        fig.savefig(d / "pca_scatter.png", dpi=120)
+                        plt.close(fig)
+                        files.append("pca_scatter.png")
+                    except Exception:
+                        pass
+
+                    estimates["silhouette"] = float(score)
+                    estimates["k"] = float(k)
+                    summary.append(
+                        f"{entry.method} 完成：在 {len(features)} 个连续特征上聚成 {k} 类，silhouette={score:.4f}"
+                    )
+                    code += [
+                        "from sklearn.preprocessing import StandardScaler",
+                        "from sklearn.cluster import KMeans",
+                        "from sklearn.metrics import silhouette_score",
+                        f"features = {features!r}",
+                        "X = df[features].dropna()",
+                        "Xs = StandardScaler().fit_transform(X)",
+                        f"labels = KMeans(n_clusters={k}, random_state=0, n_init=10).fit_predict(Xs)",
+                        "print('silhouette:', silhouette_score(Xs, labels))",
+                    ]
+            except Exception as err:
+                summary.append(f"K-means 执行失败：{err}")
+
     elif entry.id == "arima":
         time_col = fp.time_col
         # value_col: forecast the first continuous column. Time columns are
