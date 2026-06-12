@@ -21,6 +21,9 @@ data/raw/
 outputs/
 *.log
 
+# Web UI uploads
+web_uploads/
+
 # OS / editor
 .DS_Store
 Thumbs.db

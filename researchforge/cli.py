@@ -101,6 +101,15 @@ def _cmd_candidates() -> int:
     return 0
 
 
+def _cmd_web(port: int) -> int:
+    import uvicorn
+
+    url = f"http://127.0.0.1:{port}"
+    print(f"ResearchForge Web UI → {url}")
+    uvicorn.run("researchforge.web.app:app", host="127.0.0.1", port=port)
+    return 0
+
+
 def _cmd_promote(candidate_id: str) -> int:
     from researchforge.catalog.candidates import promote_candidate
 
@@ -128,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
     promo = sub.add_parser("promote", help="promote a ready candidate into the live catalog")
     promo.add_argument("candidate_id", help="candidate analysis id")
+    web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
+    web_p.add_argument("--port", type=int, default=8000, help="port to listen on (default: 8000)")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -145,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_candidates()
     if args.command == "promote":
         return _cmd_promote(args.candidate_id)
+    if args.command == "web":
+        return _cmd_web(args.port)
 
     parser.print_help()
     return 0
