@@ -1,0 +1,19 @@
+# Configurational / necessity / qualitative-comparative methods.
+
+- id: nca
+  method: Necessary Condition Analysis (NCA)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Identify necessary-but-not-sufficient conditions — a high outcome requires a high level of the condition — via the CE-FDH ceiling line and effect size d (Dul 2016). Complements regression's average-effect logic with bottleneck logic.
+  preconditions:
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - effect size d per condition
+    - ceiling scatter plots
+  executor_ref: numpy
+  biases:
+    - necessity is not sufficiency and not causal evidence
+    - ceiling is sensitive to single upper-left outliers
+    - small samples inflate the empty zone and effect size

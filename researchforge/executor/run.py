@@ -341,6 +341,52 @@ def _silhouette_plot(X, labels, path: Path) -> None:
         pass
 
 
+def _nca_ceiling(x, y):
+    """CE-FDH ceiling for Necessary Condition Analysis (Dul 2016). Returns
+    (effect_size_d, sorted_x, cummax_y). The ceiling c(x)=max{yᵢ : xᵢ≤x} is the
+    free-disposal-hull upper boundary; d = empty-zone-area / total-scope-area."""
+    import numpy as np
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    xmin, xmax, ymin, ymax = x.min(), x.max(), y.min(), y.max()
+    order = np.argsort(x, kind="mergesort")
+    xs, ys = x[order], y[order]
+    cmax = np.maximum.accumulate(ys)
+    scope = (xmax - xmin) * (ymax - ymin)
+    if scope <= 0:
+        return 0.0, xs, cmax
+    empty = float(np.sum((ymax - cmax[:-1]) * np.diff(xs)))  # area above the ceiling
+    return empty / scope, xs, cmax
+
+
+def _nca_plot(sub, outcome, predictors, ceilings, path: Path) -> None:
+    """NCA scatter(s) with the CE-FDH ceiling line — the empty upper-left zone
+    above the ceiling is the visual evidence of necessity."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        names = predictors[:4]
+        y = sub[outcome].to_numpy(dtype=float)
+        fig, axes = plt.subplots(1, len(names), figsize=(3.4 * len(names), 3.2), squeeze=False)
+        for ax, p in zip(axes[0], names):
+            xs, cmax, d = ceilings[p]
+            ax.scatter(sub[p], y, s=14, alpha=0.5, edgecolor="none")
+            ax.step(xs, cmax, where="post", color="#C44E52", lw=1.5, label=f"ceiling, d={d:.2f}")
+            ax.set_xlabel(p)
+            ax.set_title(f"{p} (d={d:.2f})")
+            ax.legend(fontsize=7)
+        axes[0][0].set_ylabel(outcome)
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
 def _plotly_corr_heatmap(corr, path: Path) -> None:
     """Interactive correlation heatmap (hover for exact r, zoomable). Best-effort
     so a missing plotly never breaks the run; the static PNG is always produced."""
@@ -1701,6 +1747,59 @@ def run_analysis(
                     ]
             except Exception as err:
                 summary.append(f"PERMANOVA 失败：{err}")
+
+    elif entry.id == "nca":
+        _excl = {fp.unit_col, fp.time_col}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        outcome = cont[0] if cont else None
+        if outcome is None or len(cont) < 2:
+            summary.append("NCA 失败：需要连续结果变量 + ≥1 个连续条件变量。")
+        else:
+            import pandas as pd
+
+            predictors = cont[1:6]  # outcome is cont[0]; up to 5 conditions
+            sub = df[[outcome] + predictors].dropna()
+            if len(sub) < 20:
+                summary.append("NCA 失败：有效样本不足（<20）。")
+            else:
+                y = sub[outcome].to_numpy(dtype=float)
+
+                def _bucket(dv: float) -> str:
+                    if dv < 0.1:
+                        return "negligible"
+                    if dv < 0.3:
+                        return "medium"
+                    if dv < 0.5:
+                        return "large"
+                    return "very large"
+
+                ceilings = {}
+                rows = []
+                for p in predictors:
+                    x = sub[p].to_numpy(dtype=float)
+                    dv, xs, cmax = _nca_ceiling(x, y)  # `d` is the output dir — don't shadow
+                    ceilings[p] = (xs, cmax, dv)
+                    rows.append((p, round(dv, 4), _bucket(dv)))
+                    estimates[p] = round(dv, 4)
+
+                tab = pd.DataFrame(rows, columns=["condition", "effect_size_d", "necessity"])
+                tab.to_csv(d / "nca_effect_sizes.csv", index=False, encoding="utf-8")
+                files.append("nca_effect_sizes.csv")
+                _nca_plot(sub, outcome, predictors, ceilings, d / "nca_ceiling.png")
+                if (d / "nca_ceiling.png").exists():
+                    files.append("nca_ceiling.png")
+
+                strong = [r for r in rows if r[1] >= 0.1]
+                top = max(rows, key=lambda r: r[1])
+                summary.append(
+                    f"{entry.method} 完成：结果 {outcome}，{len(predictors)} 个条件；"
+                    f"最强必要条件 {top[0]}（d={top[1]}，{top[2]}）；"
+                    f"{len(strong)} 个达到有意义阈值 d≥0.1（d=空白区/总域面积，CE-FDH 天花板）"
+                )
+                code += [
+                    "import numpy as np  # NCA (Dul 2016), CE-FDH ceiling",
+                    "# c(x)=max{y: x_i<=x}; d = empty_zone_area / scope_area per condition",
+                ]
 
     elif entry.id == "rarefaction":
         import numpy as np
