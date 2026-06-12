@@ -438,6 +438,86 @@ def _plotly_scatter(coords, labels, path: Path, title: str, xlab: str, ylab: str
         pass
 
 
+def _sem_via_lavaan(csv_path, spec: str) -> dict:
+    """Fit a CFA via R's lavaan (gold standard) through the R bridge. Returns a
+    backend-agnostic result dict, or raises so the caller falls back to semopy."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rcode = (
+        "suppressMessages(library(lavaan))\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f'fit <- cfa("{spec}", data=d, std.lv=TRUE)\n'
+        'std <- standardizedSolution(fit); ld <- std[std$op == "=~", ]\n'
+        'cat("##LOADINGS\\n")\n'
+        'for (i in seq_len(nrow(ld))) cat(sprintf("%s,%.6f,%.6f,%.6f\\n", '
+        "ld$rhs[i], ld$est.std[i], ifelse(is.na(ld$se[i]),0,ld$se[i]), "
+        "ifelse(is.na(ld$pvalue[i]),0,ld$pvalue[i])))\n"
+        'fm <- fitMeasures(fit, c("chisq","df","cfi","tli","rmsea","srmr","aic","bic"))\n'
+        'cat("##FIT\\n"); for (nm in names(fm)) cat(sprintf("%s,%.6f\\n", nm, fm[nm]))\n'
+    )
+    out = rbridge.run_r(rcode, timeout=120)
+    section, lrows, frows = None, [], []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##LOADINGS":
+            section = "L"
+        elif s == "##FIT":
+            section = "F"
+        elif "," in s:
+            (lrows if section == "L" else frows).append(s)
+    if not lrows or not frows:
+        raise RuntimeError("lavaan produced no parseable output")
+    load = pd.DataFrame(
+        [r.split(",") for r in lrows], columns=["indicator", "std_loading", "std_err", "p_value"]
+    )
+    for c in ("std_loading", "std_err", "p_value"):
+        load[c] = load[c].astype(float)
+    fm = {k: float(v) for k, v in (r.split(",", 1) for r in frows)}
+    return {
+        "loadings": load,
+        "fit": {
+            "cfi": fm.get("cfi", float("nan")),
+            "tli": fm.get("tli", float("nan")),
+            "rmsea": fm.get("rmsea", float("nan")),
+            "chi2": fm.get("chisq", float("nan")),
+            "dof": fm.get("df", float("nan")),
+            "srmr": fm.get("srmr", float("nan")),
+        },
+        "summary": out,
+        "backend": "lavaan (R)",
+    }
+
+
+def _sem_via_semopy(sub, spec: str) -> dict:
+    """Fit the same single-factor CFA with pure-Python semopy (portable fallback)."""
+    import semopy
+
+    model = semopy.Model(spec)
+    model.fit(sub)
+    ins = model.inspect(std_est=True)
+    load = ins[(ins["op"] == "~") & (ins["rval"] == "F")][
+        ["lval", "Est. Std", "Std. Err", "p-value"]
+    ].copy()
+    load.columns = ["indicator", "std_loading", "std_err", "p_value"]
+    stats = semopy.calc_stats(model)
+    return {
+        "loadings": load,
+        "fit": {
+            "cfi": float(stats["CFI"].iloc[0]),
+            "tli": float(stats["TLI"].iloc[0]),
+            "rmsea": float(stats["RMSEA"].iloc[0]),
+            "chi2": float(stats["chi2"].iloc[0]),
+            "dof": float(stats["DoF"].iloc[0]),
+            "srmr": float("nan"),
+        },
+        "summary": str(ins),
+        "backend": "semopy (Python)",
+    }
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -2272,32 +2352,47 @@ def run_analysis(
         if len(indicators) < 3:
             summary.append("SEM 失败：需要 ≥3 个连续指标变量（单因子模型识别要求）。")
         else:
-            try:
-                import semopy
+            import re
 
-                inds = indicators[:8]
-                sub = df[inds].dropna()
-                spec = "F =~ " + " + ".join(inds)
-                model = semopy.Model(spec)
-                model.fit(sub)
-                ins = model.inspect(std_est=True)  # include standardised loadings
-                (d / "summary.txt").write_text(str(ins), encoding="utf-8")
+            import pandas as pd
+
+            from researchforge.executor import rbridge
+
+            inds = indicators[:8]
+            sub = df[inds].dropna()
+            spec = "F =~ " + " + ".join(inds)
+            # prefer lavaan (R, gold standard — also gives SRMR) when available;
+            # fall back to pure-Python semopy so the analysis runs anywhere.
+            # Only use the R backend with identifier-safe column names: names go
+            # into the R model string, so a name with quotes/commas could break
+            # parsing or inject R — semopy takes the names as data, no eval.
+            names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in inds)
+            result = None
+            if names_safe and rbridge.r_available() and rbridge.r_package_available("lavaan"):
+                csv = d / "_sem_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    result = _sem_via_lavaan(csv, spec)
+                except Exception:
+                    result = None
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
+            if result is None:
+                try:
+                    result = _sem_via_semopy(sub, spec)
+                except Exception as err:
+                    summary.append(f"SEM 拟合失败：{err}")
+            if result is not None:
+                load = result["loadings"]
+                fit = result["fit"]
+                (d / "summary.txt").write_text(result["summary"], encoding="utf-8")
                 files.append("summary.txt")
-                load = ins[(ins["op"] == "~") & (ins["rval"] == "F")][
-                    ["lval", "Est. Std", "Estimate", "Std. Err", "p-value"]
-                ].copy()
-                load.columns = ["indicator", "std_loading", "loading", "std_err", "p_value"]
                 load.to_csv(d / "loadings.csv", index=False, encoding="utf-8")
                 files.append("loadings.csv")
-                stats = semopy.calc_stats(model)
-                cfi = float(stats["CFI"].iloc[0])
-                tli = float(stats["TLI"].iloc[0])
-                rmsea = float(stats["RMSEA"].iloc[0])
-                chi2 = float(stats["chi2"].iloc[0])
-                dof = float(stats["DoF"].iloc[0])
-                stats[["DoF", "chi2", "chi2 p-value", "CFI", "TLI", "RMSEA", "AIC", "BIC"]].to_csv(
-                    d / "fit_indices.csv", index=False, encoding="utf-8"
-                )
+                pd.DataFrame([fit]).to_csv(d / "fit_indices.csv", index=False, encoding="utf-8")
                 files.append("fit_indices.csv")
                 try:
                     import matplotlib
@@ -2315,32 +2410,30 @@ def run_analysis(
                     files.append("loadings.png")
                 except Exception:
                     pass
-                estimates["cfi"] = round(cfi, 4)
-                estimates["tli"] = round(tli, 4)
-                estimates["rmsea"] = round(rmsea, 4)
-                estimates["chi2"] = round(chi2, 4)
-                estimates["dof"] = round(dof, 1)
+                cfi, tli, rmsea = fit["cfi"], fit["tli"], fit["rmsea"]
+                chi2, dof, srmr = fit["chi2"], fit["dof"], fit.get("srmr", float("nan"))
+                for kk, vv in (("cfi", cfi), ("tli", tli), ("rmsea", rmsea), ("chi2", chi2), ("dof", dof)):
+                    estimates[kk] = round(vv, 4)
                 if dof <= 0:
-                    # 3 indicators -> just-identified, df=0: CFI/RMSEA are perfect by
-                    # construction and say nothing about fit (Opus double-review catch).
+                    # 3 indicators -> just-identified (df=0): CFI/RMSEA perfect by
+                    # construction, say nothing about fit (Opus double-review catch).
                     verdict = "恰好识别(df=0)，拟合指数无意义(CFI/RMSEA 必完美)；需 ≥4 指标才能评估拟合"
                 elif cfi >= 0.95 and rmsea <= 0.06:
                     verdict = "拟合良好"
                 else:
                     verdict = "拟合一般/欠佳"
+                srmr_txt = f" SRMR={srmr:.3f}" if srmr == srmr else ""  # NaN-safe
                 summary.append(
-                    f"{entry.method} 完成：单因子 CFA over {len(inds)} 个指标（df={dof:.0f}）；"
-                    f"CFI={cfi:.3f} TLI={tli:.3f} RMSEA={rmsea:.3f} → {verdict}"
+                    f"{entry.method} 完成（后端：{result['backend']}）：单因子 CFA over "
+                    f"{len(inds)} 个指标（df={dof:.0f}）；CFI={cfi:.3f} TLI={tli:.3f} "
+                    f"RMSEA={rmsea:.3f}{srmr_txt} → {verdict}"
                     "（此为探索性模板；请按你的理论结构改写 model spec 后重跑）"
                 )
                 code += [
-                    "import semopy",
-                    f'model = semopy.Model("{spec}")',
-                    f"model.fit(df[{inds!r}])",
-                    "print(model.inspect()); print(semopy.calc_stats(model))",
+                    "# SEM single-factor CFA — prefers R/lavaan, falls back to semopy",
+                    f'spec = "{spec}"',
+                    "# lavaan: cfa(spec, data=df, std.lv=TRUE); semopy: semopy.Model(spec).fit(df)",
                 ]
-            except Exception as err:
-                summary.append(f"SEM 拟合失败：{err}")
 
     elif entry.id == "iv_regression":
         summary.append(

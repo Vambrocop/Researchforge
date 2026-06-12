@@ -46,6 +46,27 @@ def test_sem_single_factor_fit(tmp_path: Path) -> None:
     assert res.estimates["rmsea"] < 0.1
 
 
+def test_sem_semopy_fallback(tmp_path: Path, monkeypatch) -> None:
+    # force the portable pure-Python path even where R/lavaan is installed
+    from researchforge.executor import rbridge
+
+    monkeypatch.setattr(rbridge, "r_available", lambda: False)
+
+    rng = np.random.default_rng(0)
+    n = 250
+    latent = rng.normal(0, 1, n)
+    df = pd.DataFrame({f"v{i}": 0.8 * latent + rng.normal(0, 0.5, n) for i in range(1, 5)})
+    csv = tmp_path / "sem.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+
+    assert (Path(res.output_dir) / "loadings.csv").exists()
+    assert res.estimates["cfi"] > 0.9  # semopy fallback still fits the single factor
+    assert "semopy" in res.summary
+
+
 def test_sem_precondition_unmet(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"x": rng.normal(0, 1, 80), "y": rng.normal(0, 1, 80)})  # only 2 continuous
