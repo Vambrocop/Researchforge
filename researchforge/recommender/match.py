@@ -28,5 +28,7 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
         unmet.append("需要分组变量（分类/二值）")
+    if pre.requires_count_outcome and not any(c.kind == "count" for c in fp.columns):
+        unmet.append("需要计数型结果变量")
 
     return (len(unmet) == 0, unmet)

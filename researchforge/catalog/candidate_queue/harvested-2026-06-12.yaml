@@ -30,7 +30,7 @@
     goal: explain
     description: GLM for non-negative count outcomes (e.g. insect / weed / species counts).
     preconditions:
-      min_continuous: 1
+      requires_count_outcome: true
       min_rows: 20
     produces:
       - rate ratios
@@ -40,8 +40,8 @@
       - overdispersion (consider negative binomial)
       - excess zeros
   source: "agronomy count-data practice (MDPI; Springer GLMM)"
-  status: pending
-  notes: "待接执行器: statsmodels GLM(family=Poisson); 需 count 类结果变量(待加 requires_count_outcome 前提)"
+  status: ready
+  notes: "executor 已接(statsmodels GLM Poisson + rate_ratio + 多计数列歧义提示); requires_count_outcome 前提已加; Fable+Opus 双审"
 
 - entry:
     id: negative_binomial_regression

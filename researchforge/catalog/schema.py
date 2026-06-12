@@ -20,6 +20,7 @@ class Precondition(BaseModel):
     min_continuous: Optional[int] = None
     requires_binary_outcome: Optional[bool] = None
     requires_group: Optional[bool] = None
+    requires_count_outcome: Optional[bool] = None
 
 
 class AnalysisEntry(BaseModel):

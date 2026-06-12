@@ -67,3 +67,26 @@
   executor_ref: statsmodels
   biases:
   - random-effects structure misspecification
+- id: poisson_regression
+  method: Poisson regression (count outcome)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: GLM for non-negative count outcomes (e.g. insect / weed / species counts).
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 20
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: true
+  produces:
+  - rate ratios
+  - coefficient table
+  executor_ref: statsmodels
+  biases:
+  - overdispersion (consider negative binomial)
+  - excess zeros
