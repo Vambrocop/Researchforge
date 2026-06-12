@@ -33,6 +33,10 @@ def analyze_path(path: str | Path) -> dict:
         "unit_col": fp.unit_col,
         "n_issues": len(fp.issues),
         "columns": [{"name": c.name, "kind": c.kind} for c in fp.columns],
+        "issues": [
+            {"kind": i.kind, "column": i.column, "severity": i.severity, "detail": i.detail}
+            for i in fp.issues
+        ],
     }
 
     recommendations = [
@@ -50,6 +54,28 @@ def analyze_path(path: str | Path) -> dict:
     ]
 
     return {"fingerprint": fingerprint, "recommendations": recommendations}
+
+
+def clean_path(path: str | Path, cleaned_out: str | Path) -> dict:
+    """Run a cleaning plan on a CSV and save the cleaned file.
+
+    Returns a dict with keys:
+      plan: [{action, column, reason}, ...]
+      log:  [{action, column, reason, applied, detail}, ...]
+    """
+    from researchforge.profiler import profile_dataset
+    from researchforge.profiler.profile import read_table
+    from researchforge.cleaning import make_cleaning_plan, apply_cleaning_plan
+
+    fp = profile_dataset(Path(path))
+    plan = make_cleaning_plan(fp)
+    df = read_table(Path(path))
+    cleaned, log = apply_cleaning_plan(df, plan)
+    cleaned.to_csv(Path(cleaned_out), index=False, encoding="utf-8")
+    return {
+        "plan": [{"action": s.action, "column": s.column, "reason": s.reason} for s in plan],
+        "log": log,
+    }
 
 
 def run_for_path(

@@ -53,6 +53,10 @@ class RunRequest(BaseModel):
     analysis_id: str
 
 
+class FileRequest(BaseModel):
+    file_id: str
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -73,6 +77,36 @@ async def api_analyze(file: UploadFile = File(...)) -> JSONResponse:
 
     result = analyze_path(dest)
     return JSONResponse({"file_id": file_id, **result})
+
+
+@app.post("/api/clean")
+def api_clean(body: FileRequest) -> JSONResponse:
+    """Run data cleaning on a previously uploaded file and save the cleaned version."""
+    path = _WEB_UPLOADS / f"{body.file_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="file_id not found")
+
+    new_id = uuid.uuid4().hex
+    cleaned_out = _WEB_UPLOADS / f"{new_id}.csv"
+
+    from researchforge.web.service import clean_path
+
+    result = clean_path(path, cleaned_out)
+    _files[new_id] = cleaned_out
+    return JSONResponse({**result, "cleaned_file_id": new_id})
+
+
+@app.post("/api/reanalyze")
+def api_reanalyze(body: FileRequest) -> JSONResponse:
+    """Re-run profiling and recommendations on a previously uploaded/cleaned file."""
+    path = _WEB_UPLOADS / f"{body.file_id}.csv"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="file_id not found")
+
+    from researchforge.web.service import analyze_path
+
+    result = analyze_path(path)
+    return JSONResponse(result)
 
 
 @app.post("/api/run")

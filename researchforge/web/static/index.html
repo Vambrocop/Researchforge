@@ -32,6 +32,19 @@
   .spinner { display: none; color: #6c757d; font-size: 0.85rem; margin-left: 0.5rem; }
   #result-section { display: none; }
   #profile-section { display: none; }
+  .issue-row { padding: 0.3rem 0; border-bottom: 1px solid #f1f3f5; font-size: 0.85rem; }
+  .issue-row:last-child { border-bottom: none; }
+  .issue-kind { font-weight: 600; color: #dc3545; min-width: 100px; display: inline-block; }
+  .issue-col { color: #0d6efd; min-width: 100px; display: inline-block; }
+  .issue-sev { font-size: 0.78rem; color: #6c757d; margin-left: 0.4rem; }
+  .btn-clean { background: #fd7e14; color: #fff; margin-top: 0.6rem; }
+  .btn-clean:hover { background: #e8681a; }
+  .btn-reanalyze { background: #6f42c1; color: #fff; margin-top: 0.6rem; }
+  .btn-reanalyze:hover { background: #5a32a3; }
+  .plan-row { padding: 0.25rem 0; font-size: 0.83rem; border-bottom: 1px solid #f1f3f5; }
+  .plan-row:last-child { border-bottom: none; }
+  .plan-action { font-weight: 600; color: #198754; min-width: 110px; display: inline-block; }
+  .inline-fig { display: block; max-width: 100%; border: 1px solid #dee2e6; border-radius: 4px; margin: 0.5rem 0; }
 </style>
 </head>
 <body>
@@ -48,6 +61,29 @@
   <h2>数据概览</h2>
   <div class="card">
     <div class="meta" id="data-meta"></div>
+  </div>
+
+  <div id="issues-section" style="display:none">
+    <h2>数据质量问题</h2>
+    <div class="card">
+      <div id="issues-list"></div>
+      <div style="margin-top:0.6rem">
+        <button class="btn-clean" onclick="doClean()">清洗数据</button>
+        <span class="spinner" id="clean-spinner">处理中...</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="clean-section" style="display:none">
+    <h2>清洗方案</h2>
+    <div class="card">
+      <div id="clean-plan"></div>
+      <div id="clean-log-summary" class="meta" style="margin-top:0.5rem"></div>
+      <div style="margin-top:0.6rem">
+        <button class="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
+        <span class="spinner" id="reanalyze-spinner">处理中...</span>
+      </div>
+    </div>
   </div>
 
   <h2>推荐分析</h2>
@@ -67,6 +103,7 @@
 
 <script>
 let currentFileId = null;
+let cleanedFileId = null;
 
 const DOTS = { green: '🟢', yellow: '🟡', red: '🔴' };
 
@@ -81,6 +118,9 @@ async function doAnalyze() {
   clearError('analyze-error');
   document.getElementById('profile-section').style.display = 'none';
   document.getElementById('result-section').style.display = 'none';
+  document.getElementById('issues-section').style.display = 'none';
+  document.getElementById('clean-section').style.display = 'none';
+  cleanedFileId = null;
 
   const input = document.getElementById('csv-input');
   if (!input.files.length) { showError('analyze-error', '请先选择一个 CSV 文件'); return; }
@@ -105,6 +145,7 @@ async function doAnalyze() {
 
   currentFileId = data.file_id;
   renderProfile(data.fingerprint);
+  renderIssues(data.fingerprint.issues || []);
   renderRecs(data.recommendations);
   document.getElementById('profile-section').style.display = '';
 }
@@ -118,6 +159,104 @@ function renderProfile(fp) {
     fp.n_issues ? `质量问题: ${fp.n_issues} 项` : '无质量问题',
   ].filter(Boolean);
   document.getElementById('data-meta').textContent = parts.join(' | ');
+}
+
+function renderIssues(issues) {
+  const sec = document.getElementById('issues-section');
+  if (!issues.length) { sec.style.display = 'none'; return; }
+  const el = document.getElementById('issues-list');
+  el.innerHTML = issues.map(iss => {
+    const col = iss.column ? `<span class="issue-col">${escHtml(iss.column)}</span>` : '<span class="issue-col">—</span>';
+    return `<div class="issue-row">
+      <span class="issue-kind">${escHtml(iss.kind)}</span>${col}
+      <span>${escHtml(iss.detail)}</span>
+      <span class="issue-sev">[${escHtml(iss.severity)}]</span>
+    </div>`;
+  }).join('');
+  sec.style.display = '';
+}
+
+async function doClean() {
+  if (!currentFileId) return;
+  clearError('analyze-error');
+  document.getElementById('clean-section').style.display = 'none';
+  const spinner = document.getElementById('clean-spinner');
+  spinner.style.display = 'inline';
+
+  let data;
+  try {
+    const res = await fetch('/api/clean', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: currentFileId }),
+    });
+    data = await res.json();
+    if (!res.ok) { showError('analyze-error', data.detail || '清洗失败'); spinner.style.display = 'none'; return; }
+  } catch (e) {
+    showError('analyze-error', '网络错误：' + e.message);
+    spinner.style.display = 'none';
+    return;
+  }
+  spinner.style.display = 'none';
+
+  cleanedFileId = data.cleaned_file_id;
+  renderCleanResult(data);
+  document.getElementById('clean-section').style.display = '';
+  document.getElementById('clean-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+function renderCleanResult(data) {
+  const planEl = document.getElementById('clean-plan');
+  if (data.plan && data.plan.length) {
+    planEl.innerHTML = data.plan.map(s => {
+      const col = s.column ? ` — <span style="color:#0d6efd">${escHtml(s.column)}</span>` : '';
+      return `<div class="plan-row"><span class="plan-action">${escHtml(s.action)}</span>${col} <span style="color:#6c757d;font-size:0.8rem">${escHtml(s.reason)}</span></div>`;
+    }).join('');
+  } else {
+    planEl.innerHTML = '<div class="meta">无清洗步骤（数据已干净）</div>';
+  }
+
+  const applied = (data.log || []).filter(l => l.applied).length;
+  const total = (data.log || []).length;
+  document.getElementById('clean-log-summary').textContent =
+    `共 ${total} 步，${applied} 步已执行。清洗后文件已保存 (ID: ${cleanedFileId || '—'})`;
+}
+
+async function doReanalyze() {
+  if (!cleanedFileId) return;
+  clearError('analyze-error');
+  const spinner = document.getElementById('reanalyze-spinner');
+  spinner.style.display = 'inline';
+
+  let data;
+  try {
+    const res = await fetch('/api/reanalyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: cleanedFileId }),
+    });
+    data = await res.json();
+    if (!res.ok) { showError('analyze-error', data.detail || '重新分析失败'); spinner.style.display = 'none'; return; }
+  } catch (e) {
+    showError('analyze-error', '网络错误：' + e.message);
+    spinner.style.display = 'none';
+    return;
+  }
+  spinner.style.display = 'none';
+
+  // Switch to cleaned file as the active file for subsequent runs
+  currentFileId = cleanedFileId;
+  cleanedFileId = null;
+
+  document.getElementById('clean-section').style.display = 'none';
+  document.getElementById('issues-section').style.display = 'none';
+  document.getElementById('result-section').style.display = 'none';
+
+  renderProfile(data.fingerprint);
+  renderIssues(data.fingerprint.issues || []);
+  renderRecs(data.recommendations);
+  document.getElementById('profile-section').style.display = '';
+  document.getElementById('profile-section').scrollIntoView({ behavior: 'smooth' });
 }
 
 function renderRecs(recs) {
@@ -171,6 +310,9 @@ function renderResult(data) {
   if (data.files && data.files.length) {
     filesEl.innerHTML = data.files.map(f => {
       const url = `/outputs/${encodeURIComponent(outDirBase)}/${encodeURIComponent(f)}`;
+      if (f.toLowerCase().endsWith('.png')) {
+        return `<div><img src="${url}" class="inline-fig" alt="${escHtml(f)}"><div style="font-size:0.8rem;color:#6c757d">${escHtml(f)}</div></div>`;
+      }
       return `<a href="${url}" target="_blank">${escHtml(f)}</a>`;
     }).join('');
   } else {
