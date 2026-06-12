@@ -1748,6 +1748,97 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"PERMANOVA 失败：{err}")
 
+    elif entry.id == "idw_interpolation":
+        import numpy as np
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        value = next(
+            (
+                c.name
+                for c in fp.columns
+                if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+            ),
+            None,
+        )
+        if len(geo) < 2 or value is None:
+            summary.append("IDW 插值失败：需要经纬度坐标 + 一个连续值变量。")
+        else:
+            sub = df[[geo[0], geo[1], value]].dropna()
+            coords = sub[[geo[0], geo[1]]].to_numpy(dtype=float)
+            v = sub[value].to_numpy(dtype=float)
+            n = len(v)
+            if n < 5:
+                summary.append("IDW 插值失败：有效样本不足（<5）。")
+            else:
+                power = 2.0
+                # leave-one-out cross-validation RMSE (honest accuracy estimate)
+                errs = []
+                for i in range(n):
+                    mask = np.arange(n) != i
+                    di = np.maximum(np.sqrt(((coords[i] - coords[mask]) ** 2).sum(1)), 1e-12)
+                    w = 1.0 / di**power
+                    errs.append((w * v[mask]).sum() / w.sum() - v[i])
+                rmse = float(np.sqrt(np.mean(np.asarray(errs) ** 2)))
+
+                lon_i = 1 if ("lon" in geo[1].lower() or "lng" in geo[1].lower()) else 0
+                lat_i = 1 - lon_i
+                pts = coords[:, [lon_i, lat_i]]  # (lon, lat)
+                G = 60
+                glon = np.linspace(pts[:, 0].min(), pts[:, 0].max(), G)
+                glat = np.linspace(pts[:, 1].min(), pts[:, 1].max(), G)
+                gx, gy = np.meshgrid(glon, glat)
+                gp = np.stack([gx.ravel(), gy.ravel()], axis=1)
+                dist = np.maximum(np.sqrt(((gp[:, None, :] - pts[None, :, :]) ** 2).sum(-1)), 1e-12)
+                wgrid = 1.0 / dist**power
+                surf = ((wgrid @ v) / wgrid.sum(axis=1)).reshape(G, G)
+
+                import pandas as pd
+
+                pd.DataFrame(
+                    {geo[lon_i]: gp[:, 0], geo[lat_i]: gp[:, 1], f"{value}_idw": surf.ravel().round(4)}
+                ).to_csv(d / "idw_surface.csv", index=False, encoding="utf-8")
+                files.append("idw_surface.csv")
+
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(6, 5))
+                    im = ax.imshow(
+                        surf, extent=[glon.min(), glon.max(), glat.min(), glat.max()],
+                        origin="lower", cmap="YlOrBr", aspect="auto",
+                    )
+                    ax.scatter(
+                        pts[:, 0], pts[:, 1], c=v, cmap="YlOrBr", s=22,
+                        edgecolor="#222222", linewidth=0.4,
+                    )
+                    fig.colorbar(im, label=value)
+                    ax.set_xlabel(geo[lon_i])
+                    ax.set_ylabel(geo[lat_i])
+                    ax.set_title(f"IDW interpolated surface — {value}")
+                    fig.tight_layout()
+                    fig.savefig(d / "idw_surface.png", dpi=150)
+                    plt.close(fig)
+                    files.append("idw_surface.png")
+                except Exception:
+                    pass
+
+                estimates["loo_rmse"] = round(rmse, 4)
+                estimates["power"] = power
+                estimates["n_points"] = float(n)
+                vrange = float(v.max() - v.min())
+                rel = f"（≈值域 {vrange:.3g} 的 {100*rmse/vrange:.1f}%）" if vrange > 0 else ""
+                summary.append(
+                    f"{entry.method} 完成：{value} 在 {n} 个采样点上插值为 {G}×{G} 栅格面，"
+                    f"留一交叉验证 RMSE={rmse:.4g}{rel}（幂={power:g}）"
+                )
+                code += [
+                    "import numpy as np  # Inverse Distance Weighting (power=2)",
+                    "# surf = sum(v_i / d_i^p) / sum(1/d_i^p); LOO-CV for RMSE",
+                ]
+
     elif entry.id == "nca":
         _excl = {fp.unit_col, fp.time_col}
         cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]

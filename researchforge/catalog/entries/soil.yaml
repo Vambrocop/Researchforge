@@ -1,0 +1,20 @@
+# Soil science catalog entries.
+
+- id: idw_interpolation
+  method: IDW spatial interpolation
+  domain: soil
+  family: spatial
+  goal: predict
+  description: Interpolate a measured variable (e.g. soil nutrient, pH, organic matter) across space from scattered sample points using inverse-distance weighting, with leave-one-out cross-validated RMSE.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 15
+  produces:
+    - interpolated surface map
+    - leave-one-out cross-validation RMSE
+  executor_ref: numpy
+  biases:
+    - smooths toward local sample mean — never predicts beyond the observed range
+    - sensitive to the power parameter and to clustered/uneven sampling
+    - euclidean distance on lat/lon approximates true geodesic distance
