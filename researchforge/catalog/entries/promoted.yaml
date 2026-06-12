@@ -134,3 +134,27 @@
   executor_ref: numpy
   biases:
   - sampling-effort dependence
+- id: beta_diversity
+  method: Beta diversity (Bray-Curtis dissimilarity)
+  domain: ecology
+  family: ecology
+  goal: describe
+  description: Pairwise Bray-Curtis dissimilarity between sites over a species-abundance
+    matrix.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 2
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: null
+    min_count_cols: 2
+  produces:
+  - site x site dissimilarity matrix
+  executor_ref: scipy
+  biases:
+  - sampling-effort dependence
+  - abundance weighting

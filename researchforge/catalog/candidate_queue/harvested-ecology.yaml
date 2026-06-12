@@ -1,0 +1,86 @@
+# Harvest: microbiome / community-ecology methods.
+# 来源: Orchestrating Microbiome Analysis (OMA) / biostatsquid (beta diversity, ordination, PERMANOVA).
+
+- entry:
+    id: beta_diversity
+    method: Beta diversity (Bray-Curtis dissimilarity)
+    domain: ecology
+    family: ecology
+    goal: describe
+    description: Pairwise Bray-Curtis dissimilarity between sites over a species-abundance matrix.
+    preconditions:
+      min_count_cols: 2
+      min_rows: 2
+    produces:
+      - site x site dissimilarity matrix
+    executor_ref: scipy
+    biases:
+      - sampling-effort dependence
+      - abundance weighting
+  source: "OMA / biostatsquid (microbiome beta diversity)"
+  status: ready
+  notes: "executor 已接(scipy braycurtis + 热图); 与 diversity_indices(alpha) 配套; Fable 自审(描述型, 低风险)"
+
+- entry:
+    id: hierarchical_clustering
+    method: Hierarchical clustering (Ward)
+    domain: machine learning
+    family: ml
+    goal: explore
+    description: Agglomerative clustering of samples over standardized continuous features, with a dendrogram.
+    preconditions:
+      min_continuous: 2
+      min_rows: 5
+    produces:
+      - cluster assignments
+      - dendrogram
+    executor_ref: scipy
+    biases:
+      - linkage choice
+      - scale sensitivity
+  source: "community ecology clustering practice"
+  status: pending
+  notes: "scipy.cluster.hierarchy (linkage + fcluster + dendrogram)"
+
+- entry:
+    id: nmds
+    method: Non-metric multidimensional scaling (NMDS)
+    domain: ecology
+    family: ecology
+    goal: explore
+    description: Ordinate sites into 2D preserving rank dissimilarities (community-ecology standard).
+    preconditions:
+      min_count_cols: 2
+      min_rows: 4
+    produces:
+      - 2D ordination coordinates
+      - stress
+    executor_ref: scikit-learn
+    biases:
+      - local minima / stress
+      - dimensionality choice
+  source: "OMA (NMDS ordination)"
+  status: pending
+  notes: "sklearn.manifold.MDS(metric=False) on Bray-Curtis distance"
+
+- entry:
+    id: permanova
+    method: PERMANOVA (group composition test)
+    domain: ecology
+    family: ecology
+    goal: explain
+    description: Permutation test of whether community composition differs between groups (distance-based).
+    preconditions:
+      min_count_cols: 2
+      requires_group: true
+      min_rows: 10
+    produces:
+      - pseudo-F
+      - p-value
+    executor_ref: numpy
+    biases:
+      - dispersion heterogeneity (check betadisper)
+      - unbalanced groups
+  source: "biostatsquid / OMA (PERMANOVA adonis2)"
+  status: pending
+  notes: "自实现 permutation pseudo-F on Bray-Curtis + 分组变量"
