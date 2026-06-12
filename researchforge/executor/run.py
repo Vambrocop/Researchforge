@@ -2264,6 +2264,84 @@ def run_analysis(
                     "# Gi* = (Wx - xbar*sum_w) / (S*sqrt((n*sum_w2 - sum_w^2)/(n-1)))",
                 ]
 
+    elif entry.id == "sem":
+        _excl = {fp.unit_col, fp.time_col}
+        indicators = [
+            c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl
+        ]
+        if len(indicators) < 3:
+            summary.append("SEM 失败：需要 ≥3 个连续指标变量（单因子模型识别要求）。")
+        else:
+            try:
+                import semopy
+
+                inds = indicators[:8]
+                sub = df[inds].dropna()
+                spec = "F =~ " + " + ".join(inds)
+                model = semopy.Model(spec)
+                model.fit(sub)
+                ins = model.inspect(std_est=True)  # include standardised loadings
+                (d / "summary.txt").write_text(str(ins), encoding="utf-8")
+                files.append("summary.txt")
+                load = ins[(ins["op"] == "~") & (ins["rval"] == "F")][
+                    ["lval", "Est. Std", "Estimate", "Std. Err", "p-value"]
+                ].copy()
+                load.columns = ["indicator", "std_loading", "loading", "std_err", "p_value"]
+                load.to_csv(d / "loadings.csv", index=False, encoding="utf-8")
+                files.append("loadings.csv")
+                stats = semopy.calc_stats(model)
+                cfi = float(stats["CFI"].iloc[0])
+                tli = float(stats["TLI"].iloc[0])
+                rmsea = float(stats["RMSEA"].iloc[0])
+                chi2 = float(stats["chi2"].iloc[0])
+                dof = float(stats["DoF"].iloc[0])
+                stats[["DoF", "chi2", "chi2 p-value", "CFI", "TLI", "RMSEA", "AIC", "BIC"]].to_csv(
+                    d / "fit_indices.csv", index=False, encoding="utf-8"
+                )
+                files.append("fit_indices.csv")
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(5, 3.2))
+                    ax.barh(load["indicator"], load["std_loading"], color="#4C72B0")
+                    ax.set_xlabel("standardised loading on F")
+                    ax.set_title("SEM single-factor loadings")
+                    fig.tight_layout()
+                    fig.savefig(d / "loadings.png", dpi=150)
+                    plt.close(fig)
+                    files.append("loadings.png")
+                except Exception:
+                    pass
+                estimates["cfi"] = round(cfi, 4)
+                estimates["tli"] = round(tli, 4)
+                estimates["rmsea"] = round(rmsea, 4)
+                estimates["chi2"] = round(chi2, 4)
+                estimates["dof"] = round(dof, 1)
+                if dof <= 0:
+                    # 3 indicators -> just-identified, df=0: CFI/RMSEA are perfect by
+                    # construction and say nothing about fit (Opus double-review catch).
+                    verdict = "恰好识别(df=0)，拟合指数无意义(CFI/RMSEA 必完美)；需 ≥4 指标才能评估拟合"
+                elif cfi >= 0.95 and rmsea <= 0.06:
+                    verdict = "拟合良好"
+                else:
+                    verdict = "拟合一般/欠佳"
+                summary.append(
+                    f"{entry.method} 完成：单因子 CFA over {len(inds)} 个指标（df={dof:.0f}）；"
+                    f"CFI={cfi:.3f} TLI={tli:.3f} RMSEA={rmsea:.3f} → {verdict}"
+                    "（此为探索性模板；请按你的理论结构改写 model spec 后重跑）"
+                )
+                code += [
+                    "import semopy",
+                    f'model = semopy.Model("{spec}")',
+                    f"model.fit(df[{inds!r}])",
+                    "print(model.inspect()); print(semopy.calc_stats(model))",
+                ]
+            except Exception as err:
+                summary.append(f"SEM 拟合失败：{err}")
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"

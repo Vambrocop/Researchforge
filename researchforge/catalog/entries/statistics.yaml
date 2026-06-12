@@ -17,6 +17,24 @@
     - perfect separation
     - omitted variable bias
 
+- id: sem
+  method: Structural equation modeling (single-factor CFA template)
+  domain: statistics
+  family: sem
+  goal: explain
+  description: Fit a confirmatory-factor / structural equation model. The engine auto-fits an exploratory single-latent-factor measurement model over the continuous variables as a starting template; edit the model spec to your hypothesized structure.
+  preconditions:
+    min_continuous: 3
+    min_rows: 50
+  produces:
+    - factor loadings
+    - fit indices (CFI / TLI / RMSEA)
+  executor_ref: semopy
+  biases:
+    - the single-factor template is exploratory, not your hypothesized model
+    - SEM requires a theory-driven structure; auto-spec is only a starting point
+    - fit indices are unreliable in small samples (n < ~100-200)
+
 - id: ordered_logit
   method: Ordered logistic regression (proportional odds)
   domain: statistics
