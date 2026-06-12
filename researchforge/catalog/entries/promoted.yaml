@@ -158,3 +158,28 @@
   biases:
   - sampling-effort dependence
   - abundance weighting
+- id: hierarchical_clustering
+  method: Hierarchical clustering (Ward)
+  domain: machine learning
+  family: ml
+  goal: explore
+  description: Agglomerative clustering of samples over standardized continuous features,
+    with a dendrogram.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 5
+    min_continuous: 2
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: null
+    min_count_cols: null
+  produces:
+  - cluster assignments
+  - dendrogram
+  executor_ref: scipy
+  biases:
+  - linkage choice
+  - scale sensitivity

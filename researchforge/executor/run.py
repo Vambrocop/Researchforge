@@ -983,6 +983,64 @@ def run_analysis(
                 "# 每行(样点): Shannon=-sum(p*ln p), Simpson=1-sum(p^2), richness=present species",
             ]
 
+    elif entry.id == "hierarchical_clustering":
+        features = [
+            c.name
+            for c in fp.columns
+            if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+        ]
+        X = df[features].dropna()
+        if len(features) < 2 or len(X) < 5:
+            summary.append("层次聚类跳过：连续特征不足或样本太少。")
+        else:
+            try:
+                import numpy as np
+                import pandas as pd
+                from scipy.cluster.hierarchy import cophenet, dendrogram, fcluster, linkage
+                from scipy.spatial.distance import pdist
+                from sklearn.preprocessing import StandardScaler
+
+                Xs = StandardScaler().fit_transform(X)
+                n = len(Xs)
+                k = max(2, min(4, n // 5))
+                Z = linkage(Xs, method="ward")
+                labels = fcluster(Z, t=k, criterion="maxclust")
+                pd.DataFrame({"row": X.index, "cluster": labels}).to_csv(
+                    d / "cluster_assignments.csv", index=False, encoding="utf-8"
+                )
+                files.append("cluster_assignments.csv")
+                coph, _ = cophenet(Z, pdist(Xs))
+
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(7, 4))
+                    dendrogram(Z, ax=ax, no_labels=(n > 30))
+                    ax.set_title(f"Hierarchical clustering (Ward, k={k})")
+                    fig.tight_layout()
+                    fig.savefig(d / "dendrogram.png", dpi=120)
+                    plt.close(fig)
+                    files.append("dendrogram.png")
+                except Exception:
+                    pass
+
+                estimates["n_clusters"] = float(len(set(labels)))
+                estimates["cophenetic_corr"] = round(float(coph), 4)
+                summary.append(
+                    f"{entry.method} 完成：{len(features)} 个特征 × {n} 个样本聚成 "
+                    f"{len(set(labels))} 类（cophenetic 相关={coph:.3f}）"
+                )
+                code += [
+                    "from scipy.cluster.hierarchy import linkage, fcluster",
+                    "Z = linkage(Xs, method='ward')",
+                    f"labels = fcluster(Z, t={k}, criterion='maxclust')",
+                ]
+            except Exception as err:
+                summary.append(f"层次聚类失败：{err}")
+
     elif entry.id == "beta_diversity":
         import numpy as np
         import pandas as pd

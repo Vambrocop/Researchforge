@@ -39,8 +39,8 @@
       - linkage choice
       - scale sensitivity
   source: "community ecology clustering practice"
-  status: pending
-  notes: "scipy.cluster.hierarchy (linkage + fcluster + dendrogram)"
+  status: ready
+  notes: "executor 已接(scipy Ward 层次聚类 + 树状图 + cophenetic); Fable 自审(探索型, 低风险)"
 
 - entry:
     id: nmds
