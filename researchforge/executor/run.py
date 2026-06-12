@@ -23,6 +23,7 @@ class RunResult(BaseModel):
     files: list[str] = Field(default_factory=list)
     report_path: str
     summary: str = ""
+    estimates: dict[str, float] = Field(default_factory=dict)
 
 
 def _run_dir(root: str, entry_id: str) -> Path:
@@ -134,6 +135,7 @@ def run_analysis(
     d = _run_dir(output_root, entry.id)
     files: list[str] = []
     summary: list[str] = []
+    estimates: dict[str, float] = {}
     code: list[str] = ["import pandas as pd", f"df = pd.read_csv(r'{fp.path}')", ""]
 
     if entry.id == "descriptive_stats":
@@ -160,6 +162,10 @@ def run_analysis(
         files.append("coefficients.csv")
         _coef_plot(model, rhs_vars, d / "coefficients.png")
         files.append("coefficients.png")
+        for v in rhs_vars:
+            kn = f"Q('{v}')"
+            if kn in model.params.index:
+                estimates[v] = float(model.params[kn])
         key = ""
         if rhs_vars:
             kname = f"Q('{rhs_vars[0]}')"
@@ -188,4 +194,5 @@ def run_analysis(
         files=files,
         report_path=str(d / "report.md"),
         summary="\n".join(summary),
+        estimates=estimates,
     )

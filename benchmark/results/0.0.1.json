@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "n_cases": 3,
+  "profile_accuracy": 1.0,
+  "recommendation_score": 1.0,
+  "recovery_pass_rate": 1.0,
+  "recovery_mae": 0.1618,
+  "details": [
+    {
+      "case": "treated_panel",
+      "profile_ok": true,
+      "rec_score": 1.0,
+      "recover_var": "treated",
+      "estimate": 2.2332,
+      "true": 2.0,
+      "error": 0.2332,
+      "passed": true
+    },
+    {
+      "case": "cross_section",
+      "profile_ok": true,
+      "rec_score": 1.0,
+      "recover_var": "x",
+      "estimate": 2.0904,
+      "true": 2.0,
+      "error": 0.0904,
+      "passed": true
+    },
+    {
+      "case": "untreated_panel",
+      "profile_ok": true,
+      "rec_score": 1.0
+    }
+  ]
+}

@@ -76,6 +76,18 @@ def _cmd_ingest() -> int:
     return 0
 
 
+def _cmd_benchmark() -> int:
+    from researchforge.benchmark import run_benchmark, save_report
+
+    rep = run_benchmark()
+    print(f"ResearchForge benchmark v{rep.version}（{rep.n_cases} 例）")
+    print(f"  画像准确率   ：{rep.profile_accuracy:.0%}")
+    print(f"  推荐命中分   ：{rep.recommendation_score:.0%}")
+    print(f"  估计回收通过 ：{rep.recovery_pass_rate:.0%}  (MAE={rep.recovery_mae})")
+    print(f"  已存档       ：{save_report(rep)}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8()
     parser = argparse.ArgumentParser(prog="researchforge")
@@ -87,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("path", help="path to a CSV/Excel file")
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
+    sub.add_parser("benchmark", help="score engine quality on known cases")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -98,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_run(args.path, args.analysis)
     if args.command == "ingest":
         return _cmd_ingest()
+    if args.command == "benchmark":
+        return _cmd_benchmark()
 
     parser.print_help()
     return 0
