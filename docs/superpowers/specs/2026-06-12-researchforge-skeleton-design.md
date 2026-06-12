@@ -156,6 +156,7 @@ ResearchForge 的创新性靠三个机制，分别接入不同位置：
 - 作物 / 农田模型（DSSAT、APSIM、AquaCrop）
 - 农业 / 区域经济模型（CGE、局部均衡、GTAP、投入产出）
 - 环境 / 生态系统模型（SWAT 流域、InVEST 生态系统服务、综合评估模型 IAM）
+- **系统动力学**（存量-流量仿真：PySD / BPTK-Py / Vensim）
 
 **数据模态（挂进 Profiler）**
 - 表格 CSV/Excel ✅（本期）
