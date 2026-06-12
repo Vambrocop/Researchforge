@@ -1,5 +1,24 @@
 # Configurational / necessity / qualitative-comparative methods.
 
+- id: fsqca
+  method: Fuzzy-set Qualitative Comparative Analysis (fsQCA)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Find configurations (combinations) of conditions that are sufficient for an outcome via fuzzy-set calibration, a truth table, and Boolean minimization (Ragin). Uses the gold-standard R QCA package; reports consistency and coverage. Captures equifinality and conjunctural causation that regression misses.
+  preconditions:
+    min_continuous: 3
+    min_rows: 12
+  produces:
+    - sufficient configurations (solution)
+    - consistency and coverage
+  executor_ref: QCA (R)
+  biases:
+    - results hinge on calibration anchors — the auto percentile anchors (crossover at the median is mechanical) are only a starting point; set them from theory
+    - reports the complex solution (no counterfactuals/remainders); parsimonious/intermediate may differ
+    - asymmetric causation — explaining Y is not explaining not-Y; sufficiency is not causal proof
+    - limited diversity / remainders; sensitive to the consistency cutoff
+
 - id: nca
   method: Necessary Condition Analysis (NCA)
   domain: social science

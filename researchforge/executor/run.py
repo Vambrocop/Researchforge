@@ -518,6 +518,63 @@ def _sem_via_semopy(sub, spec: str) -> dict:
     }
 
 
+def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
+    """Run fsQCA with R's QCA package: direct fuzzy calibration (percentile
+    anchors) -> truth table -> Boolean minimization. Returns (solution_str,
+    incl.cov DataFrame). Raises so the caller can report an honest message."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    cols_r = ", ".join(f'"{c}"' for c in [outcome, *conditions])
+    conds_r = ", ".join(f'"{c}"' for c in conditions)
+    rcode = (
+        "suppressMessages(library(QCA))\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f"cols <- c({cols_r})\n"
+        # skewed/discrete columns can tie the 0.1/0.5/0.9 quantiles; calibrate
+        # needs strictly increasing anchors, so nudge ties by a tiny epsilon.
+        "calib <- function(x) {\n"
+        "  thr <- as.numeric(quantile(x, c(0.1,0.5,0.9), na.rm=TRUE))\n"
+        "  rng <- diff(range(x, na.rm=TRUE)); eps <- if (rng>0) rng*1e-6 else 1e-6\n"
+        "  if (thr[2] <= thr[1]) thr[2] <- thr[1] + eps\n"
+        "  if (thr[3] <= thr[2]) thr[3] <- thr[2] + eps\n"
+        '  calibrate(x, type="fuzzy", thresholds=thr)\n'
+        "}\n"
+        "cal <- as.data.frame(lapply(d[, cols], calib))\n"
+        "names(cal) <- cols\n"
+        f'tt <- truthTable(cal, outcome="{outcome}", conditions=c({conds_r}), '
+        "incl.cut=0.8, show.cases=FALSE)\n"
+        "sol <- minimize(tt, details=TRUE)\n"
+        'cat("##SOL\\n"); cat(paste(sol$solution[[1]], collapse=" + "), "\\n")\n'
+        'cat("##IC\\n"); ic <- sol$IC$incl.cov\n'
+        'for (i in seq_len(nrow(ic))) cat(sprintf("%s|%.4f|%.4f|%.4f\\n", '
+        "rownames(ic)[i], ic$inclS[i], ic$covS[i], ic$covU[i]))\n"
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, sol_str, rows = None, "", []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##SOL":
+            section = "S"
+        elif s == "##IC":
+            section = "I"
+        elif section == "S" and s:
+            sol_str = s
+        elif section == "I" and "|" in s:
+            rows.append(s.split("|"))
+    if not sol_str or not rows:
+        raise RuntimeError("QCA 未返回充分配置（可能无解 / 有限多样性）")
+    tab = pd.DataFrame(
+        rows, columns=["configuration", "consistency", "raw_coverage", "unique_coverage"]
+    )
+    for c in ("consistency", "raw_coverage", "unique_coverage"):
+        # R prints NA (e.g. unique coverage of a single-term solution) -> NaN
+        tab[c] = pd.to_numeric(tab[c], errors="coerce")
+    return sol_str, tab
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -1971,6 +2028,67 @@ def run_analysis(
                     "import numpy as np  # NCA (Dul 2016), CE-FDH ceiling",
                     "# c(x)=max{y: x_i<=x}; d = empty_zone_area / scope_area per condition",
                 ]
+
+    elif entry.id == "fsqca":
+        import re
+
+        from researchforge.executor import rbridge
+
+        _excl = {fp.unit_col, fp.time_col}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        outcome = cont[0] if cont else None
+        conditions = cont[1:6]  # outcome=cont[0]; up to 5 conditions (truth table 2^k)
+        names_safe = outcome is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, *conditions]
+        )
+        if outcome is None or len(conditions) < 2:
+            summary.append("fsQCA 失败：需要 1 个结果变量 + ≥2 个条件变量（均连续）。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("QCA")):
+            summary.append(
+                "fsQCA 需要 R 的 QCA 包（未检测到）。安装：在 R 里 install.packages('QCA')；"
+                "或先用 NCA（必要条件分析，纯 Python，无需 R）。"
+            )
+        elif not names_safe:
+            summary.append("fsQCA 失败：列名需为标识符式（字母/数字/. _），R 后端要求。")
+        else:
+            sub = df[[outcome, *conditions]].dropna()
+            csv = d / "_qca_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                sol_str, tab = _fsqca_via_r(csv, outcome, conditions)
+                tab.to_csv(d / "fsqca_solution.csv", index=False, encoding="utf-8")
+                files.append("fsqca_solution.csv")
+                (d / "solution.txt").write_text(
+                    f"充分性解（complex solution，sufficient configurations） → {outcome}:\n"
+                    f"  {sol_str}\n\n"
+                    "直接校准(百分位锚点 0.1/0.5/0.9)，incl.cut=0.8；* = 逻辑与（AND）, + = 或（OR）\n"
+                    "说明：① 这是 complex 解（不纳入反事实/remainders，最保守）；"
+                    "② crossover 锚点取中位数是机械设定，偏态数据会失真，请按理论设锚点；"
+                    "③ fsQCA 显示集合关系上的充分性，不等于因果证明。\n\n"
+                    + tab.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("solution.txt")
+                estimates["n_configurations"] = float(len(tab))
+                estimates["min_consistency"] = round(float(tab["consistency"].min()), 4)
+                estimates["total_unique_coverage"] = round(float(tab["unique_coverage"].sum()), 4)
+                summary.append(
+                    f"{entry.method} 完成（R/QCA，complex 解）：充分配置 [{sol_str}] → {outcome}；"
+                    f"{len(tab)} 个配置，一致性 {tab['consistency'].min():.3f}–{tab['consistency'].max():.3f}"
+                    "（* =AND, + =OR；自动百分位校准+中位 crossover 为机械起点，请按理论设锚点；"
+                    "充分性≠因果证明）"
+                )
+                code += [
+                    "library(QCA)  # 直接校准 -> 真值表 -> 布尔最小化",
+                    f'# calibrate({[outcome, *conditions]}); truthTable(outcome="{outcome}"); minimize(incl.cut=0.8)',
+                ]
+            except Exception as err:
+                summary.append(f"fsQCA 失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
 
     elif entry.id == "rarefaction":
         import numpy as np
