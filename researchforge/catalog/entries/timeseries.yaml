@@ -1,0 +1,18 @@
+# Time-series catalog entries.
+
+- id: arima
+  method: ARIMA forecast
+  domain: time series
+  family: time-series
+  goal: predict
+  description: Fit an ARIMA model to a single time series and forecast future periods.
+  preconditions:
+    is_timeseries: true
+    min_rows: 30
+  produces:
+    - forecast
+    - model summary
+  executor_ref: statsmodels
+  biases:
+    - non-stationarity
+    - model-order misspecification

@@ -340,6 +340,76 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"随机森林执行失败：{err}")
 
+    elif entry.id == "arima":
+        time_col = fp.time_col
+        # value_col: forecast the first continuous column. Time columns are
+        # datetime/id/count kind (never continuous), so they are never picked here.
+        value_col = next((c.name for c in fp.columns if c.kind == "continuous"), None)
+
+        if time_col is None or value_col is None:
+            summary.append(
+                "ARIMA 失败：未找到时间列或连续值列，请检查数据结构。"
+            )
+        else:
+            try:
+                from statsmodels.tsa.arima.model import ARIMA
+
+                sorted_df = df.sort_values(time_col)
+                dup = int(sorted_df[time_col].duplicated().sum())
+                if dup:
+                    sorted_df = sorted_df.drop_duplicates(subset=time_col, keep="first")
+                    summary.append(f"注意：{dup} 个重复时间点已去重（保留首次）。")
+                y = sorted_df[value_col].astype(float).reset_index(drop=True)
+                if y.nunique() < 2 or len(y) < 10:
+                    raise ValueError(f"序列有效观测不足或近常数（n={len(y)}），无法拟合 ARIMA")
+
+                model = ARIMA(y, order=(1, 1, 1)).fit()
+
+                (d / "model_summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                files.append("model_summary.txt")
+
+                steps = 10
+                fc = model.forecast(steps=steps)
+                import pandas as _pd
+                fc_df = _pd.DataFrame({"step": list(range(1, steps + 1)), "forecast": fc.tolist()})
+                fc_df.to_csv(d / "forecast.csv", index=False, encoding="utf-8")
+                files.append("forecast.csv")
+
+                try:
+                    import matplotlib
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(8, 4))
+                    ax.plot(range(len(y)), y, label="observed")
+                    fc_x = list(range(len(y), len(y) + steps))
+                    ax.plot(fc_x, fc.tolist(), color="red", linestyle="--", label="forecast")
+                    ax.set_xlabel("period index")
+                    ax.set_ylabel(value_col)
+                    ax.set_title(f"ARIMA(1,1,1) — {value_col}")
+                    ax.legend()
+                    fig.tight_layout()
+                    fig.savefig(d / "forecast.png", dpi=120)
+                    plt.close(fig)
+                    files.append("forecast.png")
+                except Exception:
+                    pass
+
+                estimates["aic"] = float(model.aic)
+                summary.append(
+                    f"{entry.method} 完成：对 {value_col} 拟合 ARIMA(1,1,1)，"
+                    f"AIC={model.aic:.2f}，预测未来 {steps} 期"
+                )
+                code += [
+                    "from statsmodels.tsa.arima.model import ARIMA",
+                    f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
+                    "model = ARIMA(y, order=(1, 1, 1)).fit()",
+                    "print(model.summary())",
+                    f"fc = model.forecast(steps={steps})",
+                ]
+            except Exception as err:
+                summary.append(f"ARIMA 拟合失败：{err}")
+
     elif entry.id == "logistic_regression":
         import statsmodels.formula.api as smf
 

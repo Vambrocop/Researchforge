@@ -8,6 +8,25 @@ import numpy as np
 import pandas as pd
 
 
+def make_timeseries(
+    n_periods: int = 60,
+    start: str = "2015-01-01",
+    seed: int = 0,
+) -> pd.DataFrame:
+    """A univariate monthly time series with trend + AR(1) noise.
+
+    Returns a DataFrame with columns ['date', 'value']: monthly dates
+    via pd.date_range and a realistic AR(1)+trend series. No unit column."""
+    rng = np.random.default_rng(seed)
+    e = rng.normal(0, 1, n_periods)
+    v = np.zeros(n_periods)
+    for t in range(1, n_periods):
+        v[t] = 0.6 * v[t - 1] + e[t]
+    value = 50 + 0.3 * np.arange(n_periods) + v
+    dates = pd.date_range(start, periods=n_periods, freq="MS")
+    return pd.DataFrame({"date": dates, "value": value})
+
+
 def make_panel(
     n_units: int = 6,
     n_periods: int = 6,
