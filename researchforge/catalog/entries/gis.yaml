@@ -19,3 +19,23 @@
     - result depends on the spatial weights definition (k, distance metric)
     - euclidean distance on lat/lon approximates true geodesic neighbours
     - non-stationarity and edge effects
+
+- id: getis_ord_gi
+  method: Getis-Ord Gi* (hotspot analysis)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: Locate statistically significant spatial clusters of high values (hotspots) and low values (coldspots) with the Getis-Ord Gi* local z-score and k-nearest-neighbour weights.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - Gi* z-score per location
+    - hotspot/coldspot classification
+    - hotspot map
+  executor_ref: numpy
+  biases:
+    - z-scores not corrected for multiple testing (FDR inflates apparent hotspots)
+    - result depends on the spatial weights definition (k, distance metric)
+    - euclidean distance on lat/lon approximates true geodesic neighbours

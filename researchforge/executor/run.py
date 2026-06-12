@@ -1877,6 +1877,100 @@ def run_analysis(
                     "# I = (n/W) * z'Wz / z'z ; permutation p over 999 shuffles of z",
                 ]
 
+    elif entry.id == "getis_ord_gi":
+        import numpy as np
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        value = next(
+            (
+                c.name
+                for c in fp.columns
+                if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+            ),
+            None,
+        )
+        if len(geo) < 2 or value is None:
+            summary.append("Getis-Ord Gi* 失败：需要经纬度坐标 + 一个连续值变量。")
+        else:
+            sub = df[[geo[0], geo[1], value]].dropna()
+            coords = sub[[geo[0], geo[1]]].to_numpy(dtype=float)
+            x = sub[value].to_numpy(dtype=float)
+            n = len(x)
+            xbar = x.mean()
+            S = float(np.sqrt((x**2).mean() - xbar**2))
+            if n < 10 or S == 0:
+                summary.append("Getis-Ord Gi* 失败：样本不足（<10）或值变量为常数。")
+            else:
+                # k+1 (neighbours + self) must stay < n, else the Gi* variance term
+                # n·Σw² − (Σw)² collapses to 0 (every point a neighbour of every
+                # point → no spatial contrast); n-2 keeps it strictly positive.
+                k = min(8, n - 2)
+                d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
+                np.fill_diagonal(d2, np.inf)
+                nn = np.argsort(d2, axis=1)[:, :k]
+                W = np.zeros((n, n))
+                W[np.repeat(np.arange(n), k), nn.ravel()] = 1.0
+                np.fill_diagonal(W, 1.0)  # Gi* (star) includes the focal point
+                Wsum = W.sum(axis=1)
+                Wsq = (W**2).sum(axis=1)
+                num = W @ x - xbar * Wsum
+                den = S * np.sqrt((n * Wsq - Wsum**2) / (n - 1))
+                gi = num / den  # asymptotically standard-normal z-score per location
+                hot, cold = gi > 1.96, gi < -1.96
+
+                import pandas as pd
+
+                pd.DataFrame(
+                    {
+                        geo[0]: coords[:, 0],
+                        geo[1]: coords[:, 1],
+                        value: x,
+                        "gi_star": np.round(gi, 4),
+                        "class": np.where(hot, "hotspot", np.where(cold, "coldspot", "ns")),
+                    }
+                ).to_csv(d / "getis_ord.csv", index=False, encoding="utf-8")
+                files.append("getis_ord.csv")
+
+                # map orientation: longitude on x, latitude on y when detectable
+                lon_i = 1 if ("lon" in geo[1].lower() or "lng" in geo[1].lower()) else 0
+                lat_i = 1 - lon_i
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(6, 5))
+                    sc = ax.scatter(
+                        coords[:, lon_i], coords[:, lat_i], c=gi, cmap="RdBu_r",
+                        vmin=-3, vmax=3, s=28, edgecolor="#444444", linewidth=0.3,
+                    )
+                    fig.colorbar(sc, label="Gi* z-score")
+                    ax.set_xlabel(geo[lon_i])
+                    ax.set_ylabel(geo[lat_i])
+                    ax.set_title(f"Getis-Ord Gi* hotspots — {value}")
+                    fig.tight_layout()
+                    fig.savefig(d / "hotspot_map.png", dpi=150)
+                    plt.close(fig)
+                    files.append("hotspot_map.png")
+                except Exception:
+                    pass
+
+                estimates["n_hotspots"] = float(int(hot.sum()))
+                estimates["n_coldspots"] = float(int(cold.sum()))
+                estimates["max_gi"] = round(float(gi.max()), 4)
+                estimates["min_gi"] = round(float(gi.min()), 4)
+                summary.append(
+                    f"{entry.method} 完成：变量 {value}，{int(hot.sum())} 个热点 / "
+                    f"{int(cold.sum())} 个冷点（|Gi*|>1.96，k-NN={k}）；"
+                    "Gi* 为每点 z 分数，正=高值聚集、负=低值聚集"
+                )
+                code += [
+                    "import numpy as np  # Getis-Ord Gi* (star, includes focal point)",
+                    f"# coords={geo}, value='{value}', k={k}, binary kNN+self weights",
+                    "# Gi* = (Wx - xbar*sum_w) / (S*sqrt((n*sum_w2 - sum_w^2)/(n-1)))",
+                ]
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"
