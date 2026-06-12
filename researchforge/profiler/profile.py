@@ -13,7 +13,7 @@ from researchforge.profiler.types import infer_kind
 _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day", "week"}
 
 
-def _read_table(path: Path) -> pd.DataFrame:
+def read_table(path: Path) -> pd.DataFrame:
     if path.suffix.lower() in {".xlsx", ".xls"}:
         return pd.read_excel(path)
     return pd.read_csv(path)
@@ -21,7 +21,7 @@ def _read_table(path: Path) -> pd.DataFrame:
 
 def profile_dataset(path: str | Path) -> DataFingerprint:
     path = Path(path)
-    df = _read_table(path)
+    df = read_table(path)
 
     columns = [
         ColumnInfo(

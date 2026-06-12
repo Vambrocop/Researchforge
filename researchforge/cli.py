@@ -43,6 +43,25 @@ def _cmd_recommend(path: str) -> int:
     return 0
 
 
+def _cmd_run(path: str, analysis_id: str) -> int:
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+
+    fp = profile_dataset(path)
+    entry = Catalog.load().by_id(analysis_id)
+    if entry is None:
+        print(f"未知分析 id：{analysis_id}")
+        return 1
+    res = run_analysis(fp, entry)
+    print(f"已执行：{res.method}")
+    print(f"摘要：{res.summary}")
+    print(f"产物目录：{res.output_dir}")
+    for f in res.files:
+        print(f"  - {f}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8()
     parser = argparse.ArgumentParser(prog="researchforge")
@@ -50,6 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command")
     rec = sub.add_parser("recommend", help="profile data and list feasible analyses")
     rec.add_argument("path", help="path to a CSV/Excel file")
+    run_p = sub.add_parser("run", help="run a chosen analysis and save outputs")
+    run_p.add_argument("path", help="path to a CSV/Excel file")
+    run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -57,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "recommend":
         return _cmd_recommend(args.path)
+    if args.command == "run":
+        return _cmd_run(args.path, args.analysis)
 
     parser.print_help()
     return 0
