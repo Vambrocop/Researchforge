@@ -17,6 +17,24 @@
     - perfect separation
     - omitted variable bias
 
+- id: quantile_regression
+  method: Quantile regression
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Regress conditional quantiles (median + tails) of a continuous outcome on covariates; robust to heteroskedasticity and outliers, reveals effects that differ across the outcome distribution.
+  preconditions:
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - quantile coefficient table (tau=0.25/0.50/0.75)
+    - median coefficient plot
+  executor_ref: empirical-analysis-python
+  biases:
+    - quantile fits are independent across tau — no monotonicity/crossing correction
+    - standard errors depend on kernel bandwidth (sparsity); unstable in small-n tails
+    - extrapolation beyond data range
+
 - id: group_comparison
   method: Group comparison (t-test / ANOVA)
   domain: statistics

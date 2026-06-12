@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git --no-pager grep -n \"# compute\" -- researchforge/executor/run.py)",
-      "Bash(git --no-pager grep -n \"code += \\\\[\" -- researchforge/executor/run.py)"
+      "Bash(git --no-pager grep -n \"code += \\\\[\" -- researchforge/executor/run.py)",
+      "Bash(powershell -NoProfile -Command 'if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\''\\) { \\(Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' -Raw\\) -match '\\\\''\"model\"'\\\\'' | Out-Null; Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' | Select-String -Pattern '\\\\''model'\\\\'' }; Write-Output '\\\\''--- user ~/.claude/settings.json ---'\\\\''; if \\(Test-Path $env:USERPROFILE'\\\\''/.claude/settings.json'\\\\''\\) { Get-Content \\($env:USERPROFILE + '\\\\''/.claude/settings.json'\\\\''\\) } else { Write-Output '\\\\''\\(no user settings.json\\)'\\\\'' }; Write-Output '\\\\''--- local settings ---'\\\\''; if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\''\\) { Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\'' } else { Write-Output '\\\\''\\(no settings.local.json\\)'\\\\'' }')"
     ]
   },
   "hooks": {
