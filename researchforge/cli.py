@@ -88,6 +88,31 @@ def _cmd_benchmark() -> int:
     return 0
 
 
+def _cmd_candidates() -> int:
+    from researchforge.catalog.candidates import load_candidates
+
+    cands = load_candidates()
+    if not cands:
+        print("候选队列为空。")
+        return 0
+    print(f"候选 {len(cands)} 条：")
+    for c in cands:
+        print(f"  - [{c.status}] {c.entry.id}（{c.entry.family}）— 来源:{c.source or '—'}")
+    return 0
+
+
+def _cmd_promote(candidate_id: str) -> int:
+    from researchforge.catalog.candidates import promote_candidate
+
+    try:
+        entry = promote_candidate(candidate_id)
+        print(f"已提升进正式 catalog：{entry.id}（{entry.method}）")
+        return 0
+    except Exception as err:
+        print(f"提升失败：{err}")
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8()
     parser = argparse.ArgumentParser(prog="researchforge")
@@ -100,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
     sub.add_parser("benchmark", help="score engine quality on known cases")
+    sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
+    promo = sub.add_parser("promote", help="promote a ready candidate into the live catalog")
+    promo.add_argument("candidate_id", help="candidate analysis id")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -113,6 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_ingest()
     if args.command == "benchmark":
         return _cmd_benchmark()
+    if args.command == "candidates":
+        return _cmd_candidates()
+    if args.command == "promote":
+        return _cmd_promote(args.candidate_id)
 
     parser.print_help()
     return 0
