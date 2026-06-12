@@ -341,6 +341,57 @@ def _silhouette_plot(X, labels, path: Path) -> None:
         pass
 
 
+def _plotly_corr_heatmap(corr, path: Path) -> None:
+    """Interactive correlation heatmap (hover for exact r, zoomable). Best-effort
+    so a missing plotly never breaks the run; the static PNG is always produced."""
+    try:
+        import plotly.graph_objects as go
+
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=corr.values,
+                x=list(corr.columns),
+                y=list(corr.index),
+                zmin=-1,
+                zmax=1,
+                colorscale="RdBu",
+                reversescale=True,
+                colorbar=dict(title="r"),
+                hovertemplate="%{y} – %{x}<br>r = %{z:.3f}<extra></extra>",
+            )
+        )
+        fig.update_layout(
+            title="Correlation (interactive)",
+            width=640,
+            height=560,
+            template="plotly_white",
+        )
+        fig.write_html(str(path), include_plotlyjs="cdn", full_html=True)
+    except Exception:
+        pass
+
+
+def _plotly_scatter(coords, labels, path: Path, title: str, xlab: str, ylab: str) -> None:
+    """Interactive 2D scatter colored by group (zoom / pan / hover point index)."""
+    try:
+        import numpy as np
+        import pandas as pd
+        import plotly.express as px
+
+        coords = np.asarray(coords)
+        y = coords[:, 1] if coords.shape[1] > 1 else np.zeros(len(coords))
+        data = pd.DataFrame(
+            {xlab: coords[:, 0], ylab: y, "group": [str(v) for v in labels], "point": range(len(coords))}
+        )
+        fig = px.scatter(
+            data, x=xlab, y=ylab, color="group", hover_data=["point"], title=title, template="plotly_white"
+        )
+        fig.update_layout(width=660, height=520)
+        fig.write_html(str(path), include_plotlyjs="cdn", full_html=True)
+    except Exception:
+        pass
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -388,6 +439,9 @@ def run_analysis(
         files.append("correlation.csv")
         _heatmap(corr, d / "correlation_heatmap.png")
         files.append("correlation_heatmap.png")
+        _plotly_corr_heatmap(corr, d / "correlation_heatmap.html")
+        if (d / "correlation_heatmap.html").exists():
+            files.append("correlation_heatmap.html")
         summary.append(f"相关分析完成：{num.shape[1]} 个数值变量")
         code += ["num = df.select_dtypes(include='number')", "num.corr().to_csv('correlation.csv')"]
 
@@ -759,6 +813,13 @@ def run_analysis(
                         fig.savefig(d / "pca_scatter.png", dpi=150)
                         plt.close(fig)
                         files.append("pca_scatter.png")
+                        _plotly_scatter(
+                            pca_coords, labels, d / "cluster_scatter.html",
+                            f"K-means (k={k}) — interactive", "PC1",
+                            "PC2" if n_components == 2 else "",
+                        )
+                        if (d / "cluster_scatter.html").exists():
+                            files.append("cluster_scatter.html")
                     except Exception:
                         pass
 

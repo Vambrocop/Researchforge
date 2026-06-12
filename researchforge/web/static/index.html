@@ -28,6 +28,8 @@
   pre { background: #f1f3f5; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; max-height: 400px; }
   .file-links a { display: inline-block; margin: 0.2rem 0.4rem 0.2rem 0; font-size: 0.85rem; color: #0d6efd; text-decoration: none; }
   .file-links a:hover { text-decoration: underline; }
+  .file-links a.interactive-link { background: #e7f1ff; border: 1px solid #0d6efd; border-radius: 4px; padding: 0.25rem 0.6rem; font-weight: 600; }
+  .file-links a.interactive-link:hover { background: #0d6efd; color: #fff; text-decoration: none; }
   .error { color: #dc3545; font-size: 0.9rem; margin-top: 0.5rem; }
   #error { background: #fff3f3; border: 1px solid #f5c6cb; border-radius: 4px; padding: 0.5rem 0.8rem; margin-top: 0.6rem; color: #842029; font-size: 0.9rem; display: none; }
   .spinner { display: none; color: #6c757d; font-size: 0.85rem; margin-left: 0.5rem; }
@@ -420,6 +422,9 @@ function renderResult(data) {
       const url = `/outputs/${encodeURIComponent(outDirBase)}/${encodeURIComponent(f)}`;
       if (f.toLowerCase().endsWith('.png')) {
         return `<div><img src="${url}" class="inline-fig" alt="${escHtml(f)}"><div style="font-size:0.8rem;color:#6c757d">${escHtml(f)}</div></div>`;
+      }
+      if (f.toLowerCase().endsWith('.html')) {
+        return `<a href="${url}" target="_blank" class="interactive-link">🔍 ${escHtml(f)}（交互版）</a>`;
       }
       return `<a href="${url}" target="_blank">${escHtml(f)}</a>`;
     }).join('');
