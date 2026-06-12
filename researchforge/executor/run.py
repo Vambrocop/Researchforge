@@ -1098,6 +1098,75 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"Beta 多样性失败：{err}")
 
+    elif entry.id == "nmds":
+        species = [
+            c.name
+            for c in fp.columns
+            if c.kind == "count" and c.name not in {fp.unit_col, fp.time_col}
+        ]
+        if len(species) < 2 or len(df) < 4:
+            summary.append("NMDS 跳过：需要 ≥2 个计数列（物种丰度）与 ≥4 个样点。")
+        else:
+            try:
+                import numpy as np
+                import pandas as pd
+                from scipy.spatial.distance import pdist, squareform
+                from sklearn.manifold import MDS
+
+                mat = df[species].fillna(0).clip(lower=0).astype(float)
+                mat = mat[mat.sum(axis=1) > 0]  # Bray-Curtis undefined for empty sites
+                if len(mat) < 4:
+                    summary.append("NMDS 跳过：有效（非空）样点不足 4 个。")
+                else:
+                    dist = squareform(pdist(mat.values, metric="braycurtis"))
+                    mds = MDS(
+                        n_components=2,
+                        metric=False,
+                        dissimilarity="precomputed",
+                        random_state=0,
+                        n_init=4,
+                        max_iter=300,
+                    )
+                    coords = mds.fit_transform(dist)
+                    labels = [f"site{i + 1}" for i in range(len(mat))]
+                    pd.DataFrame(
+                        np.round(coords, 4), index=labels, columns=["NMDS1", "NMDS2"]
+                    ).to_csv(d / "nmds_coords.csv", encoding="utf-8")
+                    files.append("nmds_coords.csv")
+                    estimates["stress"] = round(float(mds.stress_), 4)
+                    estimates["n_sites"] = float(len(mat))
+
+                    try:
+                        import matplotlib
+
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        fig, ax = plt.subplots(figsize=(5, 5))
+                        ax.scatter(coords[:, 0], coords[:, 1], s=25)
+                        ax.set_xlabel("NMDS1")
+                        ax.set_ylabel("NMDS2")
+                        ax.set_title(f"NMDS ordination (stress={mds.stress_:.3f})")
+                        fig.tight_layout()
+                        fig.savefig(d / "nmds_ordination.png", dpi=120)
+                        plt.close(fig)
+                        files.append("nmds_ordination.png")
+                    except Exception:
+                        pass
+
+                    summary.append(
+                        f"{entry.method} 完成：{len(species)} 物种 × {len(mat)} 样点 → 2D 排序，"
+                        f"stress={mds.stress_:.4f}"
+                    )
+                    code += [
+                        "from sklearn.manifold import MDS",
+                        "from scipy.spatial.distance import pdist, squareform",
+                        "dist = squareform(pdist(mat.values, metric='braycurtis'))",
+                        "coords = MDS(n_components=2, metric=False, dissimilarity='precomputed').fit_transform(dist)",
+                    ]
+            except Exception as err:
+                summary.append(f"NMDS 失败：{err}")
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"

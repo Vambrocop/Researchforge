@@ -60,8 +60,8 @@
       - local minima / stress
       - dimensionality choice
   source: "OMA (NMDS ordination)"
-  status: pending
-  notes: "sklearn.manifold.MDS(metric=False) on Bray-Curtis distance"
+  status: ready
+  notes: "executor 已接(sklearn MDS metric=False on Bray-Curtis + 排序图); Fable 自审(探索型, 低风险)"
 
 - entry:
     id: permanova

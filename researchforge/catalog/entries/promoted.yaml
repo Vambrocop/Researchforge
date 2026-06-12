@@ -183,3 +183,28 @@
   biases:
   - linkage choice
   - scale sensitivity
+- id: nmds
+  method: Non-metric multidimensional scaling (NMDS)
+  domain: ecology
+  family: ecology
+  goal: explore
+  description: Ordinate sites into 2D preserving rank dissimilarities (community-ecology
+    standard).
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 4
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: null
+    min_count_cols: 2
+  produces:
+  - 2D ordination coordinates
+  - stress
+  executor_ref: scikit-learn
+  biases:
+  - local minima / stress
+  - dimensionality choice
