@@ -24,5 +24,7 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
         if n_cont < pre.min_continuous:
             unmet.append(f"需要 ≥ {pre.min_continuous} 个连续变量（现有 {n_cont}）")
+    if pre.requires_binary_outcome and not any(c.kind == "binary" for c in fp.columns):
+        unmet.append("需要二值结果变量")
 
     return (len(unmet) == 0, unmet)

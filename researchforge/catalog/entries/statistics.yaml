@@ -1,0 +1,18 @@
+# Statistics catalog entries — non-econometric statistical analyses.
+
+- id: logistic_regression
+  method: Logistic regression
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Logistic regression of a binary outcome on covariates.
+  preconditions:
+    requires_binary_outcome: true
+    min_rows: 30
+  produces:
+    - regression table
+    - odds ratios
+  executor_ref: empirical-analysis-python
+  biases:
+    - perfect separation
+    - omitted variable bias

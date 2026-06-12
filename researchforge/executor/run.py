@@ -178,6 +178,50 @@ def run_analysis(
             "print(model.summary())",
         ]
 
+    elif entry.id == "logistic_regression":
+        import statsmodels.formula.api as smf
+
+        # identify outcome (first binary column) and predictors
+        binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
+        outcome = binary_cols[0] if binary_cols else None
+        exclude = {outcome, fp.unit_col, fp.time_col}
+        predictors = [
+            c.name
+            for c in fp.columns
+            if c.kind in {"continuous", "count"} and c.name not in exclude
+        ][:5]
+
+        if outcome is None:
+            summary.append("逻辑回归失败：未找到二值结果变量。")
+        else:
+            rhs = [f"Q('{v}')" for v in predictors]
+            formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
+            try:
+                model = smf.logit(formula, data=df).fit(disp=False)
+                (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                files.append("summary.txt")
+                model.summary2().tables[1].to_csv(d / "coefficients.csv", encoding="utf-8")
+                files.append("coefficients.csv")
+                _coef_plot(model, predictors, d / "coefficients.png")
+                files.append("coefficients.png")
+                for v in predictors:
+                    kn = f"Q('{v}')"
+                    if kn in model.params.index:
+                        estimates[v] = float(model.params[kn])
+                key = ""
+                if predictors:
+                    kname = f"Q('{predictors[0]}')"
+                    if kname in model.params.index:
+                        key = f"，关键系数 {predictors[0]} = {model.params[kname]:.4f} (p={model.pvalues[kname]:.3g})"
+                summary.append(f"{entry.method} 完成：结果变量 {outcome}{key}")
+                code += [
+                    "import statsmodels.formula.api as smf",
+                    f'model = smf.logit("{formula}", data=df).fit(disp=False)',
+                    "print(model.summary())",
+                ]
+            except Exception as err:
+                summary.append(f"逻辑回归未收敛/失败：{err}")
+
     else:
         summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")
 
