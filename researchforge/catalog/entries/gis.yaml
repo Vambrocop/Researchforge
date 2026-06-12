@@ -1,0 +1,21 @@
+# GIS / spatial catalog entries.
+
+- id: moran_i
+  method: Moran's I (spatial autocorrelation)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: Test whether a variable is spatially clustered (nearby locations hold similar values) via Moran's I with k-nearest-neighbour, row-standardised weights and a permutation test.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - Moran's I statistic
+    - permutation p-value
+    - Moran scatterplot
+  executor_ref: numpy
+  biases:
+    - result depends on the spatial weights definition (k, distance metric)
+    - euclidean distance on lat/lon approximates true geodesic neighbours
+    - non-stationarity and edge effects

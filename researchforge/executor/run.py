@@ -1702,6 +1702,94 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"PERMANOVA 失败：{err}")
 
+    elif entry.id == "moran_i":
+        import numpy as np
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        value = next(
+            (
+                c.name
+                for c in fp.columns
+                if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+            ),
+            None,
+        )
+        if len(geo) < 2 or value is None:
+            summary.append("Moran's I 失败：需要经纬度坐标 + 一个连续值变量。")
+        else:
+            sub = df[[geo[0], geo[1], value]].dropna()
+            coords = sub[[geo[0], geo[1]]].to_numpy(dtype=float)
+            x = sub[value].to_numpy(dtype=float)
+            n = len(x)
+            if n < 10:
+                summary.append("Moran's I 失败：有效样本不足（<10）。")
+            else:
+                k = min(8, n - 1)
+                # pairwise squared euclidean distance on (lat, lon); fine for
+                # ranking k nearest neighbours at moderate spatial extents.
+                d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
+                np.fill_diagonal(d2, np.inf)
+                nn = np.argsort(d2, axis=1)[:, :k]
+                W = np.zeros((n, n))
+                W[np.repeat(np.arange(n), k), nn.ravel()] = 1.0 / k  # row-standardised
+                z = x - x.mean()
+                den = float((z**2).sum())
+                Wsum = float(W.sum())
+
+                def morans(zv):
+                    return (n / Wsum) * float(zv @ (W @ zv)) / den
+
+                moran = morans(z)
+                expected = -1.0 / (n - 1)
+                rng = np.random.default_rng(0)
+                perm = np.array([morans(rng.permutation(z)) for _ in range(999)])
+                p = (int(np.sum(np.abs(perm - expected) >= abs(moran - expected))) + 1) / 1000.0
+
+                lag = W @ z  # spatial lag of standardised value
+                (d / "moran.txt").write_text(
+                    f"Moran's I = {moran:.4f}\nExpected (no autocorr) = {expected:.4f}\n"
+                    f"permutation p = {p:.4f} (999 perms)\nn = {n}, k-NN = {k}\n",
+                    encoding="utf-8",
+                )
+                files.append("moran.txt")
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fig, ax = plt.subplots(figsize=(5, 5))
+                    ax.scatter(z, lag, s=16, alpha=0.6, edgecolor="none")
+                    # Moran scatterplot slope is Moran's I
+                    xs = np.array([z.min(), z.max()])
+                    ax.plot(xs, moran * xs, color="#C44E52", lw=1.4, label=f"slope = I = {moran:.3f}")
+                    ax.axhline(0, color="grey", ls="--", lw=0.7)
+                    ax.axvline(0, color="grey", ls="--", lw=0.7)
+                    ax.set_xlabel(f"{value} (standardised)")
+                    ax.set_ylabel("spatial lag (W·z)")
+                    ax.set_title("Moran scatterplot")
+                    ax.legend(fontsize=8)
+                    fig.tight_layout()
+                    fig.savefig(d / "moran_scatter.png", dpi=150)
+                    plt.close(fig)
+                    files.append("moran_scatter.png")
+                except Exception:
+                    pass
+
+                estimates["moran_i"] = round(moran, 4)
+                estimates["p_value"] = round(p, 4)
+                estimates["expected_i"] = round(expected, 4)
+                verdict = "显著空间聚集" if (p < 0.05 and moran > expected) else "无显著空间自相关"
+                summary.append(
+                    f"{entry.method} 完成：变量 {value}，Moran's I={moran:.4f}"
+                    f"（期望 {expected:.4f}），p={p:.4f}（999 置换，k-NN={k}）→ {verdict}"
+                )
+                code += [
+                    "import numpy as np  # Moran's I with k-NN row-standardised weights",
+                    f"# coords={geo}, value='{value}', k={k}",
+                    "# I = (n/W) * z'Wz / z'z ; permutation p over 999 shuffles of z",
+                ]
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"

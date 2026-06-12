@@ -43,5 +43,9 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         for c in fp.columns
     ):
         unmet.append("需要有序结果变量（3–10 个有序等级，如 Likert 量表）")
+    if pre.requires_geo:
+        n_geo = sum(1 for c in fp.columns if c.kind == "geo")
+        if n_geo < 2:
+            unmet.append(f"需要经纬度坐标（≥2 个地理列，现有 {n_geo}）")
 
     return (len(unmet) == 0, unmet)
