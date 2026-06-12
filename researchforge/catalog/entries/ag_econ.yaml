@@ -1,0 +1,99 @@
+# Initial agricultural-economics / statistics catalog entries (day-1 core).
+# Each maps a feasible analysis to its data preconditions, outputs, executor, biases.
+
+- id: descriptive_stats
+  method: Descriptive statistics & Table 1
+  domain: economics
+  family: statistics
+  goal: describe
+  description: Summary statistics, distributions, and a descriptive/balance table.
+  preconditions:
+    min_rows: 1
+  produces:
+    - Table 1 (descriptives)
+  executor_ref: empirical-analysis-python
+  biases: []
+
+- id: correlation
+  method: Correlation analysis
+  domain: economics
+  family: statistics
+  goal: describe
+  description: Pairwise Pearson/Spearman correlations among continuous variables.
+  preconditions:
+    min_continuous: 2
+    min_rows: 5
+  produces:
+    - correlation matrix
+  executor_ref: empirical-analysis-python
+  biases:
+    - correlation is not causation
+
+- id: ols_regression
+  method: OLS regression
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: Linear regression of an outcome on covariates, with diagnostics.
+  preconditions:
+    min_rows: 10
+    min_continuous: 1
+  produces:
+    - regression table
+    - coefficient plot
+  executor_ref: empirical-analysis-python
+  biases:
+    - omitted variable bias
+    - heteroskedasticity
+
+- id: panel_fixed_effects
+  method: Panel two-way fixed effects
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: Unit and time fixed-effects regression for panel data.
+  preconditions:
+    is_panel: true
+    min_rows: 20
+  produces:
+    - fixed-effects regression table
+  executor_ref: empirical-analysis-python
+  biases:
+    - time-varying confounders
+    - serial correlation
+
+- id: did
+  method: Difference-in-differences / event study
+  domain: economics
+  family: causal
+  goal: explain
+  description: Exploit a treatment that switches on over time across units.
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    requires_time: true
+    min_rows: 20
+  produces:
+    - DID estimate
+    - event-study plot
+  executor_ref: empirical-analysis-python
+  biases:
+    - parallel-trends violation
+    - anticipation effects
+
+- id: iv_regression
+  method: Instrumental variables (2SLS)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Two-stage least squares to address endogeneity using an instrument.
+  preconditions:
+    min_rows: 30
+    min_continuous: 1
+  produces:
+    - IV / 2SLS table
+    - first-stage diagnostics
+  executor_ref: empirical-analysis-python
+  biases:
+    - weak instrument
+    - exclusion-restriction violation
