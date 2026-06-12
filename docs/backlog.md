@@ -10,7 +10,7 @@
 - [ ] **`logistic_regression` 拿第一个二值当结果**：而二值通常是处理标志（`treatment_candidates` = 所有二值列）→ 把处理当结果回归。`executor/run.py`
 - [ ] **`iv_regression` 在目录里却无执行器**：落到 else 占位、空跑，却仍被推荐为可行 → 误导、伤信任。→ 接执行器，或在接好前从推荐中 gate 掉。`executor/run.py`
 
-## P2 — 应修
+## P2 — 应修（部分完成 2026-06-12：透明已随 P1 落地；零预测警告 / 高基数提示 / 命名统一已修；did 处理检测待办）
 
 - [ ] 各分支**不透明**：未在 report 说明"选了哪列当结果/目标"（仅 RF 有注释）。→ summary 加一行"因变量/目标列选择"。`executor/run.py` + `_report`
 - [ ] **零解释变量回归**静默拟合截距模型（`~ 1`）→ 应警告"无可用解释变量"。`executor/run.py`

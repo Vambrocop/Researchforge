@@ -142,6 +142,9 @@ def run_analysis(
         df.describe(include="all").transpose().to_csv(d / "table_describe.csv", encoding="utf-8")
         files.append("table_describe.csv")
         summary.append(f"描述统计完成：{df.shape[0]} 行 × {df.shape[1]} 列")
+        high_card = [c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.n_unique > 50]
+        if high_card:
+            summary.append(f"注意：{len(high_card)} 个高基数列（如 {high_card[0]}）描述统计意义有限。")
         code.append("df.describe(include='all').transpose().to_csv('table_describe.csv')")
 
     elif entry.id == "correlation":
@@ -174,6 +177,8 @@ def run_analysis(
         n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
         dv_note = f"（数据有 {n_cont} 个连续列，默认取 {y} 为因变量）" if n_cont > 1 else ""
         summary.append(f"{entry.method} 完成：因变量 {y}{key}{dv_note}")
+        if not rhs_vars:
+            summary.append("⚠️ 无可用解释变量，仅拟合了截距模型，结果无解释意义。")
         code += [
             "import statsmodels.formula.api as smf",
             f'model = smf.ols("{formula}", data=df).fit(cov_type="HC1")',
@@ -317,9 +322,9 @@ def run_analysis(
                     ax.set_xlabel("importance")
                     ax.set_title(f"Feature importances — {outcome}")
                     fig.tight_layout()
-                    fig.savefig(d / "feature_importance.png", dpi=120)
+                    fig.savefig(d / "feature_importances.png", dpi=120)
                     plt.close(fig)
-                    files.append("feature_importance.png")
+                    files.append("feature_importances.png")
                 except Exception:
                     pass
 
