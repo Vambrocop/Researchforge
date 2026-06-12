@@ -45,3 +45,25 @@
   biases:
   - scale sensitivity
   - linear-structure assumption
+- id: mixed_effects
+  method: Linear mixed-effects model
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Fixed effects + random effects for grouped / nested / repeated-measures
+    data (e.g. split-plot field trials).
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 20
+    min_continuous: 1
+    requires_binary_outcome: null
+    requires_group: true
+  produces:
+  - fixed-effect estimates
+  - variance components
+  executor_ref: statsmodels
+  biases:
+  - random-effects structure misspecification

@@ -756,6 +756,72 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"逻辑回归未收敛/失败：{err}")
 
+    elif entry.id == "mixed_effects":
+        import statsmodels.formula.api as smf
+
+        # outcome: first continuous column
+        outcome = next((c.name for c in fp.columns if c.kind == "continuous"), None)
+        if outcome is None:
+            summary.append("混合模型失败：未找到连续结果变量。")
+        else:
+            # group_col: prefer unit_col; else first categorical/binary that is not outcome
+            if fp.unit_col:
+                group_col = fp.unit_col
+            else:
+                group_col = next(
+                    (
+                        c.name
+                        for c in fp.columns
+                        if c.kind in {"categorical", "binary"} and c.name != outcome
+                    ),
+                    None,
+                )
+            if group_col is None:
+                summary.append("混合模型失败：未找到分组变量(随机效应)。")
+            else:
+                predictors = [
+                    c.name
+                    for c in fp.columns
+                    if c.kind in {"continuous", "count", "binary"}
+                    and c.name not in {outcome, group_col, fp.unit_col, fp.time_col}
+                ][:5]
+                rhs = [f"Q('{v}')" for v in predictors]
+                # Control for time on panel data — otherwise a staggered treatment is
+                # confounded with the time trend (mirrors _regression's FE handling).
+                if fp.time_col and fp.time_col != group_col:
+                    rhs.append(f"C(Q('{fp.time_col}'))")
+                formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
+                try:
+                    model = smf.mixedlm(formula, data=df, groups=df[group_col]).fit()
+                    (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                    files.append("summary.txt")
+                    try:
+                        import pandas as pd
+                        pd.DataFrame(model.summary().tables[1]).to_csv(
+                            d / "coefficients.csv", encoding="utf-8"
+                        )
+                    except Exception:
+                        import pandas as pd
+                        model.params.to_frame(name="coef").to_csv(
+                            d / "coefficients.csv", encoding="utf-8"
+                        )
+                    files.append("coefficients.csv")
+                    for v in predictors:
+                        kn = f"Q('{v}')"
+                        if kn in model.params.index:
+                            estimates[v] = float(model.params[kn])
+                    summary.append(
+                        f"{entry.method} 完成：结果变量 {outcome}，随机效应分组 {group_col}，"
+                        f"固定效应 {len(predictors)} 个"
+                    )
+                    code += [
+                        "import statsmodels.formula.api as smf",
+                        f'model = smf.mixedlm("{formula}", data=df, groups=df["{group_col}"]).fit()',
+                        "print(model.summary())",
+                    ]
+                except Exception as err:
+                    summary.append(f"混合模型未收敛/失败：{err}")
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"

@@ -19,8 +19,8 @@
     biases:
       - random-effects structure misspecification
   source: "CRAN Environmetrics; agronomy split-plot practice"
-  status: pending
-  notes: "待接执行器: statsmodels MixedLM (outcome ~ fixed + group RE); 适合田间试验/嵌套/重复测量"
+  status: ready
+  notes: "executor 已接(statsmodels MixedLM, 面板上加时间FE控混淆); Fable+Opus 双审(偏差2.88->2.15已修+守护测试)"
 
 - entry:
     id: poisson_regression
