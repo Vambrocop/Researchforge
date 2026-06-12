@@ -1976,6 +1976,109 @@ def run_analysis(
                     "# I = (n/W) * z'Wz / z'z ; permutation p over 999 shuffles of z",
                 ]
 
+    elif entry.id == "local_moran":
+        import numpy as np
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        value = next(
+            (
+                c.name
+                for c in fp.columns
+                if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}
+            ),
+            None,
+        )
+        if len(geo) < 2 or value is None:
+            summary.append("局部 Moran (LISA) 失败：需要经纬度坐标 + 一个连续值变量。")
+        else:
+            sub = df[[geo[0], geo[1], value]].dropna()
+            coords = sub[[geo[0], geo[1]]].to_numpy(dtype=float)
+            x = sub[value].to_numpy(dtype=float)
+            n = len(x)
+            m2 = float(((x - x.mean()) ** 2).mean())
+            if n < 10 or m2 == 0:
+                summary.append("局部 Moran (LISA) 失败：样本不足（<10）或值变量为常数。")
+            else:
+                k = min(8, n - 2)
+                d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
+                np.fill_diagonal(d2, np.inf)
+                nn = np.argsort(d2, axis=1)[:, :k]
+                z = x - x.mean()
+                lag = z[nn].mean(axis=1)  # row-standardised lag = mean of k neighbours
+                ii = (z / m2) * lag  # local Moran's I per location
+                # conditional permutation: hold z_i, resample its k neighbours from the rest
+                R = 499
+                rng = np.random.default_rng(0)
+                p = np.empty(n)
+                for i in range(n):
+                    pool = np.delete(z, i)
+                    topk = np.argsort(rng.random((R, n - 1)), axis=1)[:, :k]
+                    ip = (z[i] / m2) * pool[topk].mean(axis=1)
+                    p[i] = (int(np.sum(np.abs(ip) >= abs(ii[i]))) + 1) / (R + 1)
+                sig = p < 0.05
+                quad = np.where(
+                    z > 0, np.where(lag > 0, "HH", "HL"), np.where(lag > 0, "LH", "LL")
+                )
+                cluster = np.where(sig, quad, "ns")
+
+                import pandas as pd
+
+                pd.DataFrame(
+                    {
+                        geo[0]: coords[:, 0],
+                        geo[1]: coords[:, 1],
+                        value: x,
+                        "local_I": np.round(ii, 4),
+                        "p_value": np.round(p, 4),
+                        "cluster": cluster,
+                    }
+                ).to_csv(d / "lisa.csv", index=False, encoding="utf-8")
+                files.append("lisa.csv")
+
+                lon_i = 1 if ("lon" in geo[1].lower() or "lng" in geo[1].lower()) else 0
+                lat_i = 1 - lon_i
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    colors = {
+                        "HH": "#C44E52", "LL": "#4C72B0", "HL": "#DD8452",
+                        "LH": "#55A868", "ns": "#cccccc",
+                    }
+                    fig, ax = plt.subplots(figsize=(6, 5))
+                    for cl, col in colors.items():
+                        m = cluster == cl
+                        if m.any():
+                            ax.scatter(
+                                coords[m, lon_i], coords[m, lat_i], c=col, s=26,
+                                edgecolor="#444444", linewidth=0.3, label=f"{cl} ({int(m.sum())})",
+                            )
+                    ax.set_xlabel(geo[lon_i])
+                    ax.set_ylabel(geo[lat_i])
+                    ax.set_title(f"LISA cluster map — {value}")
+                    ax.legend(fontsize=7, loc="best")
+                    fig.tight_layout()
+                    fig.savefig(d / "lisa_map.png", dpi=150)
+                    plt.close(fig)
+                    files.append("lisa_map.png")
+                except Exception:
+                    pass
+
+                for cl in ("HH", "LL", "HL", "LH"):
+                    estimates[f"n_{cl}"] = float(int(np.sum((cluster == cl))))
+                summary.append(
+                    f"{entry.method} 完成：变量 {value}，显著局部簇 "
+                    f"HH={int(np.sum(cluster=='HH'))} LL={int(np.sum(cluster=='LL'))} "
+                    f"HL={int(np.sum(cluster=='HL'))} LH={int(np.sum(cluster=='LH'))}"
+                    f"（p<0.05，999→{R} 条件置换，k-NN={k}）；HH/LL=聚集，HL/LH=空间离群"
+                )
+                code += [
+                    "import numpy as np  # Local Moran's I (LISA, Anselin 1995)",
+                    "# I_i = (z_i/m2) * mean(z over kNN neighbours); conditional permutation p",
+                ]
+
     elif entry.id == "getis_ord_gi":
         import numpy as np
 

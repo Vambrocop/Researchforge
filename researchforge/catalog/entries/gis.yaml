@@ -20,6 +20,26 @@
     - euclidean distance on lat/lon approximates true geodesic neighbours
     - non-stationarity and edge effects
 
+- id: local_moran
+  method: Local Moran's I (LISA)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: Decompose global spatial autocorrelation into per-location clusters — high-high / low-low concentrations and high-low / low-high spatial outliers — via Anselin's LISA with conditional-permutation significance.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - local Moran's I per location
+    - HH/LL/HL/LH cluster classification
+    - LISA cluster map
+  executor_ref: numpy
+  biases:
+    - per-location tests are not corrected for multiple comparisons
+    - result depends on the spatial weights definition (k, distance metric)
+    - cluster labels meaningful only where p < 0.05
+
 - id: getis_ord_gi
   method: Getis-Ord Gi* (hotspot analysis)
   domain: gis
