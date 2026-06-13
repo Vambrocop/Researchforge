@@ -14,7 +14,8 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 一个分析 = ① `executor/run.py` 里一个 `elif entry.id == "<id>":` 分支 ② `catalog/entries/*.yaml` 一条目（preconditions/produces/biases）③ `tests/test_<id>.py`。然后：测试 → Opus 双审 → 据 CHANGES 修 → 全量测试 → 本地 commit。
 
 ### 引擎约定（照抄，别重新发明）
-- **结果变量惯例**：回归族取「第一个连续列」为结果(outcome)；其余连续/二值为预测变量。
+- **用户可配置覆盖**：`run_analysis(fp, entry, output_root=..., config={...})` 的 `config` dict 携带用户对实质默认的覆盖（列角色/锚点/参数）。分支里 `cfg = config or {}`，按 `cfg.get("<key>")` 读、缺则回退自动默认（**默认必须仍能独立跑**）。入口：CLI `run <data> <id> --config '{...}'`(JSON)、`web/service.run_for_path(..., config=)`。键名按分析记在 `docs/loop-decisions.md`。已接：回归族 `outcome`/`predictors`。**新分支若有实质默认，顺手接 config 键并记文档**。
+- **结果变量惯例**：回归族取「第一个连续列」为结果(outcome)；其余连续/二值为预测变量（可被 `config["outcome"]`/`["predictors"]` 覆盖）。
 - **R 后端**：经 `executor/rbridge.py`，**可选 + 优雅降级** —— 先 `rbridge.r_available()` + `r_package_available(pkg)`，缺则回退纯 Python 或诚实提示（指向纯 Python 替代）。列名进 R formula 前过标识符守卫 `re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", c)`（防注入/解析）。temp CSV 写输出目录、`finally` 里删。R 代码经审才接，**运行时不联网取**。
 - **产物**：CSV + PNG（matplotlib `Agg`；**图标签用英文**——matplotlib 默认字体无 CJK，中文会变豆腐块）；填 `estimates` dict；写中文 `summary`（含 ⚠ 偏差/假定披露）。best-effort try/except 包图，缺 matplotlib 不中断。
 - **profiler "id" 陷阱**：整数值且全不同的列会被判为 `id` 类（非 count/continuous）。按列名锁定的检测（如 sand/silt/clay、duration）应接受 `id` 类。

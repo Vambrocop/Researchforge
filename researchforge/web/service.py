@@ -82,8 +82,10 @@ def run_for_path(
     path: str | Path,
     analysis_id: str,
     output_root: str = "outputs",
+    config: dict | None = None,
 ) -> dict:
-    """Run one analysis and return a result dict.
+    """Run one analysis and return a result dict. `config` carries user overrides
+    for the engine's substantive defaults (column roles, anchors, …).
 
     Returns {"summary", "output_dir", "files", "report", "estimates"}
     or {"error": "unknown analysis"} if the id is not in the catalog.
@@ -97,7 +99,7 @@ def run_for_path(
         return {"error": "unknown analysis"}
 
     fp = profile_dataset(Path(path))
-    res = run_analysis(fp, entry, output_root=output_root)
+    res = run_analysis(fp, entry, output_root=output_root, config=config)
 
     report_text = ""
     try:

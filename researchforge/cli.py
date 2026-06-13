@@ -43,17 +43,26 @@ def _cmd_recommend(path: str) -> int:
     return 0
 
 
-def _cmd_run(path: str, analysis_id: str) -> int:
+def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
+    import json
+
     from researchforge.catalog import Catalog
     from researchforge.executor import run_analysis
     from researchforge.profiler import profile_dataset
 
+    cfg = None
+    if config:
+        try:
+            cfg = json.loads(config)
+        except json.JSONDecodeError as err:
+            print(f"--config 不是合法 JSON：{err}")
+            return 1
     fp = profile_dataset(path)
     entry = Catalog.load().by_id(analysis_id)
     if entry is None:
         print(f"未知分析 id：{analysis_id}")
         return 1
-    res = run_analysis(fp, entry)
+    res = run_analysis(fp, entry, config=cfg)
     print(f"已执行：{res.method}")
     print(f"摘要：{res.summary}")
     print(f"产物目录：{res.output_dir}")
@@ -132,6 +141,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="run a chosen analysis and save outputs")
     run_p.add_argument("path", help="path to a CSV/Excel file")
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
+    run_p.add_argument(
+        "--config",
+        default=None,
+        help='JSON of substantive overrides, e.g. \'{"outcome":"yield","predictors":["rain","fert"]}\'',
+    )
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
     sub.add_parser("benchmark", help="score engine quality on known cases")
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
@@ -147,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "recommend":
         return _cmd_recommend(args.path)
     if args.command == "run":
-        return _cmd_run(args.path, args.analysis)
+        return _cmd_run(args.path, args.analysis, args.config)
     if args.command == "ingest":
         return _cmd_ingest()
     if args.command == "benchmark":

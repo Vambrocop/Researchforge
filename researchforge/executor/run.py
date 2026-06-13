@@ -47,13 +47,17 @@ def _pick_did_treatment(df, fp: DataFingerprint) -> list[str]:
     return [best[1]] if best else []
 
 
-def _regression(df, fp: DataFingerprint, entry: AnalysisEntry):
+def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None = None):
     import statsmodels.formula.api as smf
 
+    cfg = cfg or {}
     cont = [c.name for c in fp.columns if c.kind == "continuous"]
     if not cont:
         raise ValueError("没有连续型因变量，无法回归")
-    y = cont[0]
+    # user override: config["outcome"] picks the dependent variable; else first continuous
+    y = cfg["outcome"] if cfg.get("outcome") in cont else cont[0]
+    # optional explicit predictor list via config["predictors"]
+    forced_rhs = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     exclude = {y, fp.unit_col, fp.time_col}
 
     fe_terms: list[str] = []
@@ -62,6 +66,8 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry):
 
     if entry.id == "did" and fp.treatment_candidates:
         rhs_vars = _pick_did_treatment(df, fp) or fp.treatment_candidates[:1]
+    elif forced_rhs:
+        rhs_vars = forced_rhs[:8]
     else:
         rhs_vars = [
             c.name
@@ -1074,8 +1080,13 @@ def run_analysis(
     entry: AnalysisEntry,
     output_root: str = "outputs",
     override: bool = False,
+    config: dict | None = None,
 ) -> RunResult:
     df = read_table(Path(fp.path))
+    # user-supplied overrides for the engine's substantive defaults (column roles,
+    # anchors, etc.) — each branch reads cfg.get(<key>) and falls back to its auto
+    # default. See docs/loop-decisions.md for the configurable keys per analysis.
+    cfg = config or {}
     d = _run_dir(output_root, entry.id)
     _init_mpl_style()
     files: list[str] = []
@@ -1106,7 +1117,7 @@ def run_analysis(
         code += ["num = df.select_dtypes(include='number')", "num.corr().to_csv('correlation.csv')"]
 
     elif entry.id in _REGRESSION:
-        y, rhs_vars, formula, model = _regression(df, fp, entry)
+        y, rhs_vars, formula, model = _regression(df, fp, entry, cfg)
         (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
         files.append("summary.txt")
         model.summary2().tables[1].to_csv(d / "coefficients.csv", encoding="utf-8")
