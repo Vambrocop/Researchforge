@@ -105,6 +105,29 @@ def test_config_dea_inputs_outputs_override(tmp_path: Path) -> None:
     assert "按 config 指定" in res_cfg.summary
 
 
+def test_config_spatial_knn_k_override(tmp_path: Path) -> None:
+    rng = np.random.default_rng(3)
+    n = 25
+    df = pd.DataFrame(
+        {
+            "lat": rng.uniform(30, 31, n),
+            "lon": rng.uniform(120, 121, n),
+            "value": rng.normal(0, 1, n),
+        }
+    )
+    csv = tmp_path / "geo.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    e = AnalysisEntry(
+        id="moran_i", method="Moran's I", domain="gis", family="spatial",
+        goal="autocorr", preconditions=Precondition(min_rows=10),
+    )
+    res_def = run_analysis(fp, e, output_root=str(tmp_path / "od"))
+    assert "k-NN=8" in res_def.summary  # default min(8, n-1)
+    res_cfg = run_analysis(fp, e, output_root=str(tmp_path / "oc"), config={"knn_k": 4})
+    assert "k-NN=4" in res_cfg.summary
+
+
 def test_config_none_is_default(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"y": 1.5 * rng.normal(0, 1, 60), "x": rng.normal(0, 1, 60)})

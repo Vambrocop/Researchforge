@@ -597,6 +597,18 @@ def _dea_io(X, crit, cfg):
     return X[:, in_idx], X[:, out_idx], want_in, want_out
 
 
+def _knn_k(cfg, upper, default=8):
+    """Number of k-nearest-neighbour spatial weights. cfg['knn_k'] overrides the
+    default, clamped to [1, upper] (upper = n-1 or n-2 per estimator's stability
+    constraint). Non-int values fall back to the default."""
+    k = (cfg or {}).get("knn_k", default)
+    try:
+        k = int(k)
+    except (TypeError, ValueError):
+        k = default
+    return max(1, min(k, upper))
+
+
 def _entropy_weights(Z):
     """Objective entropy weights from a [0,1] benefit matrix Z (m alts × k crit).
     Higher dispersion -> higher weight. Equal weights if degenerate."""
@@ -853,7 +865,7 @@ def _kriging_via_r(csv_path, lon: str, lat: str, value: str):
     return meta, grid
 
 
-def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, lat: str):
+def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, lat: str, k: int = 6):
     """Spatial regression via R spdep/spatialreg: OLS residual Moran test, then
     SAR (lag) and SEM (error) on k-NN weights, AIC model choice. Reports the
     PREFERRED model's variable effects — SEM betas are marginal effects; for SAR
@@ -870,7 +882,7 @@ def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, 
         "suppressMessages({library(spdep); library(spatialreg)})\n"
         f'd <- read.csv("{csv_r}")\n'
         f'coords <- as.matrix(d[, c("{lon}","{lat}")])\n'
-        "lw <- nb2listw(knn2nb(knearneigh(coords, k=min(6, nrow(d)-1))), style=\"W\")\n"
+        f"lw <- nb2listw(knn2nb(knearneigh(coords, k=min({int(k)}, nrow(d)-1))), style=\"W\")\n"
         f'f <- as.formula("{outcome} ~ {rhs}")\n'
         "ols <- lm(f, data=d); mt <- lm.morantest(ols, lw)\n"
         "sar <- lagsarlm(f, data=d, listw=lw); sem <- errorsarlm(f, data=d, listw=lw)\n"
@@ -3735,7 +3747,7 @@ def run_analysis(
             if n < 10:
                 summary.append("Moran's I 失败：有效样本不足（<10）。")
             else:
-                k = min(8, n - 1)
+                k = _knn_k(cfg, n - 1)  # config={"knn_k": N} 覆盖近邻数
                 # pairwise squared euclidean distance on (lat, lon); fine for
                 # ranking k nearest neighbours at moderate spatial extents.
                 d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
@@ -3824,7 +3836,7 @@ def run_analysis(
             if n < 10 or m2 == 0:
                 summary.append("局部 Moran (LISA) 失败：样本不足（<10）或值变量为常数。")
             else:
-                k = min(8, n - 2)
+                k = _knn_k(cfg, n - 2)  # config={"knn_k": N} 覆盖近邻数
                 d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
                 np.fill_diagonal(d2, np.inf)
                 nn = np.argsort(d2, axis=1)[:, :k]
@@ -3938,7 +3950,9 @@ def run_analysis(
             csv = d / "_sar_input.csv"
             sub.to_csv(csv, index=False)
             try:
-                diag, pref, coef = _spatial_reg_via_r(csv, outcome, predictors, lon, lat)
+                diag, pref, coef = _spatial_reg_via_r(
+                    csv, outcome, predictors, lon, lat, k=_knn_k(cfg, len(sub) - 1, default=6)
+                )
                 coef.to_csv(d / "spatial_coefficients.csv", index=False, encoding="utf-8")
                 files.append("spatial_coefficients.csv")
                 preferred = "SAR（空间滞后）" if pref == "SAR" else "SEM（空间误差）"
@@ -4043,7 +4057,7 @@ def run_analysis(
                 # k+1 (neighbours + self) must stay < n, else the Gi* variance term
                 # n·Σw² − (Σw)² collapses to 0 (every point a neighbour of every
                 # point → no spatial contrast); n-2 keeps it strictly positive.
-                k = min(8, n - 2)
+                k = _knn_k(cfg, n - 2)  # config={"knn_k": N} 覆盖近邻数
                 d2 = ((coords[:, None, :] - coords[None, :, :]) ** 2).sum(-1)
                 np.fill_diagonal(d2, np.inf)
                 nn = np.argsort(d2, axis=1)[:, :k]
