@@ -1,5 +1,24 @@
 # Soil science catalog entries.
 
+- id: soil_texture
+  method: USDA soil texture classification (质地三角)
+  domain: soil
+  family: soil
+  goal: describe
+  description: Classify each soil sample into one of the 12 USDA texture classes (sand … clay) from its sand/silt/clay percentages via the standard texture-triangle boundary rules; rows are renormalised to sum 100%. Outputs per-sample class, a class distribution, and a texture-triangle plot.
+  preconditions:
+    requires_soil_texture: true
+    min_rows: 1
+  produces:
+    - per-sample USDA texture class
+    - class distribution
+    - soil texture triangle plot
+  executor_ref: numpy
+  biases:
+    - needs sand/silt/clay as percentages of the fine-earth fraction (gravel excluded); rows auto-renormalised to 100%
+    - boundary samples near class edges are sensitive to measurement error
+    - USDA system — other systems (ISSS/USDA-old) draw different boundaries
+
 - id: idw_interpolation
   method: IDW spatial interpolation
   domain: soil

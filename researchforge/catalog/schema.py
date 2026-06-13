@@ -24,6 +24,7 @@ class Precondition(BaseModel):
     min_count_cols: Optional[int] = None
     requires_ordinal: Optional[bool] = None
     requires_geo: Optional[bool] = None
+    requires_soil_texture: Optional[bool] = None
 
 
 class AnalysisEntry(BaseModel):

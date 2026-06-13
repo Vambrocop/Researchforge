@@ -997,6 +997,38 @@ def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
     return tab
 
 
+def _usda_texture(sand: float, silt: float, clay: float) -> str:
+    """USDA soil texture class from sand/silt/clay percentages (sum ~100).
+    Canonical decision sequence — order matters; verified against reference points."""
+    if silt + 1.5 * clay < 15:
+        return "sand"
+    if silt + 1.5 * clay >= 15 and silt + 2 * clay < 30:
+        return "loamy sand"
+    if (7 <= clay < 20 and sand > 52 and silt + 2 * clay >= 30) or (
+        clay < 7 and silt < 50 and silt + 2 * clay >= 30
+    ):
+        return "sandy loam"
+    if 7 <= clay < 27 and 28 <= silt < 50 and sand <= 52:
+        return "loam"
+    if (silt >= 50 and 12 <= clay < 27) or (50 <= silt < 80 and clay < 12):
+        return "silt loam"
+    if silt >= 80 and clay < 12:
+        return "silt"
+    if 20 <= clay < 35 and silt < 28 and sand > 45:
+        return "sandy clay loam"
+    if 27 <= clay < 40 and 20 < sand <= 45:
+        return "clay loam"
+    if 27 <= clay < 40 and sand <= 20:
+        return "silty clay loam"
+    if clay >= 35 and sand > 45:
+        return "sandy clay"
+    if clay >= 40 and silt >= 40:
+        return "silty clay"
+    if clay >= 40 and sand <= 45 and silt < 40:
+        return "clay"
+    return "unclassified"
+
+
 def _report(entry, fp, summary, files, override) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
@@ -2751,6 +2783,91 @@ def run_analysis(
             code += [
                 "import numpy as np  # 灰色关联分析(GRA)",
                 "# Δ=|1-min-max|; ξ=(Δmin+0.5Δmax)/(Δ+0.5Δmax); 关联度=ξ 行均值",
+            ]
+
+    elif entry.id == "soil_texture":
+        import numpy as np
+        import pandas as pd
+
+        def _find(kw):
+            # name-locked to the texture fraction; accept any numeric kind
+            # (whole-number distinct % columns can profile as "id").
+            return next(
+                (
+                    c.name
+                    for c in fp.columns
+                    if kw in c.name.lower() and c.kind in {"continuous", "count", "id"}
+                ),
+                None,
+            )
+
+        sand_c, silt_c, clay_c = _find("sand"), _find("silt"), _find("clay")
+        if not (sand_c and silt_c and clay_c):
+            summary.append("土壤质地分类失败：需要 sand/silt/clay（砂/粉/黏粒）百分比列。")
+        else:
+            raw = df[[sand_c, silt_c, clay_c]].dropna().astype(float)
+            raw = raw[raw.sum(axis=1) > 0]
+            norm = raw.div(raw.sum(axis=1), axis=0) * 100.0  # renormalise rows to sum 100
+            classes = [
+                _usda_texture(float(r[sand_c]), float(r[silt_c]), float(r[clay_c]))
+                for _, r in norm.iterrows()
+            ]
+            res = norm.round(2)
+            res["usda_texture"] = classes
+            res.to_csv(d / "soil_texture.csv", index=False, encoding="utf-8")
+            files.append("soil_texture.csv")
+            dist = pd.Series(classes).value_counts()
+            dist.rename_axis("texture_class").reset_index(name="count").to_csv(
+                d / "texture_distribution.csv", index=False, encoding="utf-8"
+            )
+            files.append("texture_distribution.csv")
+            try:
+                import matplotlib
+
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                cats = list(dist.index)
+                cmap = plt.get_cmap("tab20")
+                cidx = {c: cmap(i % 20) for i, c in enumerate(cats)}
+                fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+                # soil texture triangle (clay apex at top)
+                cl = norm[clay_c].to_numpy()
+                si = norm[silt_c].to_numpy()
+                x = si + 0.5 * cl
+                y = cl * (np.sqrt(3) / 2)
+                tri = np.array([[0, 0], [100, 0], [50, 100 * np.sqrt(3) / 2], [0, 0]])
+                axes[0].plot(tri[:, 0], tri[:, 1], color="#444", lw=1)
+                for c in cats:
+                    m = np.array([k == c for k in classes])
+                    axes[0].scatter(x[m], y[m], s=22, color=cidx[c], label=c, edgecolor="#333", linewidth=0.3)
+                axes[0].text(0, -4, "sand", ha="center")
+                axes[0].text(100, -4, "silt", ha="center")
+                axes[0].text(50, 100 * np.sqrt(3) / 2 + 3, "clay", ha="center")
+                axes[0].set_title("USDA soil texture triangle")
+                axes[0].axis("off")
+                axes[0].legend(fontsize=6, loc="upper right", ncol=2)
+                axes[1].barh([str(c) for c in cats][::-1], dist.values[::-1], color="#55A868")
+                axes[1].set_xlabel("count")
+                axes[1].set_title("Texture class distribution")
+                fig.tight_layout()
+                fig.savefig(d / "soil_texture.png", dpi=150)
+                plt.close(fig)
+                files.append("soil_texture.png")
+            except Exception:
+                pass
+            dominant = str(dist.index[0])
+            estimates["n_samples"] = float(len(norm))
+            estimates["n_classes"] = float(len(dist))
+            estimates["dominant_class_pct"] = round(100.0 * float(dist.iloc[0]) / len(norm), 2)
+            summary.append(
+                f"{entry.method} 完成：{len(norm)} 个土样按 USDA 质地三角分入 {len(dist)} 类；"
+                f"最多为「{dominant}」（{100.0 * dist.iloc[0] / len(norm):.0f}%）；"
+                f"质地三角图见 soil_texture.png。（各行已归一化至砂+粉+黏=100%）"
+            )
+            code += [
+                "# USDA 质地三角分类: 按 sand/silt/clay% 的标准边界规则判类",
+                "# silt+1.5*clay<15 -> sand; ... clay>=40&silt<40&sand<=45 -> clay 等 12 类",
             ]
 
     elif entry.id == "kriging":

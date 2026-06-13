@@ -47,5 +47,13 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         n_geo = sum(1 for c in fp.columns if c.kind == "geo")
         if n_geo < 2:
             unmet.append(f"需要经纬度坐标（≥2 个地理列，现有 {n_geo}）")
+    if pre.requires_soil_texture:
+        names = [c.name.lower() for c in fp.columns]
+        if not (
+            any("sand" in n for n in names)
+            and any("silt" in n for n in names)
+            and any("clay" in n for n in names)
+        ):
+            unmet.append("需要 sand / silt / clay（砂/粉/黏粒）百分比列")
 
     return (len(unmet) == 0, unmet)
