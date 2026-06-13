@@ -538,14 +538,63 @@ def _mcda_rank_plot(res, score_col: str, title: str, path: Path) -> None:
         pass
 
 
-def _minmax01(X):
-    """Min-max normalise each column to [0,1] (benefit direction). Constant
+def _minmax01(X, cost=None):
+    """Min-max normalise each column to [0,1]. Benefit direction by default
+    ((x-lo)/rng); if `cost` is a boolean mask, those columns use the beneficial
+    transform (hi-x)/rng so lower=better maps to higher score (textbook MCDA
+    direction handling — keeps all downstream methods benefit-oriented). Constant
     columns -> 0.5 (they get ~zero entropy weight downstream)."""
     import numpy as np
 
     lo, hi = X.min(axis=0), X.max(axis=0)
     rng = hi - lo
-    return np.where(rng == 0, 0.5, (X - lo) / np.where(rng == 0, 1.0, rng))
+    safe = np.where(rng == 0, 1.0, rng)
+    benefit = np.where(rng == 0, 0.5, (X - lo) / safe)
+    if cost is None:
+        return benefit
+    cost = np.asarray(cost, dtype=bool)
+    flipped = np.where(rng == 0, 0.5, (hi - X) / safe)
+    return np.where(cost, flipped, benefit)
+
+
+def _cost_mask(crit, cfg):
+    """Build a benefit/cost mask aligned with `crit` from cfg['cost_criteria']
+    (list of criterion names that are cost-type, lower=better). Returns
+    (mask_or_None, recognized_names). None mask -> all benefit (fast path)."""
+    import numpy as np
+
+    names = (cfg or {}).get("cost_criteria") or []
+    recognized = [c for c in names if c in crit]
+    if not recognized:
+        return None, []
+    return np.array([c in recognized for c in crit], dtype=bool), recognized
+
+
+def _mcda_direction_note(cost_names) -> str:
+    """Disclosure line for MCDA: which criteria were treated as cost-type."""
+    if cost_names:
+        return f"成本型指标（越小越好，已反向）：{cost_names}；其余按效益型处理。"
+    return (
+        "⚠ 假定所有指标为效益型（越大越好）；若有成本型指标（越小越好），"
+        "用 config={\"cost_criteria\": [\"列名\", ...]} 指定以反向。"
+    )
+
+
+def _dea_io(X, crit, cfg):
+    """Split the MCDA matrix into (inputs, outputs) for DEA. cfg may specify
+    'inputs' and 'outputs' (lists of criterion names); otherwise the engine
+    default is first column = output, the rest = inputs. Returns
+    (inputs_array, outputs_array, input_names, output_names)."""
+    cfg = cfg or {}
+    want_in = [c for c in (cfg.get("inputs") or []) if c in crit]
+    want_out = [c for c in (cfg.get("outputs") or []) if c in crit]
+    if want_in and want_out:
+        in_idx = [crit.index(c) for c in want_in]
+        out_idx = [crit.index(c) for c in want_out]
+    else:  # engine default: first numeric column = output, the rest = inputs
+        out_idx, in_idx = [0], list(range(1, len(crit)))
+        want_out, want_in = [crit[0]], crit[1:]
+    return X[:, in_idx], X[:, out_idx], want_in, want_out
 
 
 def _entropy_weights(Z):
@@ -2530,7 +2579,8 @@ def run_analysis(
         else:
             import pandas as pd
 
-            Z = _minmax01(X)  # benefit-normalised to [0,1]
+            cost_mask, cost_names = _cost_mask(crit, cfg)
+            Z = _minmax01(X, cost_mask)  # benefit-normalised to [0,1] (cost cols flipped)
             w = _entropy_weights(Z)
             V = Z * w
             a_best, a_worst = V.max(axis=0), V.min(axis=0)
@@ -2570,7 +2620,7 @@ def run_analysis(
             summary.append(
                 f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
                 f"最优方案 [{best}]（贴近度 {score.max():.3f}）；熵权见 weights.csv。"
-                "⚠ 假定所有指标为效益型（越大越好）；若有成本型指标（越小越好）请说明以反向。"
+                + _mcda_direction_note(cost_names)
             )
             code += [
                 "import numpy as np  # 熵权-TOPSIS",
@@ -2585,9 +2635,9 @@ def run_analysis(
         except ValueError as err:
             summary.append(f"DEA 失败：{err}")
         else:
-            # engine convention: first numeric column = output, the rest = inputs
-            outputs = X[:, [0]]
-            inputs = X[:, 1:]
+            # engine default: first numeric column = output, the rest = inputs;
+            # config={"inputs":[...],"outputs":[...]} overrides the i/o roles.
+            inputs, outputs, in_names, out_names = _dea_io(X, crit, cfg)
             if inputs.shape[1] < 1:
                 summary.append("DEA 失败：需要 ≥1 个投入 + 1 个产出（≥2 个数值列）。")
             elif (inputs <= 0).any() or (outputs <= 0).any():
@@ -2624,15 +2674,19 @@ def run_analysis(
                 estimates["n_ccr_efficient"] = float(n_eff)
                 estimates["mean_ccr_efficiency"] = round(float(np.nanmean(ccr)), 4)
                 estimates["n_dmu"] = float(len(labels))
+                _io_note = (
+                    "（按 config 指定）"
+                    if (cfg.get("inputs") and cfg.get("outputs"))
+                    else "⚠ 默认首列为产出、其余为投入——可用 config={\"inputs\":[...],\"outputs\":[...]} 指定。"
+                )
                 summary.append(
-                    f"{entry.method} 完成：{len(labels)} 个 DMU，产出 [{crit[0]}]，"
-                    f"投入 {crit[1:]}; CCR 技术有效 {n_eff} 个（θ=1），平均效率 "
-                    f"{np.nanmean(ccr):.3f}；规模效率=CCR/BCC。"
-                    "⚠ 默认首列为产出、其余为投入——请按实际投入产出结构核对。"
+                    f"{entry.method} 完成：{len(labels)} 个 DMU，产出 {out_names}，"
+                    f"投入 {in_names}; CCR 技术有效 {n_eff} 个（θ=1），平均效率 "
+                    f"{np.nanmean(ccr):.3f}；规模效率=CCR/BCC。" + _io_note
                 )
                 code += [
                     "from scipy.optimize import linprog  # 投入导向 DEA(CCR+BCC)",
-                    f'# 产出={crit[0]}, 投入={crit[1:]}; min θ s.t. Σλx≤θx_o, Σλy≥y_o, λ≥0',
+                    f'# 产出={out_names}, 投入={in_names}; min θ s.t. Σλx≤θx_o, Σλy≥y_o, λ≥0',
                 ]
 
     elif entry.id == "sfa":
@@ -2847,7 +2901,8 @@ def run_analysis(
         else:
             import pandas as pd
 
-            Z = _minmax01(X)  # benefit-normalised [0,1]
+            cost_mask, cost_names = _cost_mask(crit, cfg)
+            Z = _minmax01(X, cost_mask)  # benefit-normalised [0,1] (cost cols flipped)
             sigma = Z.std(axis=0, ddof=1)  # contrast intensity per criterion
             # clip to [-1,1]: float noise can push r just past 1, making (1-r)<0 and
             # flipping weights negative when criteria are (near-)perfectly correlated.
@@ -2878,7 +2933,7 @@ def run_analysis(
                 f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
                 f"最优 [{best}]（CRITIC 加权得分 {composite.max():.3f}）；"
                 "CRITIC 权重=对比度(标准差)×冲突性(1-相关) 客观赋权,见 weights.csv。"
-                "⚠ 假定所有指标为效益型（越大越好）；成本型指标请反向。"
+                + _mcda_direction_note(cost_names)
             )
             code += [
                 "import numpy as np  # CRITIC 客观赋权",
@@ -2895,7 +2950,8 @@ def run_analysis(
         else:
             import pandas as pd
 
-            M = _minmax01(X)  # membership degrees in [0,1] (benefit)
+            cost_mask, cost_names = _cost_mask(crit, cfg)
+            M = _minmax01(X, cost_mask)  # membership degrees in [0,1] (cost cols flipped)
             composite = M.mean(axis=1)  # classic equal-weight average membership
             res = pd.DataFrame({"alternative": labels, "membership_score": np.round(composite, 4)})
             res["rank"] = res["membership_score"].rank(ascending=False, method="min").astype(int)
@@ -2919,7 +2975,7 @@ def run_analysis(
             summary.append(
                 f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
                 f"最优 [{best}]（隶属度均值 {composite.max():.3f}，等权）。"
-                "⚠ 假定所有指标为效益型（越大越好）；成本型指标请反向。"
+                + _mcda_direction_note(cost_names)
             )
             code += [
                 "import numpy as np  # 隶属函数法(等权)",
@@ -2936,7 +2992,8 @@ def run_analysis(
         else:
             import pandas as pd
 
-            M = _minmax01(X)
+            cost_mask, cost_names = _cost_mask(crit, cfg)
+            M = _minmax01(X, cost_mask)
             delta = np.abs(1.0 - M)  # distance to the ideal (benefit -> ideal = 1)
             dmin, dmax, rho = delta.min(), delta.max(), 0.5
             xi = (dmin + rho * dmax) / (delta + rho * dmax + 1e-12)  # grey relational coef
@@ -2959,7 +3016,7 @@ def run_analysis(
             summary.append(
                 f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
                 f"最优 [{best}]（关联度 {grade.max():.3f}，ρ=0.5，参考序列=各指标理想值）。"
-                "⚠ 假定所有指标为效益型；成本型指标请反向。"
+                + _mcda_direction_note(cost_names)
             )
             code += [
                 "import numpy as np  # 灰色关联分析(GRA)",
