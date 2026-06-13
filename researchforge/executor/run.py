@@ -1176,6 +1176,62 @@ def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funn
     return meta, study
 
 
+def _panel_qca_via_r(csv_path, outcome, conditions, unit, anchors, incl_cut):
+    """Panel/clustered fsQCA via R SetMethods::cluster (Garcia-Castro & Ariño):
+    fuzzy-calibrate, derive the pooled fsQCA solution, then decompose each
+    solution term's consistency into POOLED vs BETWEEN-unit vs WITHIN-unit, with
+    the between→pooled (dBP) and within→pooled (dWP) distances. A large distance
+    means the configuration does NOT hold uniformly across units / over time
+    (clustered heterogeneity). Returns (solution_str, terms_df). Raises on no
+    result. Column names go through an identifier guard upstream."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    a0, a1, a2 = (float(x) for x in anchors)
+    csv_r = str(csv_path).replace("\\", "/")
+    cols_r = ", ".join(f'"{c}"' for c in [outcome, *conditions])
+    conds_r = ", ".join(f'"{c}"' for c in conditions)
+    rcode = (
+        "suppressMessages({library(SetMethods); library(QCA)})\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f"cols <- c({cols_r})\n"
+        "calib <- function(x){ thr<-as.numeric(quantile(x,c("
+        f"{a0},{a1},{a2}),na.rm=TRUE)); rng<-diff(range(x,na.rm=TRUE)); "
+        "eps<-if(rng>0) rng*1e-6 else 1e-6; if(thr[2]<=thr[1]) thr[2]<-thr[1]+eps; "
+        'if(thr[3]<=thr[2]) thr[3]<-thr[2]+eps; calibrate(x,type="fuzzy",thresholds=thr) }\n'
+        "cal <- as.data.frame(lapply(d[,cols], calib)); names(cal) <- cols\n"
+        f'cal[["UNIT"]] <- as.character(d[["{unit}"]])\n'
+        f'tt <- truthTable(cal, outcome="{outcome}", conditions=c({conds_r}), incl.cut={float(incl_cut)})\n'
+        "sol <- minimize(tt, details=TRUE)\n"
+        f'cl <- cluster(data=cal, results=sol, outcome="{outcome}", unit_id="UNIT", cluster_id="UNIT")\n'
+        'cat("##SOL\\n"); cat(paste(sol$solution[[1]], collapse=" + "), "\\n")\n'
+        'cat("##TERMS\\n")\n'
+        "for (t in names(cl$output)) { o <- cl$output[[t]]; "
+        'cat(sprintf("%s|%.4f|%.4f|%.4f|%.4f\\n", t, o$POCOS, o$Coverages$pooled, o$dBP, o$dWP)) }\n'
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, sol_str, rows = None, "", []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##SOL":
+            section = "S"
+        elif s == "##TERMS":
+            section = "T"
+        elif section == "S" and s:
+            sol_str = s
+        elif "|" in s and section == "T":
+            rows.append(s.rsplit("|", 4))
+    if not rows:
+        raise RuntimeError("SetMethods cluster 未返回分解（可能无解/单解项/有限多样性）")
+    terms = pd.DataFrame(
+        rows, columns=["term", "pooled_consistency", "pooled_coverage", "dist_between", "dist_within"]
+    )
+    for c in ("pooled_consistency", "pooled_coverage", "dist_between", "dist_within"):
+        terms[c] = pd.to_numeric(terms[c], errors="coerce")
+    return sol_str, terms
+
+
 def _cna_via_r(csv_path, factors, outcome, con, cov, anchors, fuzzy):
     """Coincidence Analysis via R `cna` — finds configurational causal structures
     (Boolean solution formulas) and, unlike QCA, can recover structures with
@@ -4019,6 +4075,78 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"QCA 必要性分析失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "panel_qca":
+        import re
+
+        from researchforge.executor import rbridge
+
+        unit, time = fp.unit_col, fp.time_col
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {unit, time}]
+        outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        forced = [c for c in (cfg.get("predictors") or cfg.get("conditions") or []) if c in cont and c != outcome]
+        conditions = forced[:5] if forced else [c for c in cont if c != outcome][:5]
+        anchors = _qca_anchors(cfg)
+        incl_cut = _qca_incl_cut(cfg, 0.8)
+        names_safe = outcome is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, *conditions]
+        )
+        if not (unit and time):
+            summary.append("面板 QCA 失败：需要面板数据（单位列 + 时间列）。")
+        elif outcome is None or len(conditions) < 2:
+            summary.append("面板 QCA 失败：需要 1 个结果 + ≥2 个条件（均连续，将模糊校准）。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("SetMethods") and rbridge.r_package_available("QCA")):
+            summary.append("面板 QCA 需要 R 的 SetMethods + QCA 包（未检测到）。安装：install.packages(c('QCA','SetMethods'))；或用 fsqca（截面）。")
+        elif not names_safe:
+            summary.append("面板 QCA 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            import pandas as pd
+
+            sub = df[[outcome, *conditions, unit]].dropna()
+            csv = d / "_pqca_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                sol_str, terms = _panel_qca_via_r(csv, outcome, conditions, unit, anchors, incl_cut)
+                terms = terms.sort_values("pooled_consistency", ascending=False).reset_index(drop=True)
+                terms.to_csv(d / "panel_qca_terms.csv", index=False, encoding="utf-8")
+                files.append("panel_qca_terms.csv")
+                # large between/within distance => the configuration is NOT uniform
+                # across units / over time (clustered heterogeneity)
+                het = terms[(terms["dist_between"] > 0.2) | (terms["dist_within"] > 0.2)]["term"].tolist()
+                estimates["n_terms"] = float(len(terms))
+                estimates["max_pooled_consistency"] = round(float(terms["pooled_consistency"].max()), 4)
+                estimates["max_dist_between"] = round(float(terms["dist_between"].max()), 4)
+                estimates["max_dist_within"] = round(float(terms["dist_within"].max()), 4)
+                het_txt = (
+                    f"⚠ 跨单位/时间不稳定项：{het}（between/within→pooled 距离>0.2，配置在子总体间不一致）"
+                    if het else "各项 between/within 距离均小（配置在单位/时间间较稳定）"
+                )
+                (d / "panel_qca.txt").write_text(
+                    f"面板/聚类 fsQCA（SetMethods cluster，分位锚点 {anchors[0]}/{anchors[1]}/{anchors[2]}，incl.cut={incl_cut}）\n"
+                    f"汇总(pooled)充分性解 → {outcome}:  {sol_str}\n"
+                    f"按单位 {unit} 聚类，分解每个解项的 一致性：汇总(POCOS) vs 组间(between) vs 组内(within)；"
+                    "dBP/dWP=组间/组内到汇总的距离(越大越不一致)。\n"
+                    f"{het_txt}\n\n" + terms.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("panel_qca.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/SetMethods）：汇总解 [{sol_str}] → {outcome}（按 {unit} 聚类）；"
+                    f"{len(terms)} 个解项，最高汇总一致性 {terms['pooled_consistency'].max():.3f}，"
+                    f"最大组间距离 {terms['dist_between'].max():.3f}、组内 {terms['dist_within'].max():.3f}。{het_txt}。"
+                    "⚠ 配置性充分≠因果；距离大说明 pooled 解掩盖了子总体差异。"
+                )
+                code += [
+                    "library(SetMethods)  # 面板/聚类 fsQCA",
+                    f"# minimize(...) -> cluster(results=sol, unit_id, cluster_id='{unit}'); POCOS/dBP/dWP",
+                ]
+            except Exception as err:
+                summary.append(f"面板 QCA 失败：{err}")
             finally:
                 try:
                     csv.unlink()

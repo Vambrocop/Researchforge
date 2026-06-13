@@ -1,5 +1,25 @@
 # Configurational / necessity / qualitative-comparative methods.
 
+- id: panel_qca
+  method: Panel / clustered fsQCA (SetMethods)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Fuzzy-set QCA for panel / clustered data (Garcia-Castro & Ariño). Derives the pooled fsQCA solution, then decomposes each solution term's consistency into pooled vs between-unit vs within-unit, reporting the between→pooled and within→pooled distances. Large distances flag configurations that do NOT hold uniformly across units or over time (clustered heterogeneity a single cross-sectional QCA would hide). Continuous conditions are fuzzy-calibrated by percentile anchors. Uses R SetMethods + QCA.
+  preconditions:
+    is_panel: true
+    min_continuous: 3
+    min_rows: 20
+  produces:
+    - pooled fsQCA solution
+    - per-term pooled / between / within consistency decomposition
+    - between & within distances (clustered heterogeneity flags)
+  executor_ref: SetMethods (R)
+  biases:
+    - results hinge on calibration anchors and the consistency cutoff (config anchors/incl_cut)
+    - clusters by the panel unit; large between/within distances mean the pooled solution masks subpopulation differences
+    - configurational sufficiency is not causal proof; limited diversity / few clusters destabilise the decomposition
+
 - id: cna
   method: Coincidence Analysis (CNA)
   domain: social science
