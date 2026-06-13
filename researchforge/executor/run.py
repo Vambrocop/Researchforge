@@ -639,6 +639,20 @@ def _qca_incl_cut(cfg, default):
     return default
 
 
+def _gmm_lags(cfg, default=(2, 4)):
+    """GMM instrument lag range (lo, hi) for difference-GMM. cfg['gmm_lags']
+    overrides; must satisfy 1 <= lo <= hi (lo>=2 in differences is standard, but
+    we allow lo>=1 for predetermined-style instruments)."""
+    v = (cfg or {}).get("gmm_lags")
+    try:
+        lo, hi = int(v[0]), int(v[1])
+        if 1 <= lo <= hi:
+            return lo, hi
+    except (TypeError, ValueError, IndexError, KeyError):
+        pass
+    return default
+
+
 def _entropy_weights(Z):
     """Objective entropy weights from a [0,1] benefit matrix Z (m alts × k crit).
     Higher dispersion -> higher weight. Equal weights if degenerate."""
@@ -965,23 +979,50 @@ def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, 
     return diag, pref, coef
 
 
-def _dynamic_gmm_via_r(csv_path, unit: str, time: str, y: str, predictors: list[str]):
+def _dynamic_gmm_via_r(
+    csv_path, unit: str, time: str, y: str, predictors: list[str],
+    endogenous=None, gmm_lags=(2, 4),
+):
     """Arellano-Bond difference-GMM dynamic panel via R plm::pgmm. Returns
     (coef DataFrame [term, estimate, std_err, p_value], diagnostics dict with
-    sargan_stat/p and ar1_p/ar2_p). Raises so the caller can degrade honestly."""
+    sargan_stat/p and ar1_p/ar2_p). Raises so the caller can degrade honestly.
+
+    By default every covariate is treated as strictly exogenous and only the
+    lagged dependent is GMM-instrumented (lags `gmm_lags`). If `endogenous` names
+    covariates, those join the GMM-instrument block (instrumented with their own
+    lags `gmm_lags`, the Arellano-Bond treatment for endogenous regressors) and a
+    third "normal instruments" formula part lists the remaining exogenous
+    covariates as their own instruments."""
     import pandas as pd
 
     from researchforge.executor import rbridge
 
+    endo = [p for p in (endogenous or []) if p in predictors]
+    exog = [p for p in predictors if p not in endo]
+    lo, hi = int(gmm_lags[0]), int(gmm_lags[1])
+    # The lagged dependent must use lag>=2 in the differenced equation (y_{t-1}
+    # correlates with Δε_t, so lag 1 is an INVALID instrument; Opus catch). Floor
+    # its block at 2 even if the user lowers `lo` for predetermined covariates.
+    y_lo = max(2, lo)
     csv_r = str(csv_path).replace("\\", "/")
     rhs = " + ".join([f"lag({y}, 1)", *predictors])
-    # cap GMM instruments at lags 2-4 (not 2:99) to curb instrument proliferation,
+    # cap GMM instruments at lags lo:hi (not 2:99) to curb instrument proliferation,
     # which otherwise inflates/weakens the Sargan test (Roodman; Opus catch).
+    gmm_inst = " + ".join([f"lag({y}, {y_lo}:{hi})", *(f"lag({p}, {lo}:{hi})" for p in endo)])
+    if endo:
+        # 3-part pgmm formula is REQUIRED here: pgmm auto-instruments omitted
+        # covariates as their own (normal) instruments, which would wrongly treat an
+        # endogenous regressor as exogenous. Listing only `exog` in part 3 (verified:
+        # 2-part≡3-part for purely-exogenous models) confines self-instrumentation to
+        # the exogenous set; if all covariates are endogenous, no part 3 is needed.
+        formula = f"{y} ~ {rhs} | {gmm_inst}" + (f" | {' + '.join(exog)}" if exog else "")
+    else:
+        formula = f"{y} ~ {rhs} | {gmm_inst}"  # default: pgmm self-instruments all exog
     rcode = (
         "suppressMessages(library(plm))\n"
         f'd <- read.csv("{csv_r}")\n'
         f'pd <- pdata.frame(d, index=c("{unit}","{time}"))\n'
-        f"m <- pgmm({y} ~ {rhs} | lag({y}, 2:4), data=pd, effect=\"individual\", model=\"twosteps\")\n"
+        f'm <- pgmm({formula}, data=pd, effect="individual", model="twosteps")\n'
         "s <- summary(m, robust=TRUE); ct <- s$coefficients\n"
         'cat("##COEF\\n")\n'
         'for (nm in rownames(ct)) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", nm, ct[nm,1], ct[nm,2], ct[nm,4]))\n'
@@ -4667,7 +4708,12 @@ def run_analysis(
                 try:
                     import numpy as np
 
-                    coef, diag = _dynamic_gmm_via_r(csv, fp.unit_col, fp.time_col, y, preds)
+                    _endo = [p for p in (cfg.get("endogenous") or []) if p in preds]
+                    _lo, _hi = _gmm_lags(cfg)
+                    coef, diag = _dynamic_gmm_via_r(
+                        csv, fp.unit_col, fp.time_col, y, preds,
+                        endogenous=_endo, gmm_lags=(_lo, _hi),
+                    )
                     coef["term"] = [
                         f"lag_{y}" if str(t).startswith("lag(") else str(t) for t in coef["term"]
                     ]
@@ -4678,9 +4724,20 @@ def run_analysis(
                     ar2_p = diag.get("ar2_p", float("nan"))
                     sargan_ok = sargan_p > 0.05
                     ar2_ok = ar2_p > 0.05
+                    _endo_note = (
+                        f"内生变量（用 lag {_lo}:{_hi} 工具）：{_endo}"
+                        if _endo
+                        else "全部协变量设为严格外生（可用 config endogenous 标出内生变量）"
+                    )
+                    if _lo < 2:
+                        _endo_note += (
+                            "；⚠ gmm_lags 起始<2 仅对前定(predetermined)变量有效，"
+                            "滞后被解释变量已强制 lag≥2（差分方程中 lag1 为无效工具）"
+                        )
                     (d / "diagnostics.txt").write_text(
                         "动态面板 GMM (Arellano-Bond 差分 GMM, twosteps, Windmeijer 稳健 SE)\n"
-                        "工具集限 lag 2-4（抑制工具过度增殖；多工具会抬高/弱化 Sargan）。\n"
+                        f"工具集限 lag {_lo}-{_hi}（抑制工具过度增殖；多工具会抬高/弱化 Sargan）。\n"
+                        f"{_endo_note}。\n"
                         f"Sargan 过度识别检验 p = {sargan_p:.4g}（注：Sargan 非稳健,非 Hansen J）"
                         f"（{'工具有效（不拒）' if sargan_ok else '被拒 → 工具集可疑'}）\n"
                         f"AR(1) p = {ar1_p:.4g}（差分后通常显著，正常）\n"
@@ -4727,10 +4784,11 @@ def run_analysis(
                         f"（{'工具有效' if sargan_ok else '工具可疑'}），AR(2) p={ar2_p:.3g}"
                         f"（{'无二阶自相关' if ar2_ok else '⚠有二阶自相关、GMM不一致'}）"
                         f"{'' if valid else ' —— ⚠ 诊断未全通过,结果存疑'}。系数见 gmm_coefficients.csv。"
+                        + (f"（内生变量 {_endo}、工具滞后 {_lo}:{_hi} 按 config 指定）" if (_endo or cfg.get("gmm_lags")) else "")
                     )
                     code += [
                         "library(plm)  # Arellano-Bond 差分 GMM",
-                        f"# pgmm({y} ~ lag({y},1) + ... | lag({y},2:4), effect='individual', model='twosteps')",
+                        f"# pgmm({y} ~ lag({y},1) + ... | lag({y},{_lo}:{_hi})[+ lag(endo)], model='twosteps')",
                     ]
                 except Exception as err:
                     summary.append(f"动态面板 GMM 失败：{err}")

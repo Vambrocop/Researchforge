@@ -170,6 +170,7 @@ def test_config_malmquist_periods_and_io(tmp_path: Path) -> None:
 def test_qca_and_io_config_helpers() -> None:
     from researchforge.executor.run import (
         _cost_mask,
+        _gmm_lags,
         _io_names,
         _knn_k,
         _qca_anchors,
@@ -202,6 +203,11 @@ def test_qca_and_io_config_helpers() -> None:
     assert _cost_mask(["a", "b"], {})[0] is None
     mask, names = _cost_mask(["a", "b"], {"cost_criteria": ["b", "zz"]})
     assert names == ["b"] and bool(mask[1]) and not bool(mask[0])
+    # gmm lags: default, valid override, invalid (lo>hi / wrong type) -> default
+    assert _gmm_lags({}) == (2, 4)
+    assert _gmm_lags({"gmm_lags": [2, 6]}) == (2, 6)
+    assert _gmm_lags({"gmm_lags": [5, 2]}) == (2, 4)
+    assert _gmm_lags({"gmm_lags": "x"}) == (2, 4)
 
 
 def test_config_none_is_default(tmp_path: Path) -> None:
