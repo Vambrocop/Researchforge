@@ -17,3 +17,38 @@
     - assumes every indicator is benefit-type (higher is better) unless told otherwise — cost indicators must be reversed
     - entropy weights reflect data dispersion, not substantive importance
     - scores are relative to the current set of alternatives (adding/removing rows changes ranks)
+
+- id: membership_function
+  method: Membership-function comprehensive evaluation (隶属函数法)
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: Classic agronomy comprehensive evaluation — min-max membership degree per indicator, then an equal-weight average into a composite score and ranking of alternatives (e.g. crop varieties).
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - membership matrix
+    - composite scores and ranking
+  executor_ref: numpy
+  biases:
+    - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
+    - equal weights treat all indicators as equally important
+    - scores are relative to the current set of alternatives
+
+- id: grey_relational
+  method: Grey relational analysis (灰色关联分析)
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: Rank alternatives by their grey relational grade to an ideal reference sequence (distinguishing coefficient rho=0.5), on min-max normalised indicators. Robust with small samples — popular in agronomy and resource evaluation.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - grey relational grade and ranking
+  executor_ref: numpy
+  biases:
+    - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
+    - the distinguishing coefficient rho (default 0.5) affects the grades
+    - scores are relative to the current set of alternatives

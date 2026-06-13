@@ -463,6 +463,26 @@ def _mcda_inputs(df, fp):
     return X, crit, labels
 
 
+def _mcda_rank_plot(res, score_col: str, title: str, path: Path) -> None:
+    """Shared horizontal bar chart of the top-20 ranked alternatives for MCDA."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        top = res.head(20).iloc[::-1]
+        fig, ax = plt.subplots(figsize=(6, max(3, len(top) * 0.32)))
+        ax.barh(top["alternative"].astype(str), top[score_col], color="#4C72B0")
+        ax.set_xlabel(score_col)
+        ax.set_title(title)
+        fig.tight_layout()
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+
+
 def _minmax01(X):
     """Min-max normalise each column to [0,1] (benefit direction). Constant
     columns -> 0.5 (they get ~zero entropy weight downstream)."""
@@ -2100,6 +2120,87 @@ def run_analysis(
             code += [
                 "import numpy as np  # 熵权-TOPSIS",
                 "# Z=min-max[0,1]; w=熵权; V=Z*w; 距理想最优/最劣 -> 贴近度 dn/(dp+dn)",
+            ]
+
+    elif entry.id == "membership_function":
+        import numpy as np
+
+        try:
+            X, crit, labels = _mcda_inputs(df, fp)
+        except ValueError as err:
+            summary.append(f"隶属函数法失败：{err}")
+        else:
+            import pandas as pd
+
+            M = _minmax01(X)  # membership degrees in [0,1] (benefit)
+            composite = M.mean(axis=1)  # classic equal-weight average membership
+            res = pd.DataFrame({"alternative": labels, "membership_score": np.round(composite, 4)})
+            res["rank"] = res["membership_score"].rank(ascending=False, method="min").astype(int)
+            res = res.sort_values("rank").reset_index(drop=True)
+            res.to_csv(d / "membership_scores.csv", index=False, encoding="utf-8")
+            files.append("membership_scores.csv")
+            memb = pd.DataFrame(np.round(M, 4), columns=crit)
+            memb.insert(0, "alternative", labels)
+            memb.to_csv(d / "membership_matrix.csv", index=False, encoding="utf-8")
+            files.append("membership_matrix.csv")
+            _mcda_rank_plot(
+                res, "membership_score", "Membership-function ranking (top 20)",
+                d / "membership_ranking.png",
+            )
+            if (d / "membership_ranking.png").exists():
+                files.append("membership_ranking.png")
+            best = labels[int(np.argmax(composite))]
+            estimates["top_score"] = round(float(composite.max()), 4)
+            estimates["n_alternatives"] = float(len(labels))
+            estimates["n_criteria"] = float(len(crit))
+            summary.append(
+                f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
+                f"最优 [{best}]（隶属度均值 {composite.max():.3f}，等权）。"
+                "⚠ 假定所有指标为效益型（越大越好）；成本型指标请反向。"
+            )
+            code += [
+                "import numpy as np  # 隶属函数法(等权)",
+                "# M = min-max[0,1] 隶属度; 综合得分 = 各指标隶属度的等权平均",
+            ]
+
+    elif entry.id == "grey_relational":
+        import numpy as np
+
+        try:
+            X, crit, labels = _mcda_inputs(df, fp)
+        except ValueError as err:
+            summary.append(f"灰色关联分析失败：{err}")
+        else:
+            import pandas as pd
+
+            M = _minmax01(X)
+            delta = np.abs(1.0 - M)  # distance to the ideal (benefit -> ideal = 1)
+            dmin, dmax, rho = delta.min(), delta.max(), 0.5
+            xi = (dmin + rho * dmax) / (delta + rho * dmax + 1e-12)  # grey relational coef
+            grade = xi.mean(axis=1)  # grey relational grade (equal weight)
+            res = pd.DataFrame({"alternative": labels, "relational_grade": np.round(grade, 4)})
+            res["rank"] = res["relational_grade"].rank(ascending=False, method="min").astype(int)
+            res = res.sort_values("rank").reset_index(drop=True)
+            res.to_csv(d / "grey_relational.csv", index=False, encoding="utf-8")
+            files.append("grey_relational.csv")
+            _mcda_rank_plot(
+                res, "relational_grade", "Grey relational ranking (top 20)",
+                d / "grey_ranking.png",
+            )
+            if (d / "grey_ranking.png").exists():
+                files.append("grey_ranking.png")
+            best = labels[int(np.argmax(grade))]
+            estimates["top_grade"] = round(float(grade.max()), 4)
+            estimates["n_alternatives"] = float(len(labels))
+            estimates["n_criteria"] = float(len(crit))
+            summary.append(
+                f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
+                f"最优 [{best}]（关联度 {grade.max():.3f}，ρ=0.5，参考序列=各指标理想值）。"
+                "⚠ 假定所有指标为效益型；成本型指标请反向。"
+            )
+            code += [
+                "import numpy as np  # 灰色关联分析(GRA)",
+                "# Δ=|1-min-max|; ξ=(Δmin+0.5Δmax)/(Δ+0.5Δmax); 关联度=ξ 行均值",
             ]
 
     elif entry.id == "idw_interpolation":
