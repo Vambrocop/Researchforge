@@ -3295,6 +3295,99 @@ def run_analysis(
                 except OSError:
                     pass
 
+    elif entry.id == "differential_abundance":
+        import numpy as np
+        import pandas as pd
+        from scipy.stats import mannwhitneyu
+        from statsmodels.stats.multitest import multipletests
+
+        _excl = {fp.unit_col, fp.time_col}
+        taxa = [c.name for c in fp.columns if c.kind == "count" and c.name not in _excl]
+        group_col = next(
+            (
+                c.name
+                for c in fp.columns
+                if c.kind in {"binary", "categorical"}
+                and c.name not in _excl
+                and df[c.name].dropna().nunique() == 2
+            ),
+            None,
+        )
+        if len(taxa) < 2 or group_col is None:
+            summary.append("差异丰度失败：需要 ≥2 个计数列（物种/OTU）+ 一个 2 水平分组变量。")
+        else:
+            sub = df[[*taxa, group_col]].dropna()
+            grps = list(pd.Series(sub[group_col].astype(str)).unique())
+            if len(grps) != 2:
+                summary.append("差异丰度失败：分组变量需恰好 2 组。")
+            else:
+                mat = sub[taxa].clip(lower=0).to_numpy(dtype=float)
+                rel = mat / mat.sum(axis=1, keepdims=True).clip(min=1e-12)  # relative abundance
+                logm = np.log(mat + 0.5)  # CLR (compositional-aware), pseudocount 0.5
+                clr = logm - logm.mean(axis=1, keepdims=True)
+                g = sub[group_col].astype(str).to_numpy()
+                ma, mb = g == grps[0], g == grps[1]
+                pvals, l2fc = [], []
+                for j in range(len(taxa)):
+                    try:
+                        _, p = mannwhitneyu(clr[ma, j], clr[mb, j], alternative="two-sided")
+                    except ValueError:
+                        p = 1.0
+                    pvals.append(p)
+                    l2fc.append(np.log2((rel[mb, j].mean() + 1e-9) / (rel[ma, j].mean() + 1e-9)))
+                pvals = np.array(pvals)
+                qvals = multipletests(pvals, method="fdr_bh")[1]
+                res = pd.DataFrame(
+                    {
+                        "taxon": taxa,
+                        f"log2FC_{grps[1]}_vs_{grps[0]}": np.round(l2fc, 4),
+                        "p_value": np.round(pvals, 4),
+                        "q_value": np.round(qvals, 4),
+                    }
+                )
+                res["significant"] = res["q_value"] < 0.05
+                res = res.sort_values("q_value").reset_index(drop=True)
+                res.to_csv(d / "differential_abundance.csv", index=False, encoding="utf-8")
+                files.append("differential_abundance.csv")
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    fc = np.array(l2fc)
+                    nlq = -np.log10(np.clip(qvals, 1e-300, 1.0))
+                    sig = qvals < 0.05
+                    fig, ax = plt.subplots(figsize=(6, 4.5))
+                    ax.scatter(fc[~sig], nlq[~sig], s=18, c="#999999", label="ns")
+                    ax.scatter(fc[sig], nlq[sig], s=24, c="#C44E52", label="q<0.05")
+                    ax.axhline(-np.log10(0.05), color="grey", ls="--", lw=0.8)
+                    ax.axvline(0, color="grey", ls="--", lw=0.6)
+                    ax.set_xlabel(f"log2 fold-change ({grps[1]} vs {grps[0]})")
+                    ax.set_ylabel("-log10(q)")
+                    ax.set_title("Differential abundance (volcano)")
+                    ax.legend(fontsize=8)
+                    fig.tight_layout()
+                    fig.savefig(d / "volcano.png", dpi=150)
+                    plt.close(fig)
+                    files.append("volcano.png")
+                except Exception:
+                    pass
+                n_sig = int(res["significant"].sum())
+                estimates["n_significant"] = float(n_sig)
+                estimates["n_taxa"] = float(len(taxa))
+                summary.append(
+                    f"{entry.method} 完成：{len(taxa)} 个物种 × {len(sub)} 样本，比较 "
+                    f"{grps[0]} vs {grps[1]}；{n_sig} 个物种丰度差异显著（q<0.05，CLR+Mann-Whitney+BH-FDR）。"
+                    "⚠ 组成性数据：相对丰度受总和约束，本法用 CLR 缓解但非金标准；"
+                    "CLR 各物种共享每样本分母、非独立，BH-FDR 的独立性假定略被违反；"
+                    "严格分析建议 ALDEx2/ANCOM-BC（R）。"
+                )
+                code += [
+                    "from scipy.stats import mannwhitneyu  # 差异丰度",
+                    "# CLR = log(x+0.5)-行均值; per-taxon Mann-Whitney + BH-FDR; log2FC 用相对丰度",
+                ]
+
     elif entry.id == "rarefaction":
         import numpy as np
         from scipy.special import gammaln

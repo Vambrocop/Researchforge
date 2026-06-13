@@ -1,5 +1,25 @@
 # Microbiology catalog entries.
 
+- id: differential_abundance
+  method: Differential abundance (CLR + Wilcoxon)
+  domain: microbiology
+  family: ecology
+  goal: explain
+  description: Test which taxa (OTUs/species) differ in abundance between two groups — per-taxon Mann-Whitney on CLR-transformed counts with Benjamini-Hochberg FDR, plus log2 fold-change and a volcano plot. A compositional-aware screening method.
+  preconditions:
+    min_count_cols: 2
+    requires_group: true
+    min_rows: 10
+  produces:
+    - per-taxon log2FC / p / q table
+    - volcano plot
+  executor_ref: scipy
+  biases:
+    - compositional data — relative abundances are sum-constrained; CLR mitigates but is not a full fix (ALDEx2 / ANCOM-BC are the gold standard)
+    - per-taxon tests treat taxa as independent; FDR controls false discoveries, not compositional bias
+    - CLR values share a per-sample denominator so taxa are not independent — BH-FDR's independence assumption is only approximately met
+    - low-prevalence taxa and small per-group n give unstable p-values
+
 - id: rarefaction
   method: Rarefaction curves (Hurlbert)
   domain: microbiology
