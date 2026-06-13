@@ -49,6 +49,8 @@ def analyze_path(path: str | Path) -> dict:
             "feasible": r.feasible,
             "note": r.rigor.note,
             "biases": list(r.rigor.biases),
+            "methodology_score": r.score.as_dict(),
+            "score_note": r.score.note,
         }
         for r in recs
     ]

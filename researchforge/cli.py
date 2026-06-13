@@ -39,7 +39,12 @@ def _cmd_recommend(path: str) -> int:
     print("\n可做的分析（按严谨度排序，红灯需知情覆盖）：")
     mark = _markers()
     for r in recommend(fp):
+        s = r.score
         print(f"  {mark[r.rigor.light]} [{r.rigor.score:3d}] {r.entry.method} — {r.rigor.note}")
+        print(
+            f"        方法学评分 总{s.overall} | 契合{s.fit} 流行{s.popularity} "
+            f"可发表{s.publishability} 美观{s.aesthetics} 新颖{s.novelty} 难度{s.difficulty}"
+        )
     return 0
 
 
