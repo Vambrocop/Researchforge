@@ -210,6 +210,57 @@ def test_qca_and_io_config_helpers() -> None:
     assert _gmm_lags({"gmm_lags": "x"}) == (2, 4)
 
 
+def test_sem_latents_and_semopy_multifactor() -> None:
+    from researchforge.executor.run import _sem_latents, _sem_via_semopy
+
+    assert _sem_latents("F1 =~ a + b\nF2 =~ c + d") == ["F1", "F2"]
+    assert _sem_latents("sat =~ q1 + q2") == ["sat"]
+
+    rng = np.random.default_rng(5)
+    n = 400
+    f1 = rng.normal(0, 1, n)
+    f2 = rng.normal(0, 1, n)
+    sub = pd.DataFrame(
+        {
+            "a1": f1 + rng.normal(0, 0.4, n),
+            "a2": f1 + rng.normal(0, 0.4, n),
+            "b1": f2 + rng.normal(0, 0.4, n),
+            "b2": f2 + rng.normal(0, 0.4, n),
+        }
+    )
+    res = _sem_via_semopy(sub, "F1 =~ a1 + a2\nF2 =~ b1 + b2")
+    # generalised extraction must pull loadings for BOTH factors, not just "F"
+    assert set(res["loadings"]["factor"]) == {"F1", "F2"}
+    assert len(res["loadings"]) == 4
+
+
+def test_config_sem_custom_spec_branch(tmp_path: Path) -> None:
+    rng = np.random.default_rng(9)
+    n = 300
+    f1 = rng.normal(0, 1, n)
+    f2 = rng.normal(0, 1, n)
+    df = pd.DataFrame(
+        {
+            "a1": f1 + rng.normal(0, 0.4, n),
+            "a2": f1 + rng.normal(0, 0.4, n),
+            "b1": f2 + rng.normal(0, 0.4, n),
+            "b2": f2 + rng.normal(0, 0.4, n),
+        }
+    )
+    csv = tmp_path / "sem.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    e = AnalysisEntry(
+        id="sem", method="SEM", domain="statistics", family="statistics",
+        goal="confirm", preconditions=Precondition(min_continuous=3),
+    )
+    res = run_analysis(
+        fp, e, output_root=str(tmp_path / "o"),
+        config={"model_spec": "F1 =~ a1 + a2\nF2 =~ b1 + b2"},
+    )
+    assert "自定义模型" in res.summary and "2 因子" in res.summary
+
+
 def test_config_none_is_default(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"y": 1.5 * rng.normal(0, 1, 60), "x": rng.normal(0, 1, 60)})

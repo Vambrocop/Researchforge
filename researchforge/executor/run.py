@@ -684,8 +684,8 @@ def _sem_via_lavaan(csv_path, spec: str) -> dict:
         f'fit <- cfa("{spec}", data=d, std.lv=TRUE)\n'
         'std <- standardizedSolution(fit); ld <- std[std$op == "=~", ]\n'
         'cat("##LOADINGS\\n")\n'
-        'for (i in seq_len(nrow(ld))) cat(sprintf("%s,%.6f,%.6f,%.6f\\n", '
-        "ld$rhs[i], ld$est.std[i], ifelse(is.na(ld$se[i]),0,ld$se[i]), "
+        'for (i in seq_len(nrow(ld))) cat(sprintf("%s,%s,%.6f,%.6f,%.6f\\n", '
+        "ld$rhs[i], ld$lhs[i], ld$est.std[i], ifelse(is.na(ld$se[i]),0,ld$se[i]), "
         "ifelse(is.na(ld$pvalue[i]),0,ld$pvalue[i])))\n"
         'fm <- fitMeasures(fit, c("chisq","df","cfi","tli","rmsea","srmr","aic","bic"))\n'
         'cat("##FIT\\n"); for (nm in names(fm)) cat(sprintf("%s,%.6f\\n", nm, fm[nm]))\n'
@@ -703,7 +703,8 @@ def _sem_via_lavaan(csv_path, spec: str) -> dict:
     if not lrows or not frows:
         raise RuntimeError("lavaan produced no parseable output")
     load = pd.DataFrame(
-        [r.split(",") for r in lrows], columns=["indicator", "std_loading", "std_err", "p_value"]
+        [r.split(",") for r in lrows],
+        columns=["indicator", "factor", "std_loading", "std_err", "p_value"],
     )
     for c in ("std_loading", "std_err", "p_value"):
         load[c] = load[c].astype(float)
@@ -723,17 +724,28 @@ def _sem_via_lavaan(csv_path, spec: str) -> dict:
     }
 
 
+def _sem_latents(spec: str) -> list[str]:
+    """Latent-variable names = the LHS of every `=~` measurement line in a
+    lavaan/semopy model spec. Used to pick out measurement loadings generically."""
+    import re
+
+    return [m.group(1) for m in re.finditer(r"([A-Za-z_]\w*)\s*=~", spec)]
+
+
 def _sem_via_semopy(sub, spec: str) -> dict:
-    """Fit the same single-factor CFA with pure-Python semopy (portable fallback)."""
+    """Fit a CFA/SEM model spec with pure-Python semopy (portable fallback).
+    Extracts standardised loadings for ALL latent factors in the spec (not just a
+    single factor named F), so custom multi-factor specs are handled."""
     import semopy
 
+    latents = _sem_latents(spec) or ["F"]
     model = semopy.Model(spec)
     model.fit(sub)
     ins = model.inspect(std_est=True)
-    load = ins[(ins["op"] == "~") & (ins["rval"] == "F")][
-        ["lval", "Est. Std", "Std. Err", "p-value"]
+    load = ins[(ins["op"] == "~") & (ins["rval"].isin(latents))][
+        ["lval", "rval", "Est. Std", "Std. Err", "p-value"]
     ].copy()
-    load.columns = ["indicator", "std_loading", "std_err", "p_value"]
+    load.columns = ["indicator", "factor", "std_loading", "std_err", "p_value"]
     stats = semopy.calc_stats(model)
     return {
         "loadings": load,
@@ -4237,30 +4249,48 @@ def run_analysis(
                 ]
 
     elif entry.id == "sem":
+        import re
+
         _excl = {fp.unit_col, fp.time_col}
         indicators = [
             c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl
         ]
-        if len(indicators) < 3:
-            summary.append("SEM 失败：需要 ≥3 个连续指标变量（单因子模型识别要求）。")
+        # config={"model_spec": "<lavaan/semopy syntax>"} lets the user supply their
+        # theoretical structure (multi-factor CFA / paths) instead of the auto
+        # single-factor template. Columns are taken from those named in the spec.
+        user_spec = cfg.get("model_spec") or cfg.get("sem_spec")
+        if user_spec:
+            used = [
+                c for c in df.columns
+                if re.search(rf"(?<![\w.]){re.escape(str(c))}(?![\w.])", user_spec)
+            ]
+            spec = user_spec
         else:
-            import re
-
+            used = indicators[:8]
+            spec = "F =~ " + " + ".join(used)
+        if not user_spec and len(indicators) < 3:
+            summary.append("SEM 失败：需要 ≥3 个连续指标变量（单因子模型识别要求）。")
+        elif user_spec and len(used) < 2:
+            summary.append("SEM 失败：config model_spec 中未匹配到 ≥2 个数据列名。")
+        else:
             import pandas as pd
 
             from researchforge.executor import rbridge
 
-            inds = indicators[:8]
+            inds = used
             sub = df[inds].dropna()
-            spec = "F =~ " + " + ".join(inds)
             # prefer lavaan (R, gold standard — also gives SRMR) when available;
             # fall back to pure-Python semopy so the analysis runs anywhere.
             # Only use the R backend with identifier-safe column names: names go
             # into the R model string, so a name with quotes/commas could break
             # parsing or inject R — semopy takes the names as data, no eval.
             names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in inds)
+            # the spec is interpolated into cfa("...") as an R string literal; a stray
+            # double-quote/backslash would break out, so a custom spec with those is
+            # routed to semopy instead (takes the spec as a Python string, no R eval).
+            spec_safe = '"' not in spec and "\\" not in spec
             result = None
-            if names_safe and rbridge.r_available() and rbridge.r_package_available("lavaan"):
+            if names_safe and spec_safe and rbridge.r_available() and rbridge.r_package_available("lavaan"):
                 csv = d / "_sem_input.csv"
                 sub.to_csv(csv, index=False)
                 try:
@@ -4293,9 +4323,14 @@ def run_analysis(
                     import matplotlib.pyplot as plt
 
                     fig, ax = plt.subplots(figsize=(5, 3.2))
-                    ax.barh(load["indicator"], load["std_loading"], color="#4C72B0")
-                    ax.set_xlabel("standardised loading on F")
-                    ax.set_title("SEM single-factor loadings")
+                    _ylab = (
+                        load["indicator"].astype(str) + " ← " + load["factor"].astype(str)
+                        if "factor" in load.columns and load["factor"].nunique() > 1
+                        else load["indicator"].astype(str)
+                    )
+                    ax.barh(_ylab, load["std_loading"], color="#4C72B0")
+                    ax.set_xlabel("standardised loading")
+                    ax.set_title("SEM measurement loadings")
                     fig.tight_layout()
                     fig.savefig(d / "loadings.png", dpi=150)
                     plt.close(fig)
@@ -4315,11 +4350,20 @@ def run_analysis(
                 else:
                     verdict = "拟合一般/欠佳"
                 srmr_txt = f" SRMR={srmr:.3f}" if srmr == srmr else ""  # NaN-safe
+                _n_factors = len(set(_sem_latents(spec))) or 1
+                _model_desc = (
+                    f"自定义模型（{_n_factors} 因子，按 config model_spec）"
+                    if user_spec
+                    else "单因子 CFA"
+                )
+                _tail = (
+                    "" if user_spec
+                    else "（此为探索性模板；可用 config={\"model_spec\": \"lavaan语法\"} 按理论结构改写后重跑）"
+                )
                 summary.append(
-                    f"{entry.method} 完成（后端：{result['backend']}）：单因子 CFA over "
+                    f"{entry.method} 完成（后端：{result['backend']}）：{_model_desc} over "
                     f"{len(inds)} 个指标（df={dof:.0f}）；CFI={cfi:.3f} TLI={tli:.3f} "
-                    f"RMSEA={rmsea:.3f}{srmr_txt} → {verdict}"
-                    "（此为探索性模板；请按你的理论结构改写 model spec 后重跑）"
+                    f"RMSEA={rmsea:.3f}{srmr_txt} → {verdict}" + _tail
                 )
                 code += [
                     "# SEM single-factor CFA — prefers R/lavaan, falls back to semopy",
