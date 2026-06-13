@@ -3695,6 +3695,30 @@ def run_analysis(
             if len(grps) != 2:
                 summary.append("差异丰度失败：分组变量需恰好 2 组。")
             else:
+                # config={"da_method": ...}: "clr_mw" (默认, CLR+Mann-Whitney) /
+                # "clr_welch" (CLR+Welch t 检验) — 纯 Python, 可测。请求金标准
+                # "aldex2"/"ancombc" 时若未装 Bioconductor 包则诚实降级到 clr_mw。
+                from researchforge.executor import rbridge
+
+                da_method = str(cfg.get("da_method") or "clr_mw").lower()
+                _gold = {"aldex2": "ALDEx2", "ancombc": "ANCOMBC", "ancom-bc": "ANCOMBC"}
+                _degrade_note = ""
+                if da_method in _gold:
+                    _pkg = _gold[da_method]
+                    if rbridge.r_available() and rbridge.r_package_available(_pkg):
+                        # 包已装但桥未接：诚实告知，仍以 CLR+MW 出结果（不静默假装跑了金标准）
+                        _degrade_note = (
+                            f"；⚠ 已检测到 R 包 {_pkg}，但本引擎尚未接其专用桥，"
+                            "暂以 CLR+Mann-Whitney 保底（金标准 ALDEx2/ANCOM-BC 桥待接，见 loop-decisions）"
+                        )
+                    else:
+                        _degrade_note = (
+                            f"；⚠ 请求 {_pkg} 但未检测到（Bioconductor 包，"
+                            f"装：BiocManager::install('{_pkg}')），已用 CLR+Mann-Whitney 保底"
+                        )
+                    da_method = "clr_mw"
+                use_welch = da_method == "clr_welch"
+                method_label = "CLR+Welch t" if use_welch else "CLR+Mann-Whitney"
                 mat = sub[taxa].clip(lower=0).to_numpy(dtype=float)
                 rel = mat / mat.sum(axis=1, keepdims=True).clip(min=1e-12)  # relative abundance
                 logm = np.log(mat + 0.5)  # CLR (compositional-aware), pseudocount 0.5
@@ -3702,9 +3726,16 @@ def run_analysis(
                 g = sub[group_col].astype(str).to_numpy()
                 ma, mb = g == grps[0], g == grps[1]
                 pvals, l2fc = [], []
+                if use_welch:
+                    from scipy.stats import ttest_ind
                 for j in range(len(taxa)):
                     try:
-                        _, p = mannwhitneyu(clr[ma, j], clr[mb, j], alternative="two-sided")
+                        if use_welch:
+                            _, p = ttest_ind(clr[ma, j], clr[mb, j], equal_var=False)
+                        else:
+                            _, p = mannwhitneyu(clr[ma, j], clr[mb, j], alternative="two-sided")
+                        if not np.isfinite(p):
+                            p = 1.0
                     except ValueError:
                         p = 1.0
                     pvals.append(p)
@@ -3752,14 +3783,14 @@ def run_analysis(
                 estimates["n_taxa"] = float(len(taxa))
                 summary.append(
                     f"{entry.method} 完成：{len(taxa)} 个物种 × {len(sub)} 样本，比较 "
-                    f"{grps[0]} vs {grps[1]}；{n_sig} 个物种丰度差异显著（q<0.05，CLR+Mann-Whitney+BH-FDR）。"
+                    f"{grps[0]} vs {grps[1]}；{n_sig} 个物种丰度差异显著（q<0.05，{method_label}+BH-FDR）。"
                     "⚠ 组成性数据：相对丰度受总和约束，本法用 CLR 缓解但非金标准；"
                     "CLR 各物种共享每样本分母、非独立，BH-FDR 的独立性假定略被违反；"
-                    "严格分析建议 ALDEx2/ANCOM-BC（R）。"
+                    "严格分析建议 ALDEx2/ANCOM-BC（R）。" + _degrade_note
                 )
                 code += [
-                    "from scipy.stats import mannwhitneyu  # 差异丰度",
-                    "# CLR = log(x+0.5)-行均值; per-taxon Mann-Whitney + BH-FDR; log2FC 用相对丰度",
+                    f"# 差异丰度 ({method_label}); config da_method: clr_mw / clr_welch",
+                    "# CLR = log(x+0.5)-行均值; per-taxon 检验 + BH-FDR; log2FC 用相对丰度",
                 ]
 
     elif entry.id == "rarefaction":

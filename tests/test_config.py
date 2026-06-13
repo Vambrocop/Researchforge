@@ -261,6 +261,40 @@ def test_config_sem_custom_spec_branch(tmp_path: Path) -> None:
     assert "自定义模型" in res.summary and "2 因子" in res.summary
 
 
+def test_config_diff_abundance_method(tmp_path: Path) -> None:
+    rng = np.random.default_rng(13)
+    n = 60
+    rows = {}
+    for t in range(5):
+        rows[f"otu{t}"] = rng.integers(1, 200, n).astype(float)
+    df = pd.DataFrame(rows)
+    df["grp"] = ["A"] * (n // 2) + ["B"] * (n - n // 2)
+    csv = tmp_path / "da.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    if not [c for c in fp.columns if c.kind == "count"]:
+        import pytest
+
+        pytest.skip("profiler did not detect count columns for this fixture")
+    e = AnalysisEntry(
+        id="differential_abundance", method="Differential abundance",
+        domain="microbiology", family="microbiology", goal="compare",
+        preconditions=Precondition(min_rows=10),
+    )
+    # Welch t-test variant
+    res_w = run_analysis(
+        fp, e, output_root=str(tmp_path / "ow"), config={"da_method": "clr_welch"}
+    )
+    if "失败" not in res_w.summary:
+        assert "CLR+Welch t" in res_w.summary
+    # requesting an uninstalled gold-standard must degrade honestly, not pretend
+    res_g = run_analysis(
+        fp, e, output_root=str(tmp_path / "og"), config={"da_method": "aldex2"}
+    )
+    if "失败" not in res_g.summary:
+        assert "ALDEx2" in res_g.summary and "保底" in res_g.summary
+
+
 def test_config_none_is_default(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"y": 1.5 * rng.normal(0, 1, 60), "x": rng.normal(0, 1, 60)})
