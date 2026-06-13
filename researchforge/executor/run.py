@@ -1064,6 +1064,47 @@ def _dynamic_gmm_via_r(
     return coef, diag
 
 
+def _diff_abundance_aldex2_via_r(csv_path, taxa: list[str], group: str):
+    """Differential abundance via R ALDEx2 (compositional gold standard): CLR with
+    Monte-Carlo Dirichlet sampling of the counts, Welch t per taxon over the MC
+    instances, BH-FDR. ALDEx2 expects features (taxa) as ROWS, samples as COLUMNS.
+    Returns a DataFrame [taxon, effect, diff_btw, p_value, q_value]. Raises so the
+    caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    taxa_r = ", ".join(f'"{t}"' for t in taxa)
+    rcode = (
+        "suppressMessages(library(ALDEx2))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f"taxa <- c({taxa_r})\n"
+        "counts <- t(as.matrix(d[, taxa]))\n"  # features x samples
+        f'conds <- as.character(d[["{group}"]])\n'
+        # 128 MC Dirichlet instances (ALDEx2 default); Welch t with effect sizes
+        'x <- aldex(round(counts), conds, mc.samples=128, test="t", effect=TRUE, denom="all", verbose=FALSE)\n'
+        'cat("##R\\n")\n'
+        'for (i in seq_len(nrow(x))) cat(sprintf("%s|%.6f|%.6f|%.6g|%.6g\\n", '
+        "rownames(x)[i], x$effect[i], x$diff.btw[i], x$we.ep[i], x$we.eBH[i]))\n"
+    )
+    out = rbridge.run_r(rcode, timeout=300)
+    rows = []
+    section = None
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##R":
+            section = "R"
+        elif section == "R" and "|" in s:
+            rows.append(s.split("|"))
+    if not rows:
+        raise RuntimeError("ALDEx2 未返回结果")
+    res = pd.DataFrame(rows, columns=["taxon", "effect", "diff_btw", "p_value", "q_value"])
+    for c in ("effect", "diff_btw", "p_value", "q_value"):
+        res[c] = pd.to_numeric(res[c], errors="coerce")
+    return res
+
+
 def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
     frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
@@ -3695,57 +3736,85 @@ def run_analysis(
             if len(grps) != 2:
                 summary.append("差异丰度失败：分组变量需恰好 2 组。")
             else:
-                # config={"da_method": ...}: "clr_mw" (默认, CLR+Mann-Whitney) /
-                # "clr_welch" (CLR+Welch t 检验) — 纯 Python, 可测。请求金标准
-                # "aldex2"/"ancombc" 时若未装 Bioconductor 包则诚实降级到 clr_mw。
+                # config={"da_method": ...}: "aldex2" (R 金标准, MC-CLR + Welch) /
+                # "clr_mw" (默认, CLR+Mann-Whitney) / "clr_welch" (CLR+Welch t)。
+                # "ancombc" 桥待接 → 诚实降级。请求 R 法而包/桥不可用也诚实降级。
                 from researchforge.executor import rbridge
 
                 da_method = str(cfg.get("da_method") or "clr_mw").lower()
-                _gold = {"aldex2": "ALDEx2", "ancombc": "ANCOMBC", "ancom-bc": "ANCOMBC"}
                 _degrade_note = ""
-                if da_method in _gold:
-                    _pkg = _gold[da_method]
-                    if rbridge.r_available() and rbridge.r_package_available(_pkg):
-                        # 包已装但桥未接：诚实告知，仍以 CLR+MW 出结果（不静默假装跑了金标准）
-                        _degrade_note = (
-                            f"；⚠ 已检测到 R 包 {_pkg}，但本引擎尚未接其专用桥，"
-                            "暂以 CLR+Mann-Whitney 保底（金标准 ALDEx2/ANCOM-BC 桥待接，见 loop-decisions）"
-                        )
+                use_aldex2 = False
+                ar = None
+                if da_method == "aldex2":
+                    if rbridge.r_available() and rbridge.r_package_available("ALDEx2"):
+                        _csv = d / "_da_input.csv"
+                        sub[[*taxa, group_col]].to_csv(_csv, index=False)
+                        try:
+                            ar = _diff_abundance_aldex2_via_r(_csv, taxa, group_col)
+                            use_aldex2 = True
+                        except Exception as err:
+                            _degrade_note = f"；⚠ ALDEx2 运行失败（{err}），已降级 CLR+Mann-Whitney"
+                        finally:
+                            try:
+                                _csv.unlink()
+                            except OSError:
+                                pass
                     else:
                         _degrade_note = (
-                            f"；⚠ 请求 {_pkg} 但未检测到（Bioconductor 包，"
-                            f"装：BiocManager::install('{_pkg}')），已用 CLR+Mann-Whitney 保底"
+                            "；⚠ 请求 ALDEx2 但未检测到（装：BiocManager::install('ALDEx2')），"
+                            "已用 CLR+Mann-Whitney 保底"
                         )
-                    da_method = "clr_mw"
-                use_welch = da_method == "clr_welch"
-                method_label = "CLR+Welch t" if use_welch else "CLR+Mann-Whitney"
-                mat = sub[taxa].clip(lower=0).to_numpy(dtype=float)
-                rel = mat / mat.sum(axis=1, keepdims=True).clip(min=1e-12)  # relative abundance
-                logm = np.log(mat + 0.5)  # CLR (compositional-aware), pseudocount 0.5
-                clr = logm - logm.mean(axis=1, keepdims=True)
-                g = sub[group_col].astype(str).to_numpy()
-                ma, mb = g == grps[0], g == grps[1]
-                pvals, l2fc = [], []
-                if use_welch:
-                    from scipy.stats import ttest_ind
-                for j in range(len(taxa)):
-                    try:
-                        if use_welch:
-                            _, p = ttest_ind(clr[ma, j], clr[mb, j], equal_var=False)
-                        else:
-                            _, p = mannwhitneyu(clr[ma, j], clr[mb, j], alternative="two-sided")
-                        if not np.isfinite(p):
+                elif da_method in {"ancombc", "ancom-bc"}:
+                    _degrade_note = (
+                        "；⚠ ANCOM-BC 专用桥尚未接（API 需 TreeSummarizedExperiment，待接，"
+                        "见 loop-decisions），已用 CLR+Mann-Whitney 保底；如需 ALDEx2 请 da_method=aldex2"
+                    )
+                if not use_aldex2 and da_method not in {"clr_mw", "clr_welch"}:
+                    da_method = "clr_mw"  # unknown / degraded → default
+
+                if use_aldex2:
+                    method_label = "ALDEx2 (R, MC-CLR + Welch)"
+                    effect_col = f"median_CLR_diff_{grps[1]}_vs_{grps[0]}"
+                    x_label = f"median CLR difference ({grps[1]} vs {grps[0]})"
+                    taxa_out = ar["taxon"].tolist()
+                    effect_vals = ar["diff_btw"].to_numpy(dtype=float)
+                    pvals = ar["p_value"].to_numpy(dtype=float)
+                    qvals = ar["q_value"].to_numpy(dtype=float)
+                else:
+                    use_welch = da_method == "clr_welch"
+                    method_label = "CLR+Welch t" if use_welch else "CLR+Mann-Whitney"
+                    effect_col = f"log2FC_{grps[1]}_vs_{grps[0]}"
+                    x_label = f"log2 fold-change ({grps[1]} vs {grps[0]})"
+                    taxa_out = taxa
+                    mat = sub[taxa].clip(lower=0).to_numpy(dtype=float)
+                    rel = mat / mat.sum(axis=1, keepdims=True).clip(min=1e-12)
+                    logm = np.log(mat + 0.5)  # CLR (compositional-aware), pseudocount 0.5
+                    clr = logm - logm.mean(axis=1, keepdims=True)
+                    g = sub[group_col].astype(str).to_numpy()
+                    ma, mb = g == grps[0], g == grps[1]
+                    pvals, l2fc = [], []
+                    if use_welch:
+                        from scipy.stats import ttest_ind
+                    for j in range(len(taxa)):
+                        try:
+                            if use_welch:
+                                _, p = ttest_ind(clr[ma, j], clr[mb, j], equal_var=False)
+                            else:
+                                _, p = mannwhitneyu(clr[ma, j], clr[mb, j], alternative="two-sided")
+                            if not np.isfinite(p):
+                                p = 1.0
+                        except ValueError:
                             p = 1.0
-                    except ValueError:
-                        p = 1.0
-                    pvals.append(p)
-                    l2fc.append(np.log2((rel[mb, j].mean() + 1e-9) / (rel[ma, j].mean() + 1e-9)))
-                pvals = np.array(pvals)
-                qvals = multipletests(pvals, method="fdr_bh")[1]
+                        pvals.append(p)
+                        l2fc.append(np.log2((rel[mb, j].mean() + 1e-9) / (rel[ma, j].mean() + 1e-9)))
+                    pvals = np.array(pvals)
+                    qvals = multipletests(pvals, method="fdr_bh")[1]
+                    effect_vals = np.array(l2fc)
+
                 res = pd.DataFrame(
                     {
-                        "taxon": taxa,
-                        f"log2FC_{grps[1]}_vs_{grps[0]}": np.round(l2fc, 4),
+                        "taxon": taxa_out,
+                        effect_col: np.round(effect_vals, 4),
                         "p_value": np.round(pvals, 4),
                         "q_value": np.round(qvals, 4),
                     }
@@ -3760,17 +3829,17 @@ def run_analysis(
                     matplotlib.use("Agg")
                     import matplotlib.pyplot as plt
 
-                    fc = np.array(l2fc)
+                    fc = np.asarray(effect_vals, dtype=float)
                     nlq = -np.log10(np.clip(qvals, 1e-300, 1.0))
-                    sig = qvals < 0.05
+                    sig = np.asarray(qvals) < 0.05
                     fig, ax = plt.subplots(figsize=(6, 4.5))
                     ax.scatter(fc[~sig], nlq[~sig], s=18, c="#999999", label="ns")
                     ax.scatter(fc[sig], nlq[sig], s=24, c="#C44E52", label="q<0.05")
                     ax.axhline(-np.log10(0.05), color="grey", ls="--", lw=0.8)
                     ax.axvline(0, color="grey", ls="--", lw=0.6)
-                    ax.set_xlabel(f"log2 fold-change ({grps[1]} vs {grps[0]})")
+                    ax.set_xlabel(x_label)
                     ax.set_ylabel("-log10(q)")
-                    ax.set_title("Differential abundance (volcano)")
+                    ax.set_title(f"Differential abundance ({method_label})")
                     ax.legend(fontsize=8)
                     fig.tight_layout()
                     fig.savefig(d / "volcano.png", dpi=150)
@@ -3780,17 +3849,22 @@ def run_analysis(
                     pass
                 n_sig = int(res["significant"].sum())
                 estimates["n_significant"] = float(n_sig)
-                estimates["n_taxa"] = float(len(taxa))
-                summary.append(
-                    f"{entry.method} 完成：{len(taxa)} 个物种 × {len(sub)} 样本，比较 "
-                    f"{grps[0]} vs {grps[1]}；{n_sig} 个物种丰度差异显著（q<0.05，{method_label}+BH-FDR）。"
-                    "⚠ 组成性数据：相对丰度受总和约束，本法用 CLR 缓解但非金标准；"
+                estimates["n_taxa"] = float(len(taxa_out))
+                _caveat = (
+                    "ALDEx2 用 Monte-Carlo Dirichlet 采样 + CLR，组成性严谨（金标准）。"
+                    if use_aldex2
+                    else "⚠ 组成性数据：相对丰度受总和约束，本法用 CLR 缓解但非金标准；"
                     "CLR 各物种共享每样本分母、非独立，BH-FDR 的独立性假定略被违反；"
-                    "严格分析建议 ALDEx2/ANCOM-BC（R）。" + _degrade_note
+                    "严格分析可 da_method=aldex2（R ALDEx2）。"
+                )
+                summary.append(
+                    f"{entry.method} 完成：{len(taxa_out)} 个物种 × {len(sub)} 样本，比较 "
+                    f"{grps[0]} vs {grps[1]}；{n_sig} 个物种丰度差异显著（q<0.05，{method_label}+BH-FDR）。"
+                    + _caveat + _degrade_note
                 )
                 code += [
-                    f"# 差异丰度 ({method_label}); config da_method: clr_mw / clr_welch",
-                    "# CLR = log(x+0.5)-行均值; per-taxon 检验 + BH-FDR; log2FC 用相对丰度",
+                    f"# 差异丰度 ({method_label}); config da_method: aldex2 / clr_mw / clr_welch",
+                    "# ALDEx2: aldex(counts, conds, test='t', effect=TRUE); 纯Py: CLR + 检验 + BH-FDR",
                 ]
 
     elif entry.id == "rarefaction":

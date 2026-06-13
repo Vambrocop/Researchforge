@@ -12,7 +12,7 @@
 > - 空间 Moran/LISA/Gi*/空间回归(#6)：`knn_k`(近邻数)
 > - 动态面板 GMM(#7)：`endogenous`(内生协变量列表)、`gmm_lags`([lo,hi])
 > - SEM(#4)：`model_spec`(lavaan/semopy 语法字符串)
-> - 差异丰度(#9)：`da_method`(clr_mw / clr_welch；aldex2/ancombc 降级)
+> - 差异丰度(#9)：`da_method`(clr_mw / clr_welch / aldex2[R 金标准已接]；ancombc 降级)
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 
@@ -26,7 +26,7 @@
 | 6 | **空间(Moran/Gi*/LISA/空间回归)** | k-NN 权重 k=8(R路径6)，经纬度欧氏距离 | 改 k / 距离度量 / 真测地距离 / 其他权重 | ✅ 四法均可配 `knn_k`（近邻数）；距离度量/权重型待接 |
 | 7 | **动态面板 GMM** | 协变量设为严格外生；工具滞后 2-4 | 标出内生/前定变量；调工具滞后深度 | ✅ 可配 `endogenous`(内生协变量)/`gmm_lags`[lo,hi]；滞后DV强制 lag≥2 |
 | 8 | **Malmquist** | 取首末两期 | 逐期链式 / 指定基期 | 待批 |
-| 9 | **差异丰度** | CLR + Mann-Whitney + BH-FDR（纯 Py 筛查法） | 上 R 金标准 ALDEx2 / ANCOM-BC（组成性更严谨） | 🟡 可配 `da_method`：clr_mw(默认)/clr_welch 已接；aldex2/ancombc 诚实降级(需 Bioconductor 安装+专用桥, 待接) |
+| 9 | **差异丰度** | CLR + Mann-Whitney + BH-FDR（纯 Py 筛查法） | 上 R 金标准 ALDEx2 / ANCOM-BC（组成性更严谨） | ✅ 可配 `da_method`：clr_mw(默认)/clr_welch/**aldex2(R 金标准已接, MC-CLR+Welch)**；ancombc 桥待接(需 TreeSummarizedExperiment)→诚实降级 |
 
 ---
 **怎么用**：你回来逐条说「第 N 条改成 X」，或「都先这样」。我据此把对应分析升级成接受参数/换默认，并重跑。

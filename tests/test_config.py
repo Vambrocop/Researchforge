@@ -281,18 +281,29 @@ def test_config_diff_abundance_method(tmp_path: Path) -> None:
         domain="microbiology", family="microbiology", goal="compare",
         preconditions=Precondition(min_rows=10),
     )
-    # Welch t-test variant
+    # Welch t-test variant (pure Python, always available)
     res_w = run_analysis(
         fp, e, output_root=str(tmp_path / "ow"), config={"da_method": "clr_welch"}
     )
     if "失败" not in res_w.summary:
         assert "CLR+Welch t" in res_w.summary
-    # requesting an uninstalled gold-standard must degrade honestly, not pretend
+    # ANCOM-BC bridge is intentionally not wired -> must degrade honestly, not pretend
+    res_a = run_analysis(
+        fp, e, output_root=str(tmp_path / "oa"), config={"da_method": "ancombc"}
+    )
+    if "失败" not in res_a.summary:
+        assert "ANCOM-BC" in res_a.summary and "保底" in res_a.summary
+    # aldex2: runs the R gold standard when ALDEx2 is installed, else degrades honestly
+    from researchforge.executor import rbridge
+
     res_g = run_analysis(
         fp, e, output_root=str(tmp_path / "og"), config={"da_method": "aldex2"}
     )
     if "失败" not in res_g.summary:
-        assert "ALDEx2" in res_g.summary and "保底" in res_g.summary
+        if rbridge.r_available() and rbridge.r_package_available("ALDEx2"):
+            assert "ALDEx2 (R" in res_g.summary and "保底" not in res_g.summary
+        else:
+            assert "保底" in res_g.summary
 
 
 def test_config_none_is_default(tmp_path: Path) -> None:
