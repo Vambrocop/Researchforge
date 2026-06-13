@@ -17,3 +17,22 @@
     - input/output designation is assumed (first numeric column = output, the rest = inputs) — verify it matches reality
     - deterministic frontier (no noise) — outliers / measurement error are read as "efficient"; SFA is the stochastic alternative
     - efficiency is relative to this sample and inflates with few DMUs; needs strictly positive inputs and outputs
+
+- id: malmquist
+  method: Malmquist productivity index (TFP change)
+  domain: economics
+  family: efficiency
+  goal: explain
+  description: Decompose total factor productivity (TFP) change between two periods for each panel unit into efficiency change (catch-up) and technical change (frontier shift), via CRS DEA distance functions (Färe et al. 1994). Index > 1 means productivity growth.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 6
+  produces:
+    - per-unit Malmquist TFP index
+    - efficiency-change / technical-change decomposition
+  executor_ref: scipy
+  biases:
+    - input/output designation is assumed (first numeric column = output, rest = inputs)
+    - deterministic frontier (no noise); sensitive to outliers and to having few units
+    - uses first vs last period; needs strictly positive inputs/outputs and units present in both periods

@@ -463,45 +463,53 @@ def _mcda_inputs(df, fp):
     return X, crit, labels
 
 
-def _dea_efficiency(inputs, outputs, vrs: bool = False):
-    """Input-oriented DEA efficiency (envelopment form) per DMU via LP.
-    CCR if vrs=False (constant returns), BCC if vrs=True (variable returns, adds
-    Σλ=1). Returns an array of θ∈(0,1] (1 = on the efficient frontier)."""
+def _dea_cross(eval_in, eval_out, ref_in, ref_out, vrs: bool = False):
+    """Input-oriented DEA: score each EVAL DMU against the frontier spanned by
+    the REF DMUs (envelopment form, λ over ref). θ may exceed 1 for a cross-period
+    eval beyond the ref frontier — needed for Malmquist distance functions. CRS
+    (vrs=False) or VRS (vrs=True, adds Σλ=1)."""
     import numpy as np
     from scipy.optimize import linprog
 
-    inputs = np.asarray(inputs, dtype=float)
-    outputs = np.asarray(outputs, dtype=float)
-    n = inputs.shape[0]
-    eff = np.full(n, np.nan)
-    for o in range(n):
-        # variables z = [theta, lambda_1..lambda_n]; minimise theta
-        c = np.zeros(n + 1)
-        c[0] = 1.0
+    eval_in = np.asarray(eval_in, dtype=float)
+    eval_out = np.asarray(eval_out, dtype=float)
+    ref_in = np.asarray(ref_in, dtype=float)
+    ref_out = np.asarray(ref_out, dtype=float)
+    n_ref = ref_in.shape[0]
+    eff = np.full(eval_in.shape[0], np.nan)
+    for o in range(eval_in.shape[0]):
+        c = np.zeros(n_ref + 1)
+        c[0] = 1.0  # minimise θ; vars z = [θ, λ_1..λ_n_ref]
         a_ub, b_ub = [], []
-        for i in range(inputs.shape[1]):  # Σ_j λ_j x_ij - θ x_io ≤ 0
-            row = np.zeros(n + 1)
-            row[0] = -inputs[o, i]
-            row[1:] = inputs[:, i]
+        for i in range(ref_in.shape[1]):  # Σ_j λ_j x^ref_ij - θ x^eval_io ≤ 0
+            row = np.zeros(n_ref + 1)
+            row[0] = -eval_in[o, i]
+            row[1:] = ref_in[:, i]
             a_ub.append(row)
             b_ub.append(0.0)
-        for r in range(outputs.shape[1]):  # -Σ_j λ_j y_rj ≤ -y_ro
-            row = np.zeros(n + 1)
-            row[1:] = -outputs[:, r]
+        for r in range(ref_out.shape[1]):  # -Σ_j λ_j y^ref_rj ≤ -y^eval_ro
+            row = np.zeros(n_ref + 1)
+            row[1:] = -ref_out[:, r]
             a_ub.append(row)
-            b_ub.append(-outputs[o, r])
+            b_ub.append(-eval_out[o, r])
         a_eq = b_eq = None
-        if vrs:  # BCC convexity Σλ = 1
-            row = np.zeros(n + 1)
+        if vrs:
+            row = np.zeros(n_ref + 1)
             row[1:] = 1.0
             a_eq, b_eq = [row], [1.0]
         res = linprog(
             c, A_ub=np.array(a_ub), b_ub=np.array(b_ub), A_eq=a_eq, b_eq=b_eq,
-            bounds=[(0, None)] * (n + 1), method="highs",
+            bounds=[(0, None)] * (n_ref + 1), method="highs",
         )
         if res.success:
             eff[o] = res.fun
     return eff
+
+
+def _dea_efficiency(inputs, outputs, vrs: bool = False):
+    """Input-oriented DEA efficiency per DMU vs the same-sample frontier (θ∈(0,1],
+    1 = efficient). CCR if vrs=False, BCC if vrs=True."""
+    return _dea_cross(inputs, outputs, inputs, outputs, vrs=vrs)
 
 
 def _mcda_rank_plot(res, score_col: str, title: str, path: Path) -> None:
@@ -2220,6 +2228,94 @@ def run_analysis(
                     "from scipy.optimize import linprog  # 投入导向 DEA(CCR+BCC)",
                     f'# 产出={crit[0]}, 投入={crit[1:]}; min θ s.t. Σλx≤θx_o, Σλy≥y_o, λ≥0',
                 ]
+
+    elif entry.id == "malmquist":
+        import numpy as np
+
+        _excl = {fp.unit_col, fp.time_col}
+        crit = [
+            c.name for c in fp.columns if c.kind in {"continuous", "count"} and c.name not in _excl
+        ]
+        if not (fp.unit_col and fp.time_col):
+            summary.append("Malmquist 失败：需要面板数据（单位列 + 时间列）。")
+        elif len(crit) < 2:
+            summary.append("Malmquist 失败：需要 ≥1 投入 + 1 产出（≥2 个数值列）。")
+        else:
+            import pandas as pd
+
+            out_col, in_cols = crit[0], crit[1:]
+            periods = sorted(df[fp.time_col].dropna().unique())
+            if len(periods) < 2:
+                summary.append("Malmquist 失败：需要 ≥2 个时间期。")
+            else:
+                t0, t1 = periods[0], periods[-1]
+                d0 = df[df[fp.time_col] == t0].drop_duplicates(fp.unit_col).set_index(fp.unit_col)
+                d1 = df[df[fp.time_col] == t1].drop_duplicates(fp.unit_col).set_index(fp.unit_col)
+                common = [u for u in d0.index if u in d1.index]
+                d0, d1 = d0.loc[common], d1.loc[common]
+                xi0, yo0 = d0[in_cols].to_numpy(float), d0[[out_col]].to_numpy(float)
+                xi1, yo1 = d1[in_cols].to_numpy(float), d1[[out_col]].to_numpy(float)
+                if len(common) < 3:
+                    summary.append("Malmquist 失败：两期共同单位不足（<3）。")
+                elif (xi0 <= 0).any() or (yo0 <= 0).any() or (xi1 <= 0).any() or (yo1 <= 0).any():
+                    summary.append("Malmquist 失败：投入/产出需为正值。")
+                else:
+                    # CRS distance functions (4 cross-period DEA scores per DMU)
+                    e_tt = _dea_cross(xi0, yo0, xi0, yo0)  # t  obs vs t  frontier
+                    e_11 = _dea_cross(xi1, yo1, xi1, yo1)  # t1 obs vs t1 frontier
+                    e_t_1 = _dea_cross(xi1, yo1, xi0, yo0)  # t1 obs vs t  frontier
+                    e_1_t = _dea_cross(xi0, yo0, xi1, yo1)  # t  obs vs t1 frontier
+                    ec = e_11 / e_tt  # efficiency change (catch-up)
+                    tc = np.sqrt((e_t_1 / e_11) * (e_tt / e_1_t))  # technical change (frontier shift)
+                    m = ec * tc  # Malmquist TFP change (>1 = growth)
+                    res = pd.DataFrame(
+                        {
+                            str(fp.unit_col): common,
+                            "malmquist_tfp": np.round(m, 4),
+                            "efficiency_change": np.round(ec, 4),
+                            "technical_change": np.round(tc, 4),
+                        }
+                    )
+                    res.to_csv(d / "malmquist.csv", index=False, encoding="utf-8")
+                    files.append("malmquist.csv")
+
+                    def _gmean(a):
+                        a = a[np.isfinite(a) & (a > 0)]
+                        return float(np.exp(np.mean(np.log(a)))) if len(a) else float("nan")
+
+                    gm_m, gm_ec, gm_tc = _gmean(m), _gmean(ec), _gmean(tc)
+                    try:
+                        import matplotlib
+
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        fig, ax = plt.subplots(figsize=(6, max(3, len(common) * 0.3)))
+                        ax.barh([str(u) for u in common][::-1], m[::-1], color="#55A868")
+                        ax.axvline(1.0, color="grey", ls="--", lw=0.8)
+                        ax.set_xlabel("Malmquist TFP index (>1 = growth)")
+                        ax.set_title(f"Malmquist productivity change {t0}→{t1}")
+                        fig.tight_layout()
+                        fig.savefig(d / "malmquist.png", dpi=150)
+                        plt.close(fig)
+                        files.append("malmquist.png")
+                    except Exception:
+                        pass
+                    estimates["mean_malmquist_tfp"] = round(gm_m, 4)
+                    estimates["mean_efficiency_change"] = round(gm_ec, 4)
+                    estimates["mean_technical_change"] = round(gm_tc, 4)
+                    estimates["n_dmu"] = float(len(common))
+                    verdict = "TFP 上升" if gm_m > 1.01 else ("TFP 下降" if gm_m < 0.99 else "TFP 基本不变")
+                    summary.append(
+                        f"{entry.method} 完成：{len(common)} 个单位 {t0}→{t1}；产出 [{out_col}]，"
+                        f"投入 {in_cols}；总体 Malmquist TFP={gm_m:.3f}（{verdict}）"
+                        f"= 效率变化 {gm_ec:.3f} × 技术变化 {gm_tc:.3f}（>1 为增长）。"
+                        "⚠ 默认首数值列为产出、其余投入；CRS 距离函数。"
+                    )
+                    code += [
+                        "from scipy.optimize import linprog  # Malmquist(Färe1994), CRS 距离函数",
+                        "# M = (E11/Ett)·sqrt((E[t1|t]/E11)·(Ett/E[t|t1])); 分解 EC×TC",
+                    ]
 
     elif entry.id == "membership_function":
         import numpy as np
