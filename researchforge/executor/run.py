@@ -1848,6 +1848,71 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"分位数回归失败：{err}")
 
+    elif entry.id == "multinomial_logit":
+        import numpy as np
+        import pandas as pd
+        import statsmodels.api as sm
+
+        _excl = {fp.unit_col, fp.time_col}
+        out_cands = [
+            c
+            for c in fp.columns
+            if c.kind in {"count", "categorical"} and 3 <= c.n_unique <= 10 and c.name not in _excl
+        ]
+        out_cands.sort(key=lambda c: 0 if c.kind == "categorical" else 1)  # prefer nominal
+        outcome = out_cands[0].name if out_cands else None
+        predictors = [
+            c.name
+            for c in fp.columns
+            if c.kind in {"continuous", "binary"} and c.name not in _excl | {outcome}
+        ][:6]
+        if outcome is None or not predictors:
+            summary.append("多项 logit 失败：需要 3–10 类名义结果变量 + ≥1 个连续/二值预测变量。")
+        else:
+            try:
+                sub = df[[outcome, *predictors]].dropna()
+                codes, cats = pd.factorize(sub[outcome])
+                X = sm.add_constant(sub[predictors].astype(float))
+                model = sm.MNLogit(codes, X).fit(disp=False)
+                (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                files.append("summary.txt")
+                params, pvals = model.params, model.pvalues
+                rrr = np.exp(params)
+                rows = []
+                for ci in params.columns:  # ci = 0..K-2 -> class cats[ci+1] vs baseline cats[0]
+                    cls = str(cats[ci + 1])
+                    for term in params.index:
+                        rows.append(
+                            (
+                                cls,
+                                str(term),
+                                round(float(params.loc[term, ci]), 4),
+                                round(float(rrr.loc[term, ci]), 4),
+                                round(float(pvals.loc[term, ci]), 4),
+                            )
+                        )
+                pd.DataFrame(
+                    rows, columns=["class_vs_baseline", "term", "coef", "RRR", "p_value"]
+                ).to_csv(d / "coefficients.csv", index=False, encoding="utf-8")
+                files.append("coefficients.csv")
+                pred = np.asarray(model.predict(X))
+                acc = float((pred.argmax(axis=1) == codes).mean())
+                estimates["accuracy"] = round(acc, 4)
+                estimates["n_classes"] = float(len(cats))
+                estimates["pseudo_r2"] = round(float(model.prsquared), 4)
+                summary.append(
+                    f"{entry.method} 完成：名义结果 {outcome}（{len(cats)} 类，基准={cats[0]}），"
+                    f"{len(predictors)} 个预测变量；类内准确率={acc:.1%}，"
+                    f"McFadden pseudo-R²={model.prsquared:.3f}；相对风险比(RRR)见 coefficients.csv。"
+                    "⚠ 假定结果无序（名义）——若类别有序请用 ordered_logit；并假定 IIA（无关方案独立性）。"
+                )
+                code += [
+                    "import statsmodels.api as sm  # 多项 logit",
+                    f"# codes,_=pd.factorize(df['{outcome}']); sm.MNLogit(codes, sm.add_constant(X)).fit()",
+                ]
+            except Exception as err:
+                summary.append(f"多项 logit 失败：{err}")
+
     elif entry.id == "ordered_logit":
         import pandas as pd
         from statsmodels.miscmodels.ordinal_model import OrderedModel

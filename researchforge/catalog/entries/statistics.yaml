@@ -73,6 +73,24 @@
     - SEM requires a theory-driven structure; auto-spec is only a starting point
     - fit indices are unreliable in small samples (n < ~100-200)
 
+- id: multinomial_logit
+  method: Multinomial logistic regression
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Model a nominal (unordered) outcome with 3+ categories on covariates via multinomial logit, reporting one coefficient set per non-baseline class with relative risk ratios (RRR), plus in-sample accuracy and McFadden pseudo-R².
+  preconditions:
+    requires_ordinal: true
+    min_rows: 40
+  produces:
+    - per-class coefficients and relative risk ratios
+    - accuracy and pseudo-R-squared
+  executor_ref: statsmodels
+  biases:
+    - assumes the outcome is nominal/unordered — for ordered categories use ordered_logit
+    - assumes independence of irrelevant alternatives (IIA)
+    - many categories or rare classes need a large sample for stable estimates
+
 - id: ordered_logit
   method: Ordered logistic regression (proportional odds)
   domain: statistics
