@@ -16,3 +16,22 @@
   biases:
     - non-stationarity
     - model-order misspecification
+
+- id: var_granger
+  method: VAR + Granger causality
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Fit a vector autoregression to multiple time-ordered series (lag chosen by AIC), then test Granger causality for every directed pair (a predictive-causality p-value matrix + heatmap) and produce impulse-response functions. For multivariate macro / eco-environmental series.
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - VAR lag order
+    - Granger causality p-value matrix + heatmap
+    - impulse-response functions
+  executor_ref: statsmodels
+  biases:
+    - assumes (weakly) stationary series — non-stationary data yields spurious causality; difference first
+    - Granger causality is predictive, not structural / true causality
+    - sensitive to the chosen lag order and to omitted variables
