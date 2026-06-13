@@ -73,6 +73,25 @@
     - SEM requires a theory-driven structure; auto-spec is only a starting point
     - fit indices are unreliable in small samples (n < ~100-200)
 
+- id: efa
+  method: Exploratory factor analysis (EFA)
+  domain: statistics
+  family: statistics
+  goal: explore
+  description: Uncover latent factors behind a set of continuous variables — factor loadings (varimax-rotated), variance explained, a scree plot, and sampling-adequacy diagnostics (KMO, Bartlett's test). Number of factors chosen by the Kaiser criterion (eigenvalue > 1).
+  preconditions:
+    min_continuous: 3
+    min_rows: 50
+  produces:
+    - factor loadings (rotated)
+    - scree plot + variance explained
+    - KMO / Bartlett adequacy
+  executor_ref: factor_analyzer
+  biases:
+    - the number of factors (Kaiser eigenvalue>1) is a heuristic — scree/parallel analysis may disagree
+    - low KMO (<0.6) or a non-significant Bartlett test means the data is unsuitable for factoring
+    - EFA is exploratory, not confirmatory — for a hypothesised structure use SEM/CFA
+
 - id: multinomial_logit
   method: Multinomial logistic regression
   domain: statistics
