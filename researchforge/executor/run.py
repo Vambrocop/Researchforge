@@ -1105,6 +1105,77 @@ def _diff_abundance_aldex2_via_r(csv_path, taxa: list[str], group: str):
     return res
 
 
+def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funnel_png):
+    """Random/fixed-effects meta-analysis via R metafor. `measure` is "GEN"
+    (pre-computed effect sizes yi + vi/sei) or an escalc measure ("SMD"/"MD"/
+    "OR"/"RR"/"RD") computed from raw study columns. Column names are passed as
+    d[["name"]] vectors (no R symbol eval → injection-safe). Writes forest + funnel
+    PNGs. Returns (meta dict, per-study DataFrame). Raises so the caller degrades."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    fp_r = str(forest_png).replace("\\", "/")
+    fn_r = str(funnel_png).replace("\\", "/")
+    slab = f'd[["{study_col}"]]' if study_col else "NULL"
+    if measure == "GEN":
+        vi = f'd[["{roles["vi"]}"]]' if roles.get("vi") else f'(d[["{roles["sei"]}"]])^2'
+        esc = f'yi <- d[["{roles["yi"]}"]]; vi <- {vi}\n'
+    elif measure in ("SMD", "MD"):
+        esc = (
+            f'es <- escalc(measure="{measure}", m1i=d[["{roles["m1"]}"]], '
+            f'sd1i=d[["{roles["sd1"]}"]], n1i=d[["{roles["n1"]}"]], '
+            f'm2i=d[["{roles["m2"]}"]], sd2i=d[["{roles["sd2"]}"]], n2i=d[["{roles["n2"]}"]])\n'
+            "yi <- es$yi; vi <- es$vi\n"
+        )
+    else:  # OR / RR / RD from a 2x2 table
+        esc = (
+            f'es <- escalc(measure="{measure}", ai=d[["{roles["ai"]}"]], '
+            f'bi=d[["{roles["bi"]}"]], ci=d[["{roles["ci"]}"]], di=d[["{roles["di"]}"]])\n'
+            "yi <- es$yi; vi <- es$vi\n"
+        )
+    rcode = (
+        "suppressMessages(library(metafor))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        + esc
+        + f'm <- rma(yi, vi, method="{method}", slab={slab})\n'
+        'cat("##M\\n")\n'
+        'cat(sprintf("estimate|%.6f\\nci_lb|%.6f\\nci_ub|%.6f\\npval|%.6g\\n", '
+        "m$b[1], m$ci.lb, m$ci.ub, m$pval))\n"
+        'cat(sprintf("Q|%.6f\\nQp|%.6g\\nI2|%.4f\\ntau2|%.6f\\nk|%d\\n", '
+        "m$QE, m$QEp, m$I2, m$tau2, m$k))\n"
+        # Egger's regression test for funnel asymmetry (needs k>=3); guard failures
+        "eg <- tryCatch(regtest(m), error=function(e) NULL)\n"
+        'if (!is.null(eg)) cat(sprintf("egger_z|%.4f\\negger_p|%.6g\\n", eg$zval, eg$pval))\n'
+        'cat("##S\\n")\n'
+        "sl <- if (is.null(m$slab)) seq_along(yi) else as.character(m$slab)\n"
+        'for (i in seq_along(yi)) cat(sprintf("%s|%.6f|%.6f\\n", sl[i], yi[i], vi[i]))\n'
+        f'png("{fp_r}", width=920, height=max(380, 70+34*length(yi)), res=120); '
+        "forest(m); dev.off()\n"
+        f'png("{fn_r}", width=720, height=620, res=120); funnel(m); dev.off()\n'
+    )
+    out = rbridge.run_r(rcode, timeout=120)
+    section, meta, srows = None, {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##M":
+            section = "M"
+        elif s == "##S":
+            section = "S"
+        elif "|" in s and section == "M":
+            k, v = s.split("|", 1)
+            meta[k] = float(v)
+        elif "|" in s and section == "S":
+            srows.append(s.rsplit("|", 2))
+    if "estimate" not in meta or not srows:
+        raise RuntimeError("metafor 未返回结果（检查效应量/方差列）")
+    study = pd.DataFrame(srows, columns=["study", "yi", "vi"])
+    for c in ("yi", "vi"):
+        study[c] = pd.to_numeric(study[c], errors="coerce")
+    return meta, study
+
+
 def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
     frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
@@ -3709,6 +3780,152 @@ def run_analysis(
                     csv.unlink()
                 except OSError:
                     pass
+
+    elif entry.id == "meta_analysis":
+        import pandas as pd
+
+        from researchforge.executor import rbridge
+
+        low = {c.name.lower(): c.name for c in fp.columns}
+
+        def _pick(*names):
+            return next((low[n] for n in names if n in low), None)
+
+        # role resolution: config overrides, else detect by column name. Three
+        # input formats — pre-computed effect sizes, raw two-group means, 2x2 counts.
+        measure = str(cfg.get("measure") or "").upper()
+        method = str(cfg.get("method") or "REML").upper()  # REML/DL random, FE fixed
+        study_col = cfg.get("study") or _pick(
+            "study", "study_id", "studyid", "label", "author", "trial", "name", "id", "source"
+        )
+        yi = cfg.get("effect") or _pick("yi", "effect", "es", "effect_size", "smd", "logor", "d", "g", "lnrr")
+        vi = cfg.get("variance") or _pick("vi", "var", "variance", "v", "samp_var")
+        sei = cfg.get("se") or _pick("sei", "se", "std_err", "stderr", "se_effect")
+        m1, sd1, n1 = _pick("m1", "m1i", "mean1", "mean_t", "mt"), _pick("sd1", "sd1i", "sd_t", "sdt"), _pick("n1", "n1i", "nt", "n_t")
+        m2, sd2, n2 = _pick("m2", "m2i", "mean2", "mean_c", "mc"), _pick("sd2", "sd2i", "sd_c", "sdc"), _pick("n2", "n2i", "nc", "n_c")
+        ai, bi, ci_, di = _pick("ai", "events1", "a"), _pick("bi", "b"), _pick("ci", "events2", "c"), _pick("di", "d")
+
+        roles, used = {}, []
+        if measure in ("", "GEN") and yi and (vi or sei):
+            measure = "GEN"
+            roles = {"yi": yi, "vi": vi, "sei": sei}
+            used = [yi, vi or sei]
+        elif measure in ("", "SMD", "MD") and all([m1, sd1, n1, m2, sd2, n2]):
+            measure = measure if measure in ("SMD", "MD") else "SMD"
+            roles = {"m1": m1, "sd1": sd1, "n1": n1, "m2": m2, "sd2": sd2, "n2": n2}
+            used = [m1, sd1, n1, m2, sd2, n2]
+        elif measure in ("", "OR", "RR", "RD") and all([ai, bi, ci_, di]):
+            measure = measure if measure in ("OR", "RR", "RD") else "OR"
+            roles = {"ai": ai, "bi": bi, "ci": ci_, "di": di}
+            used = [ai, bi, ci_, di]
+
+        cols_all = [c for c in [*used, study_col] if c]
+        names_safe = all(('"' not in c and "]" not in c and "\\" not in c) for c in cols_all)
+        if not roles:
+            summary.append(
+                "Meta 分析失败：未识别到效应量数据。需以下任一格式（列名可用 config 指定）："
+                "① 预算效应量 yi + 方差 vi（或标准误 sei）；"
+                "② 两组原始均值 m1,sd1,n1,m2,sd2,n2（→标准化均差 SMD）；"
+                "③ 2×2 计数 ai,bi,ci,di（→比值比 OR）。详见 docs/meta-analysis.md。"
+            )
+        elif not (rbridge.r_available() and rbridge.r_package_available("metafor")):
+            summary.append(
+                "Meta 分析需要 R 的 metafor 包（未检测到）。安装：install.packages('metafor')。"
+            )
+        elif not names_safe:
+            summary.append("Meta 分析失败：相关列名含特殊字符（\" ] \\），请重命名。")
+        else:
+            sub = df[cols_all].dropna()
+            if len(sub) < 2:
+                summary.append("Meta 分析失败：有效研究数 <2，无法合并。")
+            else:
+                csv = d / "_meta_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    meta, study = _meta_via_r(
+                        csv, measure=measure, roles=roles, study_col=study_col,
+                        method=method, forest_png=d / "forest.png", funnel_png=d / "funnel.png",
+                    )
+                    study.to_csv(d / "study_effects.csv", index=False, encoding="utf-8")
+                    files.append("study_effects.csv")
+                    for png in ("forest.png", "funnel.png"):
+                        if (d / png).exists():
+                            files.append(png)
+                    import math
+
+                    est, lb, ub = meta["estimate"], meta["ci_lb"], meta["ci_ub"]
+                    i2, tau2, k = meta["I2"], meta["tau2"], int(meta["k"])
+                    qp, pval = meta["Qp"], meta["pval"]
+                    # OR/RR are pooled on the log scale -> exp() the WHOLE interval for
+                    # display (point AND CI), not just the point estimate.
+                    log_scale = measure in ("OR", "RR")
+                    if log_scale:
+                        de, dlb, dub = math.exp(est), math.exp(lb), math.exp(ub)
+                        shown_est = f"{de:.3f}（{measure}, 由 log 尺度还原）"
+                        ci_str = f"[{dlb:.3f}, {dub:.3f}]"
+                        estimates["pooled_effect"] = round(de, 4)
+                        estimates["ci_lb"] = round(dlb, 4)
+                        estimates["ci_ub"] = round(dub, 4)
+                        estimates["pooled_log_effect"] = round(est, 4)
+                    else:
+                        shown_est = f"{est:.3f}"
+                        ci_str = f"[{lb:.3f}, {ub:.3f}]"
+                        estimates["pooled_effect"] = round(est, 4)
+                        estimates["ci_lb"] = round(lb, 4)
+                        estimates["ci_ub"] = round(ub, 4)
+                    estimates["I2_percent"] = round(i2, 2)
+                    estimates["tau2"] = round(tau2, 4)
+                    estimates["k_studies"] = float(k)
+                    het = "高" if i2 >= 75 else ("中" if i2 >= 50 else ("低" if i2 >= 25 else "极低"))
+                    is_fe = method == "FE"
+                    eg_txt = ""
+                    if "egger_p" in meta:
+                        estimates["egger_p"] = round(meta["egger_p"], 4)
+                        if k < 10:
+                            # Egger / funnel-asymmetry tests are underpowered at k<10
+                            # (Cochrane) — report but flag, don't over-reassure (Opus catch).
+                            eg_txt = f"；Egger 检验 p={meta['egger_p']:.3g}（⚠ k<10，偏倚检验功效不足、不可靠）"
+                        else:
+                            eg_txt = (
+                                f"；Egger 检验 p={meta['egger_p']:.3g}"
+                                f"（{'⚠ 漏斗图不对称、可能有发表偏倚' if meta['egger_p'] < 0.05 else '未见明显不对称'}）"
+                            )
+                    # under fixed-effect, tau2/I2 are 0 by assumption (not estimated) —
+                    # the Q test is the meaningful heterogeneity signal (Opus catch).
+                    het_txt = (
+                        f"（固定效应假定同质，I²/τ² 不估计；看 Q 检验 p={qp:.3g}）"
+                        if is_fe
+                        else f"异质性 I²={i2:.1f}%（{het}）、τ²={tau2:.4f}"
+                    )
+                    mlabel = {"FE": "固定效应", "DL": "随机效应(DL)"}.get(method, "随机效应(REML)")
+                    (d / "meta_summary.txt").write_text(
+                        f"Meta 分析（metafor，{mlabel}，measure={measure}，k={k} 研究）\n"
+                        f"合并效应 = {shown_est}，95% CI {ci_str}，p={pval:.4g}\n"
+                        f"异质性：I²={i2:.1f}%（{het}），τ²={tau2:.4f}，Q 检验 p={qp:.4g}\n"
+                        f"{'森林图 forest.png、漏斗图 funnel.png' }\n"
+                        "注：I²>50% 提示研究间异质性较大，合并需谨慎、宜探究调节变量；"
+                        "随机效应不假定各研究共享同一真效应。\n",
+                        encoding="utf-8",
+                    )
+                    files.append("meta_summary.txt")
+                    sig = "显著" if pval < 0.05 else "不显著"
+                    summary.append(
+                        f"{entry.method} 完成（R/metafor，{mlabel}）：合并 {k} 项研究，"
+                        f"合并效应={shown_est}，95% CI {ci_str}（{sig}，p={pval:.3g}）；"
+                        f"{het_txt}{eg_txt}。"
+                        "⚠ I²>50% 宜查调节变量；合并不能修正原始研究的偏倚。"
+                    )
+                    code += [
+                        "library(metafor)  # 随机效应 meta 分析",
+                        f"# escalc(measure='{measure}', ...) → rma(yi, vi, method='{method}'); forest()/funnel()/regtest()",
+                    ]
+                except Exception as err:
+                    summary.append(f"Meta 分析失败：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
 
     elif entry.id == "differential_abundance":
         import numpy as np

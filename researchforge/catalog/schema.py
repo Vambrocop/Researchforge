@@ -25,6 +25,7 @@ class Precondition(BaseModel):
     requires_ordinal: Optional[bool] = None
     requires_geo: Optional[bool] = None
     requires_soil_texture: Optional[bool] = None
+    requires_effect_sizes: Optional[bool] = None
 
 
 class AnalysisEntry(BaseModel):

@@ -163,6 +163,25 @@
     - standard errors depend on kernel bandwidth (sparsity); unstable in small-n tails
     - extrapolation beyond data range
 
+- id: meta_analysis
+  method: Meta-analysis (random/fixed-effects, metafor)
+  domain: statistics
+  family: meta
+  goal: synthesize
+  description: Pool effect sizes across studies (each row = one study) into a random-effects (REML, default) or fixed-effects summary effect with 95% CI, between-study heterogeneity (I-squared, tau-squared, Q test), a forest plot, and a funnel plot + Egger's test for publication bias. Accepts pre-computed effect sizes (yi + vi/sei), raw two-group means (m1,sd1,n1,m2,sd2,n2 to standardized mean difference), or 2x2 counts (ai,bi,ci,di to odds ratio). Lets several people each contribute study rows and merge them.
+  preconditions:
+    requires_effect_sizes: true
+    min_rows: 2
+  produces:
+    - pooled effect + 95% CI
+    - heterogeneity (I-squared / tau-squared / Q)
+    - forest plot + funnel plot + Egger's test
+  executor_ref: metafor
+  biases:
+    - meta-analysis inherits the biases of the primary studies it pools (garbage in, garbage out)
+    - high heterogeneity (I-squared > 50%) means a single pooled effect can mislead — investigate moderators
+    - funnel asymmetry / Egger's test can flag publication bias but also reflects true small-study effects
+
 - id: group_comparison
   method: Group comparison (t-test / ANOVA)
   domain: statistics

@@ -55,5 +55,24 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
             and any("clay" in n for n in names)
         ):
             unmet.append("需要 sand / silt / clay（砂/粉/黏粒）百分比列")
+    if pre.requires_effect_sizes:
+        names = {c.name.lower() for c in fp.columns}
+
+        def _has(*opts):
+            return any(o in names for o in opts)
+
+        gen = _has("yi", "effect", "es", "effect_size", "smd", "logor", "d", "g", "lnrr") and _has(
+            "vi", "var", "variance", "v", "sei", "se", "std_err", "se_effect"
+        )
+        smd = all(
+            _has(*o)
+            for o in (("m1", "m1i", "mean1", "mean_t"), ("sd1", "sd1i", "sd_t"), ("n1", "n1i", "nt"),
+                      ("m2", "m2i", "mean2", "mean_c"), ("sd2", "sd2i", "sd_c"), ("n2", "n2i", "nc"))
+        )
+        counts = all(_has(o) for o in ("ai", "bi", "ci", "di"))
+        if not (gen or smd or counts):
+            unmet.append(
+                "需要研究层效应量数据（yi+vi/sei，或两组 m/sd/n，或 2×2 ai/bi/ci/di）"
+            )
 
     return (len(unmet) == 0, unmet)
