@@ -1176,6 +1176,66 @@ def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funn
     return meta, study
 
 
+def _cna_via_r(csv_path, factors, outcome, con, cov, anchors, fuzzy):
+    """Coincidence Analysis via R `cna` — finds configurational causal structures
+    (Boolean solution formulas) and, unlike QCA, can recover structures with
+    MULTIPLE outcomes (it does not require pre-designating one). Crisp (0/1) data
+    is used directly (type="cs"); continuous factors are fuzzy-calibrated by
+    percentile anchors (type="fs"). Returns (asf_df, n_csf). asf columns:
+    outcome, condition, consistency, coverage, complexity. Raises on no result."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    a0, a1, a2 = (float(x) for x in anchors)
+    csv_r = str(csv_path).replace("\\", "/")
+    facs_r = ", ".join(f'"{c}"' for c in factors)
+    out_arg = f', outcome=c("{outcome}")' if outcome else ""
+    typ = "fs" if fuzzy else "cs"
+    calib = (
+        # fuzzy-calibrate non-binary columns to [0,1]; leave 0/1 columns as-is
+        "calib <- function(x){ u<-unique(x[!is.na(x)]); "
+        "if(length(u)<=2 && all(u %in% c(0,1))) return(x); "
+        f"thr<-as.numeric(quantile(x,c({a0},{a1},{a2}),na.rm=TRUE)); "
+        "rng<-diff(range(x,na.rm=TRUE)); eps<-if(rng>0) rng*1e-6 else 1e-6; "
+        "if(thr[2]<=thr[1]) thr[2]<-thr[1]+eps; if(thr[3]<=thr[2]) thr[3]<-thr[2]+eps; "
+        'calibrate(x,type="fuzzy",thresholds=thr) }\n'
+        "d <- as.data.frame(lapply(d[,facs], calib)); names(d)<-facs\n"
+        if fuzzy
+        else "d <- d[, facs]\n"
+    )
+    rcode = (
+        "suppressMessages(library(cna))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f"facs <- c({facs_r})\n"
+        + calib
+        + f'x <- cna(d, type="{typ}", con={float(con)}, cov={float(cov)}{out_arg})\n'
+        "a <- asf(x)\n"
+        'cat("##ASF\\n")\n'
+        "if (nrow(a)) for (i in seq_len(nrow(a))) cat(sprintf('%s|%s|%.4f|%.4f|%d\\n', "
+        "a$outcome[i], a$condition[i], a$con[i], a$cov[i], a$complexity[i]))\n"
+        'cat("##CSF\\n"); cat(sprintf("n|%d\\n", nrow(csf(x))))\n'
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, rows, n_csf = None, [], 0
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##ASF":
+            section = "A"
+        elif s == "##CSF":
+            section = "C"
+        elif "|" in s and section == "A":
+            rows.append(s.rsplit("|", 4))
+        elif s.startswith("n|") and section == "C":
+            n_csf = int(s.split("|", 1)[1])
+    if not rows:
+        raise RuntimeError("cna 未返回解（可能 con/cov 阈值过高或无配置性结构）")
+    asf = pd.DataFrame(rows, columns=["outcome", "condition", "consistency", "coverage", "complexity"])
+    for c in ("consistency", "coverage", "complexity"):
+        asf[c] = pd.to_numeric(asf[c], errors="coerce")
+    return asf, n_csf
+
+
 def _synthetic_control(df, unit, time, outcome, treated, treat_time, predictors, gaps_png, exclude=None):
     """Synthetic control (Abadie): build a weighted combination of donor (control)
     units that tracks the treated unit's PRE-treatment outcome path, then read the
@@ -3959,6 +4019,78 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"QCA 必要性分析失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "cna":
+        import re
+
+        from researchforge.executor import rbridge
+
+        # CNA's factors ARE binary/continuous conditions — do NOT drop binary
+        # treatment_candidates (they're exactly the configurational factors we need).
+        _excl = {fp.unit_col, fp.time_col}
+        binc = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
+        contc = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        factors = (binc + contc)[:8]
+        fuzzy = bool(contc)  # any continuous factor -> fuzzy-calibrate; else crisp 0/1
+        outcome = cfg["outcome"] if cfg.get("outcome") in factors else None
+        con = _qca_incl_cut({"incl_cut": cfg.get("con")} if cfg.get("con") else {}, 0.8)
+        cov = _qca_incl_cut({"incl_cut": cfg.get("cov")} if cfg.get("cov") else {}, 0.8)
+        anchors = _qca_anchors(cfg)
+        names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in factors)
+        if len(factors) < 3:
+            summary.append("CNA 失败：需要 ≥3 个因子（二值或连续条件/结果列）。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("cna")):
+            summary.append("CNA 需要 R 的 cna 包（未检测到）。安装：install.packages('cna')；或用 fsqca（单结果）。")
+        elif not names_safe:
+            summary.append("CNA 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            import pandas as pd
+
+            sub = df[factors].dropna()
+            csv = d / "_cna_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                asf, n_csf = _cna_via_r(csv, factors, outcome, con, cov, anchors, fuzzy)
+                asf = asf.sort_values(["consistency", "coverage"], ascending=False).reset_index(drop=True)
+                asf.to_csv(d / "cna_solutions.csv", index=False, encoding="utf-8")
+                files.append("cna_solutions.csv")
+                cal_txt = (
+                    f"模糊校准(分位锚点 {anchors[0]}/{anchors[1]}/{anchors[2]})"
+                    if fuzzy else "清晰集(0/1 直接用)"
+                )
+                outs = sorted(asf["outcome"].unique().tolist())
+                top = asf.iloc[0]
+                estimates["n_solutions"] = float(len(asf))
+                estimates["n_outcomes"] = float(len(outs))
+                estimates["max_consistency"] = round(float(asf["consistency"].max()), 4)
+                estimates["n_complex_structures"] = float(n_csf)
+                (d / "cna_solutions.txt").write_text(
+                    f"巧合分析 CNA（R/cna，{cal_txt}，con≥{con}，cov≥{cov}）\n"
+                    f"发现 {len(asf)} 个原子解(asf)，涉及结果 {outs}；复杂结构(csf) {n_csf} 个。\n"
+                    "记号：* =与(AND)，+ =或(OR)，<-> 左侧为右侧结果的(配置性)原因；"
+                    "con=一致性(充分性)，cov=覆盖率(必要性)。\n"
+                    "CNA 不预设单一结果，可揭示多结果因果链；与 QCA 互补。\n\n"
+                    + asf.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("cna_solutions.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/cna，{cal_txt}）：{len(asf)} 个原子解、"
+                    f"结果变量 {outs}、复杂结构 {n_csf} 个；最强解 [{top['condition']}]"
+                    f"（con={top['consistency']:.3f}, cov={top['coverage']:.3f}）。"
+                    "⚠ 配置性因果≠净效应；解依赖 con/cov 阈值与校准锚点；有限多样性下慎读。"
+                )
+                code += [
+                    "library(cna)  # 巧合分析(多结果配置性因果)",
+                    f"# cna(d, type='{'fs' if fuzzy else 'cs'}', con={con}, cov={cov}); asf()/csf()",
+                ]
+            except Exception as err:
+                summary.append(f"CNA 失败：{err}")
             finally:
                 try:
                     csv.unlink()

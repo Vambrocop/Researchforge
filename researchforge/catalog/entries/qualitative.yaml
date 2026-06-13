@@ -1,5 +1,22 @@
 # Configurational / necessity / qualitative-comparative methods.
 
+- id: cna
+  method: Coincidence Analysis (CNA)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Bottom-up configurational causal discovery (Baumgartner). Unlike QCA it does NOT require pre-designating a single outcome — it searches for Boolean solution formulas (atomic + complex) that may chain MULTIPLE outcomes into a causal structure. Crisp 0/1 factors are used directly; continuous factors are fuzzy-calibrated by percentile anchors. Reports per-outcome atomic solutions (asf) with consistency and coverage, and the count of complex multi-outcome structures (csf). Uses the R cna package.
+  preconditions:
+    min_rows: 10
+  produces:
+    - atomic solution formulas (per outcome) with consistency / coverage
+    - count of complex (multi-outcome) causal structures
+  executor_ref: cna (R)
+  biases:
+    - configurational causation is not a net/average effect; solutions depend on the con/cov thresholds and calibration anchors
+    - limited diversity (unobserved configurations) can make solutions unstable or model-ambiguous (many equally-good structures)
+    - CNA finds structures consistent with the data, not a proof of causation; multiple csf may fit equally well
+
 - id: fsqca
   method: Fuzzy-set Qualitative Comparative Analysis (fsQCA)
   domain: social science
