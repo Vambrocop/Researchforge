@@ -580,21 +580,25 @@ def _mcda_direction_note(cost_names) -> str:
     )
 
 
-def _dea_io(X, crit, cfg):
-    """Split the MCDA matrix into (inputs, outputs) for DEA. cfg may specify
-    'inputs' and 'outputs' (lists of criterion names); otherwise the engine
-    default is first column = output, the rest = inputs. Returns
-    (inputs_array, outputs_array, input_names, output_names)."""
+def _io_names(crit, cfg):
+    """Resolve (input_names, output_names) for efficiency methods. cfg may specify
+    'inputs' and 'outputs' (lists of criterion names, intersected with `crit`);
+    otherwise the engine default is first column = output, the rest = inputs."""
     cfg = cfg or {}
     want_in = [c for c in (cfg.get("inputs") or []) if c in crit]
     want_out = [c for c in (cfg.get("outputs") or []) if c in crit]
     if want_in and want_out:
-        in_idx = [crit.index(c) for c in want_in]
-        out_idx = [crit.index(c) for c in want_out]
-    else:  # engine default: first numeric column = output, the rest = inputs
-        out_idx, in_idx = [0], list(range(1, len(crit)))
-        want_out, want_in = [crit[0]], crit[1:]
-    return X[:, in_idx], X[:, out_idx], want_in, want_out
+        return want_in, want_out
+    return crit[1:], [crit[0]]
+
+
+def _dea_io(X, crit, cfg):
+    """Split the MCDA matrix into (inputs, outputs) for DEA using `_io_names`.
+    Returns (inputs_array, outputs_array, input_names, output_names)."""
+    in_names, out_names = _io_names(crit, cfg)
+    in_idx = [crit.index(c) for c in in_names]
+    out_idx = [crit.index(c) for c in out_names]
+    return X[:, in_idx], X[:, out_idx], in_names, out_names
 
 
 def _knn_k(cfg, upper, default=8):
@@ -607,6 +611,32 @@ def _knn_k(cfg, upper, default=8):
     except (TypeError, ValueError):
         k = default
     return max(1, min(k, upper))
+
+
+def _qca_anchors(cfg, default=(0.1, 0.5, 0.9)):
+    """Fuzzy-calibration percentile anchors (exclusion, crossover, inclusion).
+    cfg['anchors'] overrides; must be 3 strictly increasing values in (0,1)."""
+    a = (cfg or {}).get("anchors")
+    try:
+        a = tuple(float(x) for x in a)
+        if len(a) == 3 and 0.0 < a[0] < a[1] < a[2] < 1.0:
+            return a
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
+def _qca_incl_cut(cfg, default):
+    """Raw-consistency cut-off for QCA truth-table / superSubset. cfg['incl_cut']
+    overrides; must be in (0,1]."""
+    v = (cfg or {}).get("incl_cut")
+    try:
+        v = float(v)
+        if 0.0 < v <= 1.0:
+            return v
+    except (TypeError, ValueError):
+        pass
+    return default
 
 
 def _entropy_weights(Z):
@@ -706,7 +736,7 @@ def _sem_via_semopy(sub, spec: str) -> dict:
     }
 
 
-def _csqca_via_r(csv_path, outcome: str, conditions: list[str]):
+def _csqca_via_r(csv_path, outcome: str, conditions: list[str], incl_cut=0.8):
     """Crisp-set QCA via R QCA: dichotomise (binary kept; continuous cut at the
     median) -> truth table -> Boolean minimization. Returns (solution_str,
     incl.cov DataFrame). Raises so the caller can report honestly."""
@@ -727,7 +757,7 @@ def _csqca_via_r(csv_path, outcome: str, conditions: list[str]):
         "  as.integer(x > median(nn))\n"  # crisp threshold at the median
         "}\n"
         "cal <- as.data.frame(lapply(d[, cols], calib)); names(cal) <- cols\n"
-        f'tt <- truthTable(cal, outcome="{outcome}", conditions=c({conds_r}), incl.cut=0.8, show.cases=FALSE)\n'
+        f'tt <- truthTable(cal, outcome="{outcome}", conditions=c({conds_r}), incl.cut={float(incl_cut)}, show.cases=FALSE)\n'
         "sol <- minimize(tt, details=TRUE)\n"
         'cat("##SOL\\n"); cat(paste(sol$solution[[1]], collapse=" + "), "\\n")\n'
         'cat("##IC\\n"); ic <- sol$IC$incl.cov\n'
@@ -754,7 +784,7 @@ def _csqca_via_r(csv_path, outcome: str, conditions: list[str]):
     return sol_str, tab
 
 
-def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
+def _fsqca_via_r(csv_path, outcome: str, conditions: list[str], anchors=(0.1, 0.5, 0.9), incl_cut=0.8):
     """Run fsQCA with R's QCA package: direct fuzzy calibration (percentile
     anchors) -> truth table -> Boolean minimization. Returns (solution_str,
     incl.cov DataFrame). Raises so the caller can report an honest message."""
@@ -762,6 +792,7 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
 
     from researchforge.executor import rbridge
 
+    a0, a1, a2 = (float(x) for x in anchors)
     csv_r = str(csv_path).replace("\\", "/")
     cols_r = ", ".join(f'"{c}"' for c in [outcome, *conditions])
     conds_r = ", ".join(f'"{c}"' for c in conditions)
@@ -769,10 +800,10 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
         "suppressMessages(library(QCA))\n"
         f'd <- read.csv("{csv_r}")\n'
         f"cols <- c({cols_r})\n"
-        # skewed/discrete columns can tie the 0.1/0.5/0.9 quantiles; calibrate
+        # skewed/discrete columns can tie the anchor quantiles; calibrate
         # needs strictly increasing anchors, so nudge ties by a tiny epsilon.
         "calib <- function(x) {\n"
-        "  thr <- as.numeric(quantile(x, c(0.1,0.5,0.9), na.rm=TRUE))\n"
+        f"  thr <- as.numeric(quantile(x, c({a0},{a1},{a2}), na.rm=TRUE))\n"
         "  rng <- diff(range(x, na.rm=TRUE)); eps <- if (rng>0) rng*1e-6 else 1e-6\n"
         "  if (thr[2] <= thr[1]) thr[2] <- thr[1] + eps\n"
         "  if (thr[3] <= thr[2]) thr[3] <- thr[2] + eps\n"
@@ -781,7 +812,7 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
         "cal <- as.data.frame(lapply(d[, cols], calib))\n"
         "names(cal) <- cols\n"
         f'tt <- truthTable(cal, outcome="{outcome}", conditions=c({conds_r}), '
-        "incl.cut=0.8, show.cases=FALSE)\n"
+        f"incl.cut={float(incl_cut)}, show.cases=FALSE)\n"
         "sol <- minimize(tt, details=TRUE)\n"
         'cat("##SOL\\n"); cat(paste(sol$solution[[1]], collapse=" + "), "\\n")\n'
         'cat("##IC\\n"); ic <- sol$IC$incl.cov\n'
@@ -1025,7 +1056,7 @@ def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     return coef, np.array(te)
 
 
-def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
+def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str], anchors=(0.1, 0.5, 0.9), incl_cut=0.9):
     """QCA necessity analysis via R superSubset on fuzzy-calibrated data. Returns
     a DataFrame [expression, inclN(consistency), RoN, covN(coverage)]. RoN flags
     trivially-necessary (always-high) conditions. Raises on no result."""
@@ -1033,6 +1064,7 @@ def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
 
     from researchforge.executor import rbridge
 
+    a0, a1, a2 = (float(x) for x in anchors)
     csv_r = str(csv_path).replace("\\", "/")
     cols_r = ", ".join(f'"{c}"' for c in [outcome, *conditions])
     conds_r = ", ".join(f'"{c}"' for c in conditions)
@@ -1041,7 +1073,7 @@ def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
         f'd <- read.csv("{csv_r}")\n'
         f"cols <- c({cols_r})\n"
         "calib <- function(x) {\n"
-        "  thr <- as.numeric(quantile(x, c(0.1,0.5,0.9), na.rm=TRUE))\n"
+        f"  thr <- as.numeric(quantile(x, c({a0},{a1},{a2}), na.rm=TRUE))\n"
         "  rng <- diff(range(x, na.rm=TRUE)); eps <- if (rng>0) rng*1e-6 else 1e-6\n"
         "  if (thr[2] <= thr[1]) thr[2] <- thr[1] + eps\n"
         "  if (thr[3] <= thr[2]) thr[3] <- thr[2] + eps\n"
@@ -1049,7 +1081,7 @@ def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
         "}\n"
         "cal <- as.data.frame(lapply(d[, cols], calib)); names(cal) <- cols\n"
         f'ss <- superSubset(cal, outcome="{outcome}", conditions=c({conds_r}), '
-        "incl.cut=0.9, cov.cut=0.5)\n"
+        f"incl.cut={float(incl_cut)}, cov.cut=0.5)\n"
         "ic <- ss$incl.cov\n"
         'for (i in seq_len(nrow(ic))) cat(sprintf("%s|%.4f|%.4f|%.4f\\n", '
         "rownames(ic)[i], ic$inclN[i], ic$RoN[i], ic$covN[i]))\n"
@@ -2723,7 +2755,13 @@ def run_analysis(
         elif not names_safe:
             summary.append("SFA 失败：列名需为标识符式（字母/数字/. _）。")
         else:
-            output_col, in_cols = crit[0], crit[1:]
+            # config={"inputs":[...],"outputs":[...]} overrides i/o roles; SFA is
+            # single-output (Cobb-Douglas), so only the first output is used.
+            in_names, out_names = _io_names(crit, cfg)
+            output_col, in_cols = out_names[0], in_names
+            sfa_multi_out = (
+                "；⚠ SFA 为单产出模型，仅用首个产出 " + output_col if len(out_names) > 1 else ""
+            )
             label_col = next(
                 (c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name not in _excl),
                 None,
@@ -2800,8 +2838,13 @@ def run_analysis(
                         f"平均技术效率 {mean_te:.3f}（最优=1）；γ={gamma:.3f}"
                         "（=σ_u²/(σ_u²+σ_v²) 比值，越近 1 越说明偏离前沿主要是低效而非噪声）；"
                         f"低效存在性 LR 检验 p={lr_p:.3g}（{'显著存在低效' if ineff_sig else '不显著'}）"
-                        f"{te_warn}。弹性见 frontier_coefficients.csv。"
-                        "⚠ 默认首列为产出、其余投入；假定 Cobb-Douglas + 半正态低效。"
+                        f"{te_warn}{sfa_multi_out}。弹性见 frontier_coefficients.csv。"
+                        + (
+                            "（投入产出按 config 指定）"
+                            if (cfg.get("inputs") and cfg.get("outputs"))
+                            else "⚠ 默认首列为产出、其余投入（可用 config inputs/outputs 指定）"
+                        )
+                        + "；假定 Cobb-Douglas + 半正态低效。"
                     )
                     code += [
                         "library(frontier)  # 随机前沿(Cobb-Douglas, ML)",
@@ -2829,18 +2872,29 @@ def run_analysis(
         else:
             import pandas as pd
 
-            out_col, in_cols = crit[0], crit[1:]
+            # config={"inputs":[...],"outputs":[...]} overrides i/o; Malmquist DEA
+            # supports multiple outputs. out_col kept as a single label for the title.
+            in_names, out_names = _io_names(crit, cfg)
+            in_cols, out_cols = in_names, out_names
+            out_col = ", ".join(out_cols)
             periods = sorted(df[fp.time_col].dropna().unique())
             if len(periods) < 2:
                 summary.append("Malmquist 失败：需要 ≥2 个时间期。")
             else:
+                # default: first vs last period; config={"periods":[start,end]} picks
+                # a specific base/end pair (both must exist in the data).
                 t0, t1 = periods[0], periods[-1]
+                want = cfg.get("periods")
+                if isinstance(want, (list, tuple)) and len(want) == 2:
+                    pset = set(periods)
+                    if want[0] in pset and want[1] in pset:
+                        t0, t1 = want[0], want[1]
                 d0 = df[df[fp.time_col] == t0].drop_duplicates(fp.unit_col).set_index(fp.unit_col)
                 d1 = df[df[fp.time_col] == t1].drop_duplicates(fp.unit_col).set_index(fp.unit_col)
                 common = [u for u in d0.index if u in d1.index]
                 d0, d1 = d0.loc[common], d1.loc[common]
-                xi0, yo0 = d0[in_cols].to_numpy(float), d0[[out_col]].to_numpy(float)
-                xi1, yo1 = d1[in_cols].to_numpy(float), d1[[out_col]].to_numpy(float)
+                xi0, yo0 = d0[in_cols].to_numpy(float), d0[out_cols].to_numpy(float)
+                xi1, yo1 = d1[in_cols].to_numpy(float), d1[out_cols].to_numpy(float)
                 if len(common) < 3:
                     summary.append("Malmquist 失败：两期共同单位不足（<3）。")
                 elif (xi0 <= 0).any() or (yo0 <= 0).any() or (xi1 <= 0).any() or (yo1 <= 0).any():
@@ -2893,10 +2947,14 @@ def run_analysis(
                     estimates["n_dmu"] = float(len(common))
                     verdict = "TFP 上升" if gm_m > 1.01 else ("TFP 下降" if gm_m < 0.99 else "TFP 基本不变")
                     summary.append(
-                        f"{entry.method} 完成：{len(common)} 个单位 {t0}→{t1}；产出 [{out_col}]，"
+                        f"{entry.method} 完成：{len(common)} 个单位 {t0}→{t1}；产出 {out_cols}，"
                         f"投入 {in_cols}；总体 Malmquist TFP={gm_m:.3f}（{verdict}）"
                         f"= 效率变化 {gm_ec:.3f} × 技术变化 {gm_tc:.3f}（>1 为增长）。"
-                        "⚠ 默认首数值列为产出、其余投入；CRS 距离函数。"
+                        + (
+                            "（投入产出/期间按 config 指定）"
+                            if (cfg.get("inputs") and cfg.get("outputs")) or cfg.get("periods")
+                            else "⚠ 默认首数值列为产出、其余投入、首末两期；CRS 距离函数（可配 inputs/outputs/periods）"
+                        )
                     )
                     code += [
                         "from scipy.optimize import linprog  # Malmquist(Färe1994), CRS 距离函数",
@@ -3393,13 +3451,16 @@ def run_analysis(
             csv = d / "_qca_input.csv"
             sub.to_csv(csv, index=False)
             try:
-                sol_str, tab = _fsqca_via_r(csv, outcome, conditions)
+                _anch = _qca_anchors(cfg)
+                _ic = _qca_incl_cut(cfg, 0.8)
+                sol_str, tab = _fsqca_via_r(csv, outcome, conditions, anchors=_anch, incl_cut=_ic)
                 tab.to_csv(d / "fsqca_solution.csv", index=False, encoding="utf-8")
                 files.append("fsqca_solution.csv")
                 (d / "solution.txt").write_text(
                     f"充分性解（complex solution，sufficient configurations） → {outcome}:\n"
                     f"  {sol_str}\n\n"
-                    "直接校准(百分位锚点 0.1/0.5/0.9)，incl.cut=0.8；* = 逻辑与（AND）, + = 或（OR）\n"
+                    f"直接校准(百分位锚点 {_anch[0]}/{_anch[1]}/{_anch[2]})，incl.cut={_ic}；"
+                    "* = 逻辑与（AND）, + = 或（OR）\n"
                     "说明：① 这是 complex 解（不纳入反事实/remainders，最保守）；"
                     "② crossover 锚点取中位数是机械设定，偏态数据会失真，请按理论设锚点；"
                     "③ fsQCA 显示集合关系上的充分性，不等于因果证明。\n\n"
@@ -3410,15 +3471,20 @@ def run_analysis(
                 estimates["n_configurations"] = float(len(tab))
                 estimates["min_consistency"] = round(float(tab["consistency"].min()), 4)
                 estimates["total_unique_coverage"] = round(float(tab["unique_coverage"].sum()), 4)
+                _anch_note = (
+                    "（锚点/incl.cut 按 config 指定）"
+                    if (cfg.get("anchors") or cfg.get("incl_cut"))
+                    else f"（锚点 {_anch[0]}/{_anch[1]}/{_anch[2]}、incl.cut={_ic} 为机械起点，"
+                    "可用 config anchors/incl_cut 按理论设定）"
+                )
                 summary.append(
                     f"{entry.method} 完成（R/QCA，complex 解）：充分配置 [{sol_str}] → {outcome}；"
                     f"{len(tab)} 个配置，一致性 {tab['consistency'].min():.3f}–{tab['consistency'].max():.3f}"
-                    "（* =AND, + =OR；自动百分位校准+中位 crossover 为机械起点，请按理论设锚点；"
-                    "充分性≠因果证明）"
+                    "（* =AND, + =OR；充分性≠因果证明）" + _anch_note
                 )
                 code += [
                     "library(QCA)  # 直接校准 -> 真值表 -> 布尔最小化",
-                    f'# calibrate({[outcome, *conditions]}); truthTable(outcome="{outcome}"); minimize(incl.cut=0.8)',
+                    f'# calibrate({[outcome, *conditions]}); truthTable(outcome="{outcome}"); minimize(incl.cut={_ic})',
                 ]
             except Exception as err:
                 summary.append(f"fsQCA 失败：{err}")
@@ -3454,12 +3520,13 @@ def run_analysis(
             csv = d / "_qca_input.csv"
             sub.to_csv(csv, index=False)
             try:
-                sol_str, tab = _csqca_via_r(csv, outcome, conditions)
+                _ic = _qca_incl_cut(cfg, 0.8)
+                sol_str, tab = _csqca_via_r(csv, outcome, conditions, incl_cut=_ic)
                 tab.to_csv(d / "csqca_solution.csv", index=False, encoding="utf-8")
                 files.append("csqca_solution.csv")
                 (d / "solution.txt").write_text(
                     f"清晰集 QCA 充分性解（complex solution） → {outcome}:\n  {sol_str}\n\n"
-                    "清晰校准(二值列直接用,连续列按中位数二分),incl.cut=0.8；* =AND, + =OR\n"
+                    f"清晰校准(二值列直接用,连续列按中位数二分),incl.cut={_ic}；* =AND, + =OR\n"
                     "说明：① complex 解(不纳入反事实)；② 中位数二分丢失信息——连续条件通常 fsQCA 更优,"
                     "且偏态/离散数据的中位数二分可能极不均衡(近恒值)；③ 充分性≠因果。\n\n"
                     + tab.to_string(index=False),
@@ -3473,10 +3540,11 @@ def run_analysis(
                     f"{entry.method} 完成（R/QCA，complex 解）：充分配置 [{sol_str}] → {outcome}；"
                     f"{len(tab)} 个配置，一致性 {tab['consistency'].min():.3f}–{tab['consistency'].max():.3f}"
                     "（* =AND, + =OR；连续条件按中位数二分=信息损失,连续数据建议改用 fsQCA；充分性≠因果）"
+                    + ("（incl.cut 按 config 指定）" if cfg.get("incl_cut") else f"（incl.cut={_ic} 可配）")
                 )
                 code += [
                     "library(QCA)  # 清晰集 QCA: 中位数二分 -> 真值表 -> 布尔最小化",
-                    f'# truthTable(outcome="{outcome}", conditions={conditions}); minimize(incl.cut=0.8)',
+                    f'# truthTable(outcome="{outcome}", conditions={conditions}); minimize(incl.cut={_ic})',
                 ]
             except Exception as err:
                 summary.append(f"csQCA 失败：{err}")
@@ -3512,12 +3580,14 @@ def run_analysis(
             csv = d / "_qca_input.csv"
             sub.to_csv(csv, index=False)
             try:
-                tab = _qca_necessity_via_r(csv, outcome, conditions)
+                _anch = _qca_anchors(cfg)
+                _ic = _qca_incl_cut(cfg, 0.9)
+                tab = _qca_necessity_via_r(csv, outcome, conditions, anchors=_anch, incl_cut=_ic)
                 tab = tab.sort_values("consistency_inclN", ascending=False).reset_index(drop=True)
                 tab.to_csv(d / "necessity.csv", index=False, encoding="utf-8")
                 files.append("necessity.csv")
                 (d / "necessity.txt").write_text(
-                    f"必要性分析（superSubset） → {outcome}（fuzzy 校准，incl.cut=0.9）:\n"
+                    f"必要性分析（superSubset） → {outcome}（fuzzy 校准 {_anch[0]}/{_anch[1]}/{_anch[2]}，incl.cut={_ic}）:\n"
                     "inclN=必要性一致性；RoN=必要性相关度(越高越非琐碎)；covN=覆盖度；"
                     "~X=非 X，+ =或。\n注意：inclN 高但 RoN 低 = 琐碎必要（条件几乎恒为高）；"
                     "必要性≠因果。\n\n" + tab.to_string(index=False),
@@ -3532,9 +3602,10 @@ def run_analysis(
                     f"（inclN={top['consistency_inclN']:.3f}, RoN={top['RoN']:.3f}, "
                     f"covN={top['coverage_covN']:.3f}）；共 {len(tab)} 项"
                     "（RoN 低=琐碎必要；必要性≠因果证明）"
+                    + ("（锚点/incl.cut 按 config 指定）" if (cfg.get("anchors") or cfg.get("incl_cut")) else f"（incl.cut={_ic} 可配 anchors/incl_cut）")
                 )
                 code += [
-                    "library(QCA)  # 必要性: 模糊校准 -> superSubset(incl.cut=0.9, cov.cut=0.5)",
+                    f"library(QCA)  # 必要性: 模糊校准 -> superSubset(incl.cut={_ic}, cov.cut=0.5)",
                     f'# superSubset(cal, outcome="{outcome}", conditions={conditions})',
                 ]
             except Exception as err:

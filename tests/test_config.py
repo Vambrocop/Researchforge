@@ -128,6 +128,82 @@ def test_config_spatial_knn_k_override(tmp_path: Path) -> None:
     assert "k-NN=4" in res_cfg.summary
 
 
+def test_config_malmquist_periods_and_io(tmp_path: Path) -> None:
+    rng = np.random.default_rng(11)
+    firms = [f"f{i}" for i in range(6)]
+    years = [2010, 2011, 2012]
+    rows = []
+    for f in firms:
+        for yv in years:
+            rows.append(
+                {
+                    "firm": f,
+                    "year": yv,
+                    "y": float(rng.uniform(10, 20)),
+                    "x1": float(rng.uniform(5, 15)),
+                    "x2": float(rng.uniform(5, 15)),
+                }
+            )
+    df = pd.DataFrame(rows)
+    csv = tmp_path / "panel.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    if not (fp.unit_col and fp.time_col):
+        import pytest
+
+        pytest.skip("profiler did not detect panel structure for this fixture")
+    e = AnalysisEntry(
+        id="malmquist", method="Malmquist TFP", domain="efficiency", family="efficiency",
+        goal="productivity", preconditions=Precondition(is_panel=True),
+    )
+    res_def = run_analysis(fp, e, output_root=str(tmp_path / "od"))
+    assert "2010→2012" in res_def.summary  # default: first vs last period
+
+    res_cfg = run_analysis(
+        fp, e, output_root=str(tmp_path / "oc"),
+        config={"periods": [2010, 2011], "outputs": ["x1"], "inputs": ["y", "x2"]},
+    )
+    assert "2010→2011" in res_cfg.summary
+    assert "产出 ['x1']" in res_cfg.summary
+
+
+def test_qca_and_io_config_helpers() -> None:
+    from researchforge.executor.run import (
+        _cost_mask,
+        _io_names,
+        _knn_k,
+        _qca_anchors,
+        _qca_incl_cut,
+    )
+
+    # QCA anchors: default, valid override, rejected (not increasing / wrong type)
+    assert _qca_anchors({}) == (0.1, 0.5, 0.9)
+    assert _qca_anchors({"anchors": [0.05, 0.5, 0.95]}) == (0.05, 0.5, 0.95)
+    assert _qca_anchors({"anchors": [0.9, 0.5, 0.1]}) == (0.1, 0.5, 0.9)
+    assert _qca_anchors({"anchors": "bad"}) == (0.1, 0.5, 0.9)
+    # incl_cut: default, valid, out-of-range rejected
+    assert _qca_incl_cut({}, 0.8) == 0.8
+    assert _qca_incl_cut({"incl_cut": 0.85}, 0.8) == 0.85
+    assert _qca_incl_cut({"incl_cut": 2.0}, 0.8) == 0.8
+    # io names: default first=output rest=input; override; unknown names fall back
+    assert _io_names(["a", "b", "c"], {}) == (["b", "c"], ["a"])
+    assert _io_names(["a", "b", "c"], {"inputs": ["a", "b"], "outputs": ["c"]}) == (
+        ["a", "b"], ["c"],
+    )
+    assert _io_names(["a", "b", "c"], {"inputs": ["zz"], "outputs": ["c"]}) == (
+        ["b", "c"], ["a"],
+    )
+    # knn_k clamp + non-int fallback
+    assert _knn_k({}, 10) == 8
+    assert _knn_k({"knn_k": 3}, 10) == 3
+    assert _knn_k({"knn_k": 99}, 10) == 10
+    assert _knn_k({"knn_k": "x"}, 10) == 8
+    # cost mask: None when no cost criteria, mask when present
+    assert _cost_mask(["a", "b"], {})[0] is None
+    mask, names = _cost_mask(["a", "b"], {"cost_criteria": ["b", "zz"]})
+    assert names == ["b"] and bool(mask[1]) and not bool(mask[0])
+
+
 def test_config_none_is_default(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"y": 1.5 * rng.normal(0, 1, 60), "x": rng.normal(0, 1, 60)})
