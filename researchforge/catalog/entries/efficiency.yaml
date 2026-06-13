@@ -1,0 +1,19 @@
+# Efficiency / productivity catalog entries.
+
+- id: dea
+  method: Data Envelopment Analysis (DEA, CCR/BCC)
+  domain: economics
+  family: efficiency
+  goal: explain
+  description: Measure the relative technical efficiency of decision-making units (rows — e.g. farms, regions) that convert inputs into outputs, via input-oriented CCR (constant returns) and BCC (variable returns) frontier LPs; scale efficiency = CCR/BCC. Foundation for Malmquist TFP.
+  preconditions:
+    min_continuous: 2
+    min_rows: 4
+  produces:
+    - CCR / BCC / scale efficiency scores
+    - efficiency ranking
+  executor_ref: scipy
+  biases:
+    - input/output designation is assumed (first numeric column = output, the rest = inputs) — verify it matches reality
+    - deterministic frontier (no noise) — outliers / measurement error are read as "efficient"; SFA is the stochastic alternative
+    - efficiency is relative to this sample and inflates with few DMUs; needs strictly positive inputs and outputs

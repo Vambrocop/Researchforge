@@ -463,6 +463,47 @@ def _mcda_inputs(df, fp):
     return X, crit, labels
 
 
+def _dea_efficiency(inputs, outputs, vrs: bool = False):
+    """Input-oriented DEA efficiency (envelopment form) per DMU via LP.
+    CCR if vrs=False (constant returns), BCC if vrs=True (variable returns, adds
+    Σλ=1). Returns an array of θ∈(0,1] (1 = on the efficient frontier)."""
+    import numpy as np
+    from scipy.optimize import linprog
+
+    inputs = np.asarray(inputs, dtype=float)
+    outputs = np.asarray(outputs, dtype=float)
+    n = inputs.shape[0]
+    eff = np.full(n, np.nan)
+    for o in range(n):
+        # variables z = [theta, lambda_1..lambda_n]; minimise theta
+        c = np.zeros(n + 1)
+        c[0] = 1.0
+        a_ub, b_ub = [], []
+        for i in range(inputs.shape[1]):  # Σ_j λ_j x_ij - θ x_io ≤ 0
+            row = np.zeros(n + 1)
+            row[0] = -inputs[o, i]
+            row[1:] = inputs[:, i]
+            a_ub.append(row)
+            b_ub.append(0.0)
+        for r in range(outputs.shape[1]):  # -Σ_j λ_j y_rj ≤ -y_ro
+            row = np.zeros(n + 1)
+            row[1:] = -outputs[:, r]
+            a_ub.append(row)
+            b_ub.append(-outputs[o, r])
+        a_eq = b_eq = None
+        if vrs:  # BCC convexity Σλ = 1
+            row = np.zeros(n + 1)
+            row[1:] = 1.0
+            a_eq, b_eq = [row], [1.0]
+        res = linprog(
+            c, A_ub=np.array(a_ub), b_ub=np.array(b_ub), A_eq=a_eq, b_eq=b_eq,
+            bounds=[(0, None)] * (n + 1), method="highs",
+        )
+        if res.success:
+            eff[o] = res.fun
+    return eff
+
+
 def _mcda_rank_plot(res, score_col: str, title: str, path: Path) -> None:
     """Shared horizontal bar chart of the top-20 ranked alternatives for MCDA."""
     try:
@@ -2121,6 +2162,64 @@ def run_analysis(
                 "import numpy as np  # 熵权-TOPSIS",
                 "# Z=min-max[0,1]; w=熵权; V=Z*w; 距理想最优/最劣 -> 贴近度 dn/(dp+dn)",
             ]
+
+    elif entry.id == "dea":
+        import numpy as np
+
+        try:
+            X, crit, labels = _mcda_inputs(df, fp)
+        except ValueError as err:
+            summary.append(f"DEA 失败：{err}")
+        else:
+            # engine convention: first numeric column = output, the rest = inputs
+            outputs = X[:, [0]]
+            inputs = X[:, 1:]
+            if inputs.shape[1] < 1:
+                summary.append("DEA 失败：需要 ≥1 个投入 + 1 个产出（≥2 个数值列）。")
+            elif (inputs <= 0).any() or (outputs <= 0).any():
+                summary.append(
+                    "DEA 失败：投入/产出需为正值（DEA 假定正数据）。请确保投入产出列均为正，"
+                    "或移除含 0/负值的列。"
+                )
+            else:
+                import pandas as pd
+
+                ccr = _dea_efficiency(inputs, outputs, vrs=False)
+                bcc = _dea_efficiency(inputs, outputs, vrs=True)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    scale = np.where(bcc > 0, ccr / bcc, np.nan)
+                res = pd.DataFrame(
+                    {
+                        "DMU": labels,
+                        "CCR_efficiency": np.round(ccr, 4),
+                        "BCC_efficiency": np.round(bcc, 4),
+                        "scale_efficiency": np.round(scale, 4),
+                    }
+                )
+                res["rank"] = res["CCR_efficiency"].rank(ascending=False, method="min").astype(int)
+                res = res.sort_values("rank").reset_index(drop=True)
+                res.to_csv(d / "dea_efficiency.csv", index=False, encoding="utf-8")
+                files.append("dea_efficiency.csv")
+                rplot = res.rename(columns={"DMU": "alternative"})
+                _mcda_rank_plot(
+                    rplot, "CCR_efficiency", "DEA CCR efficiency (top 20)", d / "dea_efficiency.png"
+                )
+                if (d / "dea_efficiency.png").exists():
+                    files.append("dea_efficiency.png")
+                n_eff = int(np.sum(np.isclose(ccr, 1.0, atol=1e-4)))
+                estimates["n_ccr_efficient"] = float(n_eff)
+                estimates["mean_ccr_efficiency"] = round(float(np.nanmean(ccr)), 4)
+                estimates["n_dmu"] = float(len(labels))
+                summary.append(
+                    f"{entry.method} 完成：{len(labels)} 个 DMU，产出 [{crit[0]}]，"
+                    f"投入 {crit[1:]}; CCR 技术有效 {n_eff} 个（θ=1），平均效率 "
+                    f"{np.nanmean(ccr):.3f}；规模效率=CCR/BCC。"
+                    "⚠ 默认首列为产出、其余为投入——请按实际投入产出结构核对。"
+                )
+                code += [
+                    "from scipy.optimize import linprog  # 投入导向 DEA(CCR+BCC)",
+                    f'# 产出={crit[0]}, 投入={crit[1:]}; min θ s.t. Σλx≤θx_o, Σλy≥y_o, λ≥0',
+                ]
 
     elif entry.id == "membership_function":
         import numpy as np
