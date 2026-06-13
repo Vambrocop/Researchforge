@@ -18,6 +18,24 @@
     - entropy weights reflect data dispersion, not substantive importance
     - scores are relative to the current set of alternatives (adding/removing rows changes ranks)
 
+- id: critic
+  method: CRITIC objective-weight evaluation
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: Rank alternatives with CRITIC weights — each indicator's weight combines its contrast (standard deviation) and conflict (1 − correlation with other indicators), a fully objective weighting that, unlike entropy, rewards low-redundancy indicators. Weighted-sum composite + ranking.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - CRITIC weights per indicator
+    - composite scores and ranking
+  executor_ref: numpy
+  biases:
+    - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
+    - weights reflect dispersion and correlation structure, not substantive importance
+    - correlation-based, so sensitive to the set of indicators included
+
 - id: membership_function
   method: Membership-function comprehensive evaluation (隶属函数法)
   domain: evaluation

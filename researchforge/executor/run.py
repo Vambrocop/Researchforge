@@ -2476,6 +2476,54 @@ def run_analysis(
                         "# M = (E11/Ett)·sqrt((E[t1|t]/E11)·(Ett/E[t|t1])); 分解 EC×TC",
                     ]
 
+    elif entry.id == "critic":
+        import numpy as np
+
+        try:
+            X, crit, labels = _mcda_inputs(df, fp)
+        except ValueError as err:
+            summary.append(f"CRITIC 失败：{err}")
+        else:
+            import pandas as pd
+
+            Z = _minmax01(X)  # benefit-normalised [0,1]
+            sigma = Z.std(axis=0, ddof=1)  # contrast intensity per criterion
+            # clip to [-1,1]: float noise can push r just past 1, making (1-r)<0 and
+            # flipping weights negative when criteria are (near-)perfectly correlated.
+            corr = np.clip(np.nan_to_num(np.corrcoef(Z, rowvar=False), nan=0.0), -1.0, 1.0)
+            if corr.ndim == 0:
+                corr = np.array([[1.0]])
+            conflict = (1.0 - corr).sum(axis=1)  # conflict = Σ_k (1 - r_jk) ≥ 0
+            info = sigma * conflict  # CRITIC information content C_j
+            w = info / info.sum() if info.sum() > 0 else np.ones(len(crit)) / len(crit)
+            composite = Z @ w
+            res = pd.DataFrame({"alternative": labels, "critic_score": np.round(composite, 4)})
+            res["rank"] = res["critic_score"].rank(ascending=False, method="min").astype(int)
+            res = res.sort_values("rank").reset_index(drop=True)
+            res.to_csv(d / "critic_scores.csv", index=False, encoding="utf-8")
+            files.append("critic_scores.csv")
+            pd.DataFrame({"criterion": crit, "critic_weight": np.round(w, 4)}).to_csv(
+                d / "weights.csv", index=False, encoding="utf-8"
+            )
+            files.append("weights.csv")
+            _mcda_rank_plot(res, "critic_score", "CRITIC-weighted ranking (top 20)", d / "critic_ranking.png")
+            if (d / "critic_ranking.png").exists():
+                files.append("critic_ranking.png")
+            best = labels[int(np.argmax(composite))]
+            estimates["top_score"] = round(float(composite.max()), 4)
+            estimates["n_alternatives"] = float(len(labels))
+            estimates["n_criteria"] = float(len(crit))
+            summary.append(
+                f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
+                f"最优 [{best}]（CRITIC 加权得分 {composite.max():.3f}）；"
+                "CRITIC 权重=对比度(标准差)×冲突性(1-相关) 客观赋权,见 weights.csv。"
+                "⚠ 假定所有指标为效益型（越大越好）；成本型指标请反向。"
+            )
+            code += [
+                "import numpy as np  # CRITIC 客观赋权",
+                "# w_j ∝ σ_j · Σ_k(1-r_jk); 综合得分 = Σ_j w_j · min-max(x_ij)",
+            ]
+
     elif entry.id == "membership_function":
         import numpy as np
 
