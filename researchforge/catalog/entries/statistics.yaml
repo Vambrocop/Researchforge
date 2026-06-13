@@ -163,6 +163,26 @@
     - standard errors depend on kernel bandwidth (sparsity); unstable in small-n tails
     - extrapolation beyond data range
 
+- id: glmm
+  method: Generalized linear mixed model (GLMM, lme4)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Mixed model for a non-Gaussian clustered outcome — binary (logistic, family binomial) or count (Poisson) — with fixed-effect predictors plus a random intercept for a grouping variable (e.g. site, farm, subject). Reports fixed-effect coefficients with odds/incidence-rate ratios, the random-intercept variance, ICC (binary), AIC, and a Poisson overdispersion check. Fit by R lme4 glmer. (Continuous outcomes use the linear mixed_effects analysis.)
+  preconditions:
+    requires_group: true
+    min_rows: 40
+  produces:
+    - fixed-effect coefficients + OR/IRR
+    - random-intercept variance + ICC
+    - AIC + overdispersion (Poisson)
+  executor_ref: lme4
+  biases:
+    - outcome family auto-set (binary to binomial, count to Poisson) and the random-intercept grouping is auto-picked — set config outcome/group if wrong
+    - assumes random effects are normally distributed and the link is correct; Poisson assumes no overdispersion (flagged if >1.5, approximate for mixed models)
+    - Poisson models raw counts; rate outcomes (events per exposure) need offset(log(exposure)), which is not supported here
+    - glmer can fail to converge / give singular fits with few groups (auto-pick needs >=5) or sparse cells — treat unstable fits cautiously; ICC is on the latent logit scale
+
 - id: gam
   method: Generalized additive model (GAM, mgcv)
   domain: statistics

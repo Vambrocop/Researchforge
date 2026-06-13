@@ -1176,6 +1176,58 @@ def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funn
     return meta, study
 
 
+def _glmm_via_r(csv_path, outcome: str, predictors: list[str], group: str, family: str):
+    """Generalized linear mixed model via R lme4::glmer — a fixed-effect part plus
+    a random intercept (1|group), for a binary (family="binomial", logit) or count
+    (family="poisson", log) outcome. Returns (fixed_df[term,estimate,se,z,p],
+    re dict{group_var, group_sd, icc, n_groups, n_obs, aic, overdispersion}).
+    Raises so the caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rhs = " + ".join(predictors) or "1"
+    fam = "binomial" if family == "binomial" else "poisson"
+    rcode = (
+        "suppressMessages(library(lme4))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f'm <- glmer({outcome} ~ {rhs} + (1|{group}), data=d, family={fam})\n'
+        "s <- summary(m); ct <- s$coefficients\n"
+        'cat("##FX\\n")\n'
+        'for (i in seq_len(nrow(ct))) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", '
+        "rownames(ct)[i], ct[i,1], ct[i,2], ct[i,4]))\n"
+        "vc <- as.data.frame(VarCorr(m)); gv <- vc$vcov[1]\n"
+        # latent-scale ICC: binomial logit residual var = pi^2/3; poisson left as NA
+        f'icc <- if ("{fam}" == "binomial") gv/(gv + (pi^2)/3) else NA\n'
+        "od <- sum(residuals(m, type='pearson')^2) / df.residual(m)\n"
+        'cat("##RE\\n")\n'
+        'cat(sprintf("group_var|%.6f\\ngroup_sd|%.6f\\n", gv, sqrt(gv)))\n'
+        'if (!is.na(icc)) cat(sprintf("icc|%.6f\\n", icc))\n'
+        'cat(sprintf("n_groups|%d\\nn_obs|%d\\naic|%.4f\\noverdispersion|%.4f\\n", '
+        "as.integer(ngrps(m)[1]), as.integer(nobs(m)), AIC(m), od))\n"
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, fx, re_d = None, [], {}
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##FX":
+            section = "FX"
+        elif s == "##RE":
+            section = "RE"
+        elif "|" in s and section == "FX":
+            fx.append(s.rsplit("|", 3))
+        elif "|" in s and section == "RE":
+            k, v = s.split("|", 1)
+            re_d[k] = float(v)
+    if not fx or "group_var" not in re_d:
+        raise RuntimeError("lme4 glmer 未返回结果（可能不收敛）")
+    fixed = pd.DataFrame(fx, columns=["term", "estimate", "std_err", "p_value"])
+    for c in ("estimate", "std_err", "p_value"):
+        fixed[c] = pd.to_numeric(fixed[c], errors="coerce")
+    return fixed, re_d
+
+
 def _gam_via_r(csv_path, outcome: str, smooth_terms: list[str], linear_terms: list[str], png_path):
     """Generalized additive model via R mgcv (gold standard): smooth (penalised
     spline) terms s(x) for continuous predictors, parametric terms for the rest,
@@ -3846,6 +3898,131 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"QCA 必要性分析失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "glmm":
+        import re
+
+        from researchforge.executor import rbridge
+
+        _excl = {fp.unit_col, fp.time_col}
+        binary = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
+        counts = [c.name for c in fp.columns if c.kind == "count" and c.name not in _excl]
+        # outcome + family: config outcome (kind decides family), else binary->binomial,
+        # else count->poisson. GLMM is the non-Gaussian complement of mixed_effects.
+        cfg_out = cfg.get("outcome")
+        if cfg_out in binary:
+            outcome, family = cfg_out, "binomial"
+        elif cfg_out in counts:
+            outcome, family = cfg_out, "poisson"
+        elif binary:
+            outcome, family = binary[0], "binomial"
+        elif counts:
+            outcome, family = counts[0], "poisson"
+        else:
+            outcome, family = None, None
+        # grouping for the random intercept: config group, else panel unit, else a
+        # categorical/id column with real clustering (2..n-1 distinct values).
+        group = cfg.get("group") or fp.unit_col
+        if not group:
+            group = next(
+                (
+                    c.name for c in fp.columns
+                    if c.kind in {"categorical", "id"} and c.name not in _excl
+                    # >=5 groups for a stable variance component (Opus); config can override
+                    and 5 <= c.n_unique < fp.n_rows
+                ),
+                None,
+            )
+        forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c not in {outcome, group}]
+        if forced:
+            preds = forced[:6]
+        else:
+            preds = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"}
+                and c.name not in {outcome, group, fp.unit_col, fp.time_col}
+            ][:5]
+        names_safe = outcome and group and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, group, *preds]
+        )
+        if outcome is None:
+            summary.append(
+                "GLMM 失败：需要二值或计数型结果变量（高斯/连续结果用 mixed_effects 线性混合模型）。"
+            )
+        elif group is None:
+            summary.append("GLMM 失败：需要一个分组变量做随机截距（面板单位列或重复出现的类别列）。")
+        elif not preds:
+            summary.append("GLMM 失败：需要 ≥1 个固定效应预测变量。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("lme4")):
+            summary.append("GLMM 需要 R 的 lme4 包（未检测到）。安装：install.packages('lme4')；二值结果可先用 logistic_regression。")
+        elif not names_safe:
+            summary.append("GLMM 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            import math
+
+            import pandas as pd
+
+            sub = df[[outcome, group, *preds]].dropna()
+            csv = d / "_glmm_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                fixed, re_d = _glmm_via_r(csv, outcome, preds, group, family)
+                link = "logit（二值, 系数 exp→OR）" if family == "binomial" else "log（计数, 系数 exp→IRR）"
+                fixed["exp_coef"] = fixed["estimate"].map(lambda b: round(math.exp(b), 4))
+                fixed.to_csv(d / "fixed_effects.csv", index=False, encoding="utf-8")
+                files.append("fixed_effects.csv")
+                gv, gsd = re_d["group_var"], re_d["group_sd"]
+                ng, nobs = int(re_d["n_groups"]), int(re_d["n_obs"])
+                aic, od = re_d["aic"], re_d.get("overdispersion", float("nan"))
+                estimates["group_intercept_var"] = round(gv, 4)
+                estimates["n_groups"] = float(ng)
+                estimates["aic"] = round(aic, 2)
+                for _, r in fixed.iterrows():
+                    if "Intercept" not in str(r["term"]):
+                        estimates[str(r["term"])] = round(float(r["estimate"]), 4)
+                icc_txt = ""
+                if "icc" in re_d:
+                    estimates["icc"] = round(re_d["icc"], 4)
+                    icc_txt = (
+                        f"，组内相关 ICC={re_d['icc']:.3f}（潜变量 logit 尺度，"
+                        f"{re_d['icc']:.0%} 方差在组间；观测 0/1 尺度通常更低）"
+                    )
+                od_txt = ""
+                if family == "poisson" and od == od:  # NaN-safe
+                    estimates["overdispersion"] = round(od, 3)
+                    # ratio & residual df are approximate for a mixed model (Bolker GLMM-FAQ)
+                    od_txt = (
+                        f"；⚠ 过离散≈{od:.2f}>1.5（近似），泊松假定可能被违反，考虑负二项 GLMM"
+                        if od > 1.5 else f"；过离散≈{od:.2f}（近似，≈1 可接受）"
+                    )
+                sig = [str(r["term"]) for _, r in fixed.iterrows()
+                       if "Intercept" not in str(r["term"]) and float(r["p_value"]) < 0.05]
+                (d / "glmm_summary.txt").write_text(
+                    f"广义线性混合模型 GLMM（lme4 glmer，{family}，{link}）\n"
+                    f"{outcome} ~ {' + '.join(preds)} + (1|{group})\n"
+                    f"随机截距方差={gv:.4f}（SD={gsd:.4f}），分组数={ng}，n={nobs}，AIC={aic:.1f}{icc_txt}{od_txt}\n"
+                    f"显著固定效应（p<0.05）：{sig}\n"
+                    "exp(系数)=OR(二值)/IRR(计数)；随机截距吸收组间基线差异。\n\n"
+                    + fixed.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("glmm_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/lme4，{family}）：{outcome} ~ {len(preds)} 个固定效应 "
+                    f"+ (1|{group})；随机截距方差={gv:.3f}（{ng} 组，n={nobs}）{icc_txt}；"
+                    f"显著项 {sig}{od_txt}。⚠ exp(系数)=OR/IRR；随机截距假定组效应~正态。"
+                )
+                code += [
+                    "library(lme4)  # 广义线性混合模型 GLMM",
+                    f"# glmer({outcome} ~ {' + '.join(preds)} + (1|{group}), family={family})",
+                ]
+            except Exception as err:
+                summary.append(f"GLMM 拟合失败（可能不收敛）：{err}")
             finally:
                 try:
                     csv.unlink()
