@@ -17,6 +17,26 @@
     - perfect separation
     - omitted variable bias
 
+- id: survival_analysis
+  method: Survival analysis (Kaplan-Meier + Cox PH)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: Time-to-event analysis — Kaplan-Meier survival curves (with a log-rank test across a 2-level group) plus a Cox proportional-hazards model (hazard ratios + a proportional-hazards assumption test) when covariates are present. Auto-detects the duration and event (0/1) columns by name.
+  preconditions:
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 15
+  produces:
+    - Kaplan-Meier survival curve + median survival
+    - log-rank test (if a 2-level group)
+    - Cox hazard ratios + PH assumption test (if covariates)
+  executor_ref: lifelines
+  biases:
+    - duration and event columns are auto-detected by name — verify they are correct
+    - censoring is assumed random and non-informative (informative censoring biases estimates)
+    - Cox assumes proportional hazards (tested) and a log-linear covariate effect
+
 - id: sem
   method: Structural equation modeling (single-factor CFA template)
   domain: statistics

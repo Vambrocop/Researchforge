@@ -3963,6 +3963,162 @@ def run_analysis(
                     "# lavaan: cfa(spec, data=df, std.lv=TRUE); semopy: semopy.Model(spec).fit(df)",
                 ]
 
+    elif entry.id == "survival_analysis":
+        import numpy as np
+        import pandas as pd
+
+        # NB: do NOT exclude fp.time_col — in survival data the duration IS the
+        # time column (profiler may flag a "time"/"days" column as time_col).
+        _excl = {fp.unit_col}
+
+        def _named(kws, kinds, extra_excl=()):
+            ex = _excl | set(extra_excl)
+            return next(
+                (
+                    c.name
+                    for c in fp.columns
+                    if any(k in c.name.lower() for k in kws) and c.kind in kinds and c.name not in ex
+                ),
+                None,
+            )
+
+        ev_kws = ["event", "status", "death", "dead", "fail", "censor", "relapse"]
+        dur_kws = ["duration", "time", "days", "month", "year", "tenure", "surviv", "followup", "week", "age_at"]
+        event_col = _named(ev_kws, {"binary"}) or next(
+            (c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl), None
+        )
+        dur_col = _named(dur_kws, {"continuous", "count"}, extra_excl=(event_col,) if event_col else ())
+        if dur_col is None and event_col is not None:
+            dur_col = next(
+                (
+                    c.name
+                    for c in fp.columns
+                    if c.kind in {"continuous", "count"}
+                    and c.name not in _excl | {event_col}
+                    and (df[c.name].dropna() > 0).all()
+                ),
+                None,
+            )
+        if event_col is None or dur_col is None:
+            summary.append(
+                "生存分析失败：需要一个事件列（二值 0/1，如 event/status/death）"
+                "+ 一个时长列（正数，如 time/duration/days）。"
+            )
+        else:
+            try:
+                from lifelines import CoxPHFitter, KaplanMeierFitter
+                from lifelines.statistics import logrank_test, proportional_hazard_test
+
+                group_col = next(
+                    (
+                        c.name
+                        for c in fp.columns
+                        if c.kind in {"binary", "categorical"}
+                        and c.name not in _excl | {event_col}
+                        and df[c.name].dropna().nunique() == 2
+                    ),
+                    None,
+                )
+                covars = [
+                    c.name
+                    for c in fp.columns
+                    if c.kind in {"continuous", "binary"} and c.name not in _excl | {dur_col, event_col}
+                ][:5]
+                keep = [dur_col, event_col] + ([group_col] if group_col else []) + covars
+                sub = df[list(dict.fromkeys(keep))].dropna()
+                sub = sub[sub[dur_col].astype(float) > 0]
+                dur = sub[dur_col].astype(float)
+                ev = sub[event_col].astype(int)
+                # event must be 0/1 (1=event, 0=censored) for lifelines event_observed.
+                # (profiler's "binary" is already exactly {0,1}; defensive guard + the
+                # disclosure below also flags the un-detectable reversed-coding risk.)
+                if set(ev.dropna().unique()) - {0, 1}:
+                    raise ValueError(f"事件列 {event_col} 非 0/1 编码（应 1=事件,0=删失）")
+                n_ev, n_cens = int(ev.sum()), int((ev == 0).sum())
+
+                import matplotlib
+
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                kmf = KaplanMeierFitter()
+                fig, ax = plt.subplots(figsize=(6, 4.5))
+                logrank_p = None
+                if group_col:
+                    for gval, gdf in sub.groupby(group_col):
+                        kmf.fit(gdf[dur_col].astype(float), gdf[event_col].astype(int), label=f"{group_col}={gval}")
+                        kmf.plot_survival_function(ax=ax)
+                    levels = list(sub.groupby(group_col).groups)
+                    g0 = sub[sub[group_col] == levels[0]]
+                    g1 = sub[sub[group_col] == levels[1]]
+                    lr = logrank_test(
+                        g0[dur_col].astype(float), g1[dur_col].astype(float),
+                        g0[event_col].astype(int), g1[event_col].astype(int),
+                    )
+                    logrank_p = float(lr.p_value)
+                else:
+                    kmf.fit(dur, ev)
+                    kmf.plot_survival_function(ax=ax)
+                ax.set_xlabel(f"{dur_col} (time)")
+                ax.set_ylabel("survival probability")
+                ax.set_title("Kaplan-Meier survival")
+                fig.tight_layout()
+                fig.savefig(d / "km_curve.png", dpi=150)
+                plt.close(fig)
+                files.append("km_curve.png")
+
+                kmf_all = KaplanMeierFitter().fit(dur, ev)
+                median = float(kmf_all.median_survival_time_)
+                estimates["median_survival"] = round(median, 4) if np.isfinite(median) else -1.0
+                estimates["n_events"] = float(n_ev)
+                estimates["n_censored"] = float(n_cens)
+
+                cox_msg = ""
+                if covars and n_ev >= 2 * len(covars) + 2:
+                    try:
+                        cph = CoxPHFitter()
+                        cph.fit(sub[[dur_col, event_col, *covars]], dur_col, event_col)
+                        cs = cph.summary
+                        ctab = cs[["coef", "exp(coef)", "se(coef)", "p"]].copy()
+                        ctab.columns = ["coef", "hazard_ratio", "std_err", "p_value"]
+                        ctab.round(4).to_csv(d / "cox_hazard_ratios.csv", encoding="utf-8")
+                        files.append("cox_hazard_ratios.csv")
+                        for cv in covars:
+                            if cv in cs.index:
+                                estimates[f"HR_{cv}"] = round(float(cs.loc[cv, "exp(coef)"]), 4)
+                        try:
+                            ph = proportional_hazard_test(cph, sub[[dur_col, event_col, *covars]])
+                            ph_p = float(ph.summary["p"].min())
+                            cox_msg = (
+                                f"；Cox 风险比见 cox_hazard_ratios.csv（{len(covars)} 协变量）；"
+                                f"比例风险检验 min-p={ph_p:.3g}"
+                                f"（{'满足 PH 假定' if ph_p > 0.05 else '⚠ PH 假定可能不成立'}）"
+                            )
+                        except Exception:
+                            cox_msg = f"；Cox 风险比见 cox_hazard_ratios.csv（{len(covars)} 协变量）"
+                    except Exception as cerr:
+                        cox_msg = f"；Cox 拟合跳过（{str(cerr)[:60]}）"
+
+                med_txt = f"{median:.3g}" if np.isfinite(median) else "未达（>50% 存活到末期）"
+                grp_txt = (
+                    f"；按 {group_col} 分组 KM + log-rank p={logrank_p:.3g}"
+                    f"（{'组间生存有显著差异' if logrank_p is not None and logrank_p < 0.05 else '组间无显著差异'}）"
+                    if group_col
+                    else ""
+                )
+                summary.append(
+                    f"{entry.method} 完成：{len(sub)} 例（{n_ev} 事件 / {n_cens} 删失）；"
+                    f"事件列={event_col}，时长列={dur_col}；中位生存={med_txt}{grp_txt}{cox_msg}。"
+                    "⚠ 事件/时长列按列名自动识别，请核对；事件列须 0/1（1=事件,0=删失），"
+                    "若反向编码 HR 会反转；删失假定为随机非信息性。"
+                )
+                code += [
+                    "from lifelines import KaplanMeierFitter, CoxPHFitter  # 生存分析",
+                    f"# KM.fit(df['{dur_col}'], df['{event_col}']); CoxPHFitter().fit(df, '{dur_col}', '{event_col}')",
+                ]
+            except Exception as err:
+                summary.append(f"生存分析失败：{err}")
+
     elif entry.id == "random_effects":
         if not (fp.unit_col and fp.time_col):
             summary.append("随机效应模型失败：需要面板数据（单位列 + 时间列）。")
