@@ -19,6 +19,25 @@
     - asymmetric causation — explaining Y is not explaining not-Y; sufficiency is not causal proof
     - limited diversity / remainders; sensitive to the consistency cutoff
 
+- id: csqca
+  method: Crisp-set QCA (csQCA)
+  domain: social science
+  family: configurational
+  goal: explain
+  description: Find combinations of conditions sufficient for an outcome using crisp (0/1) set membership — binary conditions used directly, continuous ones dichotomised at the median — then a truth table and Boolean minimization (Ragin). The dichotomous counterpart to fsQCA.
+  preconditions:
+    min_continuous: 3
+    min_rows: 12
+  produces:
+    - sufficient configurations (solution)
+    - consistency and coverage
+  executor_ref: QCA (R)
+  biases:
+    - median dichotomisation discards information — for continuous conditions fsQCA is usually preferable
+    - on skewed/discrete data the median split can be very unbalanced (mass at the median ties to 0), making a condition near-constant
+    - the dichotomisation threshold drives the result; set it from theory, not the median by default
+    - asymmetric causation; complex solution; sufficiency is not causal proof; sensitive to limited diversity
+
 - id: qca_necessity
   method: QCA necessity analysis (superSubset)
   domain: social science
