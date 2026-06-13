@@ -3396,6 +3396,102 @@ def run_analysis(
                     "# lavaan: cfa(spec, data=df, std.lv=TRUE); semopy: semopy.Model(spec).fit(df)",
                 ]
 
+    elif entry.id == "random_effects":
+        if not (fp.unit_col and fp.time_col):
+            summary.append("随机效应模型失败：需要面板数据（单位列 + 时间列）。")
+        else:
+            import numpy as np
+            import pandas as pd
+            from scipy.stats import chi2
+
+            y = next(
+                (c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}),
+                None,
+            )
+            preds = [
+                c.name
+                for c in fp.columns
+                if c.kind in {"continuous", "binary"} and c.name not in {y, fp.unit_col, fp.time_col}
+            ][:6]
+            if y is None or not preds:
+                summary.append("随机效应模型失败：需要连续结果变量 + ≥1 个预测变量。")
+            else:
+                try:
+                    from linearmodels.panel import PanelOLS, RandomEffects
+
+                    dd = (
+                        df[[fp.unit_col, fp.time_col, y, *preds]]
+                        .dropna()
+                        .drop_duplicates([fp.unit_col, fp.time_col])
+                        .set_index([fp.unit_col, fp.time_col])
+                    )
+                    fe = PanelOLS(dd[y], dd[preds], entity_effects=True).fit(
+                        cov_type="clustered", cluster_entity=True
+                    )
+                    re = RandomEffects(dd[y], dd[preds].assign(const=1.0)).fit(
+                        cov_type="clustered", cluster_entity=True
+                    )
+                    # classic Hausman needs the EFFICIENT (unadjusted) covariances so
+                    # V_FE - V_RE is PSD; clustered/robust covs break the χ² basis (Opus
+                    # catch). Use unadjusted fits for the test; keep clustered for SEs.
+                    fe_u = PanelOLS(dd[y], dd[preds], entity_effects=True).fit()
+                    re_u = RandomEffects(dd[y], dd[preds].assign(const=1.0)).fit()
+                    common = [p for p in preds if p in fe.params.index and p in re.params.index]
+                    diff = (fe_u.params[common] - re_u.params[common]).values
+                    vdiff = (fe_u.cov.loc[common, common] - re_u.cov.loc[common, common]).values
+                    h_stat = max(0.0, float(diff @ np.linalg.pinv(vdiff) @ diff))
+                    h_p = float(chi2.sf(h_stat, len(common)))
+                    use_fe = h_p < 0.05
+                    rec = "FE（固定效应）" if use_fe else "RE（随机效应）"
+                    tab = pd.DataFrame(
+                        {
+                            "term": common,
+                            "FE_coef": [round(float(fe.params[c]), 4) for c in common],
+                            "FE_p": [round(float(fe.pvalues[c]), 4) for c in common],
+                            "RE_coef": [round(float(re.params[c]), 4) for c in common],
+                            "RE_p": [round(float(re.pvalues[c]), 4) for c in common],
+                        }
+                    )
+                    tab.to_csv(d / "fe_re_coefficients.csv", index=False, encoding="utf-8")
+                    files.append("fe_re_coefficients.csv")
+                    chosen = fe if use_fe else re
+                    try:
+                        import matplotlib
+
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        se = chosen.std_errors[common]
+                        co = chosen.params[common]
+                        fig, ax = plt.subplots(figsize=(5, 3))
+                        ax.errorbar(co.values, range(len(common)), xerr=1.96 * se.values, fmt="o")
+                        ax.axvline(0, color="grey", ls="--")
+                        ax.set_yticks(range(len(common)))
+                        ax.set_yticklabels(common)
+                        ax.set_xlabel(f"{rec[:2]} coefficient (95% CI)")
+                        fig.tight_layout()
+                        fig.savefig(d / "coefficients.png", dpi=150)
+                        plt.close(fig)
+                        files.append("coefficients.png")
+                    except Exception:
+                        pass
+                    estimates["hausman_stat"] = round(h_stat, 4)
+                    estimates["hausman_p"] = round(h_p, 4)
+                    for c in common:
+                        estimates[c] = round(float(chosen.params[c]), 4)
+                    summary.append(
+                        f"{entry.method} 完成：面板 {dd.index.get_level_values(0).nunique()} 单位 × "
+                        f"{dd.index.get_level_values(1).nunique()} 期；结果 {y}，{len(common)} 个预测变量。"
+                        f"Hausman H={h_stat:.3f}, p={h_p:.3g} → 推荐 {rec}"
+                        f"（p<0.05 表示随机效应与回归元相关、RE 不一致，应用 FE）。系数对比见 fe_re_coefficients.csv（聚类稳健 SE）。"
+                    )
+                    code += [
+                        "from linearmodels.panel import PanelOLS, RandomEffects  # 面板 RE + Hausman",
+                        "# FE=PanelOLS(entity_effects); RE=RandomEffects; H=(b_fe-b_re)'pinv(Vfe-Vre)(b_fe-b_re)",
+                    ]
+                except Exception as err:
+                    summary.append(f"随机效应模型失败：{err}")
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"

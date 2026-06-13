@@ -1,0 +1,20 @@
+# Panel econometrics catalog entries (complements panel_fixed_effects + did).
+
+- id: random_effects
+  method: Random-effects panel model (+ Hausman test)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: Fit a random-effects panel regression and a fixed-effects model, then run the Hausman test to decide which is consistent (FE vs RE), and report the recommended model's coefficients. Completes the panel toolkit alongside fixed effects and DID.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - RE and FE coefficients
+    - Hausman test statistic (FE vs RE) and recommendation
+  executor_ref: linearmodels
+  biases:
+    - random effects assume the unit effect is uncorrelated with regressors — the Hausman test checks exactly this; if rejected, use FE
+    - needs within-unit variation; time-invariant regressors are dropped under FE
+    - inference assumes no remaining serial correlation beyond the panel structure
