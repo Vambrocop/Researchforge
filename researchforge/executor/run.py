@@ -1176,6 +1176,77 @@ def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funn
     return meta, study
 
 
+def _gam_via_r(csv_path, outcome: str, smooth_terms: list[str], linear_terms: list[str], png_path):
+    """Generalized additive model via R mgcv (gold standard): smooth (penalised
+    spline) terms s(x) for continuous predictors, parametric terms for the rest,
+    fit by REML. Returns (smooth_df[term,edf,F,p], param_df[term,est,se,p],
+    fit{dev_expl,r_sq,n}). Writes the partial-effect smooth panels to png_path.
+    Raises so the caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    png_r = str(png_path).replace("\\", "/")
+    rhs = " + ".join([f"s({t})" for t in smooth_terms] + list(linear_terms)) or "1"
+    n_panels = max(1, len(smooth_terms))
+    rcode = (
+        "suppressMessages(library(mgcv))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f'm <- gam({outcome} ~ {rhs}, data=d, method="REML")\n'
+        "s <- summary(m)\n"
+        'cat("##S\\n")\n'
+        "if (!is.null(s$s.table)) for (i in seq_len(nrow(s$s.table))) "
+        'cat(sprintf("%s|%.4f|%.4f|%.6g\\n", rownames(s$s.table)[i], '
+        's$s.table[i,"edf"], s$s.table[i,"F"], s$s.table[i,"p-value"]))\n'
+        'cat("##P\\n")\n'
+        "if (!is.null(s$p.table)) for (i in seq_len(nrow(s$p.table))) "
+        'cat(sprintf("%s|%.6f|%.6f|%.6g\\n", rownames(s$p.table)[i], '
+        "s$p.table[i,1], s$p.table[i,2], s$p.table[i,4]))\n"
+        'cat("##F\\n")\n'
+        'cat(sprintf("dev_expl|%.4f\\nr_sq|%.4f\\nn|%d\\n", s$dev.expl, s$r.sq, s$n))\n'
+        # worst-case concurvity (nonlinear analogue of collinearity); deterministic,
+        # no refit. >~0.8 means a smooth is well-approximated by the others (Opus).
+        'cw <- tryCatch(max(concurvity(m, full=TRUE)["worst", ], na.rm=TRUE), error=function(e) NA)\n'
+        'if (!is.na(cw)) cat(sprintf("concurvity|%.4f\\n", cw))\n'
+        f'png("{png_r}", width=900, height=max(350, 320*ceiling({n_panels}/2)), res=120)\n'
+        f"par(mfrow=c(ceiling({n_panels}/2), min(2,{n_panels})))\n"
+        "plot(m, shade=TRUE, seWithMean=TRUE, residuals=FALSE); dev.off()\n"
+    )
+    out = rbridge.run_r(rcode, timeout=120)
+    section, srows, prows, fit = None, [], [], {}
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##S":
+            section = "S"
+        elif s == "##P":
+            section = "P"
+        elif s == "##F":
+            section = "F"
+        elif "|" in s and section == "S":
+            srows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "P":
+            prows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "F":
+            k, v = s.split("|", 1)
+            fit[k] = float(v)
+    if "dev_expl" not in fit:
+        raise RuntimeError("mgcv gam 未返回结果")
+    smooth_df = pd.DataFrame(srows, columns=["term", "edf", "F", "p_value"]) if srows else pd.DataFrame(
+        columns=["term", "edf", "F", "p_value"]
+    )
+    param_df = pd.DataFrame(prows, columns=["term", "estimate", "std_err", "p_value"]) if prows else pd.DataFrame(
+        columns=["term", "estimate", "std_err", "p_value"]
+    )
+    for col in ("edf", "F", "p_value"):
+        if len(smooth_df):
+            smooth_df[col] = pd.to_numeric(smooth_df[col], errors="coerce")
+    for col in ("estimate", "std_err", "p_value"):
+        if len(param_df):
+            param_df[col] = pd.to_numeric(param_df[col], errors="coerce")
+    return smooth_df, param_df, fit
+
+
 def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
     frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
@@ -3775,6 +3846,110 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"QCA 必要性分析失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "gam":
+        import re
+
+        from researchforge.executor import rbridge
+
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
+        y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
+        if forced:
+            preds = forced[:8]
+        else:
+            preds = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"} and c.name not in {y, fp.unit_col, fp.time_col}
+            ][:6]
+        # smooth continuous predictors with enough distinct values (mgcv s() needs
+        # ~>=10 unique points); binary / low-cardinality enter as parametric terms.
+        smooth = [p for p in preds if p in cont and df[p].dropna().nunique() >= 10]
+        linear = [p for p in preds if p not in smooth]
+        names_safe = y is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [y, *preds]
+        )
+        if y is None or not preds:
+            summary.append("GAM 失败：需要 1 个连续结果变量 + ≥1 个预测变量。")
+        elif not smooth:
+            summary.append(
+                "GAM 跳过：没有可平滑的连续预测变量（需 ≥10 个不同取值）。"
+                "用 ols_regression（线性）或确认预测变量为连续型。"
+            )
+        elif not (rbridge.r_available() and rbridge.r_package_available("mgcv")):
+            summary.append("GAM 需要 R 的 mgcv 包（未检测到）。安装：install.packages('mgcv')；或用 ols_regression。")
+        elif not names_safe:
+            summary.append("GAM 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            import pandas as pd
+
+            sub = df[[y, *preds]].dropna()
+            csv = d / "_gam_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                smooth_df, param_df, fit = _gam_via_r(csv, y, smooth, linear, d / "gam_smooths.png")
+                if len(smooth_df):
+                    smooth_df.to_csv(d / "smooth_terms.csv", index=False, encoding="utf-8")
+                    files.append("smooth_terms.csv")
+                if len(param_df):
+                    param_df.to_csv(d / "parametric_terms.csv", index=False, encoding="utf-8")
+                    files.append("parametric_terms.csv")
+                if (d / "gam_smooths.png").exists():
+                    files.append("gam_smooths.png")
+                dev, r2, n = fit["dev_expl"], fit["r_sq"], int(fit["n"])
+                estimates["deviance_explained"] = round(dev, 4)
+                estimates["adj_r_squared"] = round(r2, 4)
+                estimates["n"] = float(n)
+                # edf>~1 means the term bends away from a straight line (nonlinear)
+                nonlin = []
+                for _, r in smooth_df.iterrows():
+                    estimates[f"edf_{r['term']}"] = round(float(r["edf"]), 3)
+                    if float(r["edf"]) > 1.5 and float(r["p_value"]) < 0.05:
+                        nonlin.append(str(r["term"]))
+                nl_txt = (
+                    f"显著非线性项：{nonlin}（edf>1.5 且 p<0.05，提示曲线关系）"
+                    if nonlin
+                    else "各平滑项 edf≈1 或不显著（近线性，可考虑普通回归）"
+                )
+                cc_txt = ""
+                if "concurvity" in fit:
+                    estimates["worst_concurvity"] = round(fit["concurvity"], 3)
+                    if fit["concurvity"] > 0.8:
+                        cc_txt = (
+                            f"；⚠ 最差 concurvity={fit['concurvity']:.2f}>0.8（平滑项间强非线性共线），"
+                            "单项偏效应/显著性不稳"
+                        )
+                sig_s = [str(r["term"]) for _, r in smooth_df.iterrows() if float(r["p_value"]) < 0.05]
+                (d / "gam_summary.txt").write_text(
+                    f"广义可加模型 GAM（mgcv，REML）：{y} ~ "
+                    + " + ".join([f"s({t})" for t in smooth] + linear) + "\n"
+                    f"偏差解释 {dev:.1%}，调整 R² {r2:.3f}，n={n}\n"
+                    f"显著平滑项（p<0.05）：{sig_s}\n{nl_txt}\n"
+                    "edf=有效自由度（1=直线，越大越弯）；平滑项 p 检验该项整体是否≠0（非"
+                    "「是否非线性」的正式检验）——edf>1.5 仅为非线性的描述性标记。\n"
+                    "默认高斯族+identity link，假定结果连续无界、近似同方差正态。\n\n"
+                    "平滑项：\n" + (smooth_df.to_string(index=False) if len(smooth_df) else "（无）")
+                    + "\n\n参数项：\n" + (param_df.to_string(index=False) if len(param_df) else "（无）"),
+                    encoding="utf-8",
+                )
+                files.append("gam_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/mgcv，REML）：{y} ~ {len(smooth)} 个平滑项 + "
+                    f"{len(linear)} 个线性项；偏差解释 {dev:.1%}，调整 R²={r2:.3f}（n={n}）；{nl_txt}{cc_txt}。"
+                    "⚠ 高斯族(连续无界结果)；平滑项默认薄板样条 k=10，边界/稀疏区外推不可靠；偏效应图 gam_smooths.png。"
+                )
+                _rhs_preview = " + ".join([f"s({t})" for t in smooth] + linear)
+                code += [
+                    "library(mgcv)  # 广义可加模型 GAM",
+                    f"# gam({y} ~ {_rhs_preview}, method='REML'); summary()/plot(shade=TRUE)",
+                ]
+            except Exception as err:
+                summary.append(f"GAM 拟合失败：{err}")
             finally:
                 try:
                     csv.unlink()

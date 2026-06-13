@@ -163,6 +163,27 @@
     - standard errors depend on kernel bandwidth (sparsity); unstable in small-n tails
     - extrapolation beyond data range
 
+- id: gam
+  method: Generalized additive model (GAM, mgcv)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Flexible regression that fits smooth (penalised-spline) functions of continuous predictors instead of forcing straight lines, revealing nonlinear / threshold relationships. Reports each smooth term's effective degrees of freedom (edf, 1 = linear) and significance, deviance explained, adjusted R-squared, and partial-effect plots. Low-cardinality / binary predictors enter as parametric terms. Fit by REML via R mgcv.
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - smooth-term table (edf + significance)
+    - parametric coefficients
+    - deviance explained / adjusted R-squared
+    - partial-effect smooth plots
+  executor_ref: mgcv
+  biases:
+    - first continuous column is the outcome by default — set config outcome/predictors
+    - assumes a Gaussian / identity-link continuous outcome; bounded [0,1] proportions, counts, or strongly skewed outcomes need betar / Poisson / Gamma (not auto-switched)
+    - smooth basis dimension (k=10) caps wiggliness; boundary / sparse-region extrapolation is unreliable
+    - GAM shows association, not causation; concurvity (nonlinear collinearity, flagged when worst > 0.8) can destabilise smooths
+
 - id: meta_analysis
   method: Meta-analysis (random/fixed-effects, metafor)
   domain: statistics
