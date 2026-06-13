@@ -18,6 +18,25 @@
     - deterministic frontier (no noise) — outliers / measurement error are read as "efficient"; SFA is the stochastic alternative
     - efficiency is relative to this sample and inflates with few DMUs; needs strictly positive inputs and outputs
 
+- id: sfa
+  method: Stochastic Frontier Analysis (SFA)
+  domain: economics
+  family: efficiency
+  goal: explain
+  description: Parametric production-frontier model that separates technical inefficiency from random noise (composed error v − u), estimating a Cobb-Douglas frontier by maximum likelihood plus per-unit technical efficiency. The stochastic counterpart to DEA's deterministic frontier. Uses the R frontier package.
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - frontier elasticities
+    - technical efficiency per unit
+    - inefficiency variance ratio gamma = sigma_u^2/(sigma_u^2+sigma_v^2) + one-sided LR test of no inefficiency
+  executor_ref: frontier (R)
+  biases:
+    - assumes a functional form (Cobb-Douglas, logs) and a half-normal inefficiency distribution
+    - needs strictly positive inputs/outputs and a moderate sample for stable ML
+    - first numeric column assumed output, the rest inputs
+
 - id: malmquist
   method: Malmquist productivity index (TFP change)
   domain: economics

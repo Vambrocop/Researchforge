@@ -765,6 +765,51 @@ def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, 
     return diag, pref, coef
 
 
+def _sfa_via_r(csv_path, output: str, inputs: list[str]):
+    """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
+    frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
+    (coef dict incl. sigmaSq & gamma, per-row technical-efficiency array)."""
+    import numpy as np
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rhs = " + ".join(f"log({c})" for c in inputs)
+    rcode = (
+        "suppressMessages(library(frontier))\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f"m <- sfa(log({output}) ~ {rhs}, data=d)\n"
+        "co <- coef(m)\n"
+        # one-sided LR test of γ=0 (no inefficiency) vs OLS; boundary mixed χ² ⇒ ½ weight
+        f"ols <- lm(log({output}) ~ {rhs}, data=d)\n"
+        "lr <- max(0, 2*(as.numeric(logLik(m)) - as.numeric(logLik(ols))))\n"
+        "pval <- 0.5 * pchisq(lr, df=1, lower.tail=FALSE)\n"
+        'cat("##COEF\\n"); for (nm in names(co)) cat(sprintf("%s|%.6f\\n", nm, co[nm]))\n'
+        'cat(sprintf("lr_stat|%.6f\\nlr_pvalue|%.6f\\n", lr, pval))\n'
+        "eff <- efficiencies(m, asInData=TRUE)\n"
+        'cat("##EFF\\n"); for (i in seq_along(eff)) cat(sprintf("%.6f\\n", eff[i]))\n'
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, coef, te = None, {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##COEF":
+            section = "C"
+        elif s == "##EFF":
+            section = "E"
+        elif section == "C" and "|" in s:
+            k, v = s.split("|", 1)
+            coef[k] = float(v)
+        elif section == "E" and s and "|" not in s:
+            try:
+                te.append(float(s))
+            except ValueError:
+                pass
+    if not coef or not te:
+        raise RuntimeError("frontier sfa 未返回结果")
+    return coef, np.array(te)
+
+
 def _qca_necessity_via_r(csv_path, outcome: str, conditions: list[str]):
     """QCA necessity analysis via R superSubset on fuzzy-calibrated data. Returns
     a DataFrame [expression, inclN(consistency), RoN, covN(coverage)]. RoN flags
@@ -2228,6 +2273,120 @@ def run_analysis(
                     "from scipy.optimize import linprog  # 投入导向 DEA(CCR+BCC)",
                     f'# 产出={crit[0]}, 投入={crit[1:]}; min θ s.t. Σλx≤θx_o, Σλy≥y_o, λ≥0',
                 ]
+
+    elif entry.id == "sfa":
+        import re
+
+        import numpy as np
+
+        from researchforge.executor import rbridge
+
+        _excl = {fp.unit_col, fp.time_col}
+        crit = [
+            c.name for c in fp.columns if c.kind in {"continuous", "count"} and c.name not in _excl
+        ]
+        names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in crit)
+        if len(crit) < 2:
+            summary.append("SFA 失败：需要 ≥1 投入 + 1 产出（≥2 个数值列）。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("frontier")):
+            summary.append(
+                "SFA 需要 R 的 frontier 包（未检测到）。安装：install.packages('frontier')；"
+                "或用 DEA（确定性前沿，纯 Python，无需 R）。"
+            )
+        elif not names_safe:
+            summary.append("SFA 失败：列名需为标识符式（字母/数字/. _）。")
+        else:
+            output_col, in_cols = crit[0], crit[1:]
+            label_col = next(
+                (c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name not in _excl),
+                None,
+            )
+            sub = df[crit + ([label_col] if label_col else [])].dropna()
+            if (sub[crit].to_numpy(dtype=float) <= 0).any():
+                summary.append("SFA 失败：投入/产出需为正值（Cobb-Douglas 取对数）。")
+            else:
+                labels = (
+                    sub[label_col].astype(str).tolist()
+                    if label_col
+                    else [f"row{i + 1}" for i in range(len(sub))]
+                )
+                csv = d / "_sfa_input.csv"
+                sub[crit].to_csv(csv, index=False)
+                try:
+                    import pandas as pd
+
+                    coef, te = _sfa_via_r(csv, output_col, in_cols)
+                    elastic = {
+                        k: v
+                        for k, v in coef.items()
+                        if k not in ("sigmaSq", "gamma", "lr_stat", "lr_pvalue")
+                    }
+                    pd.DataFrame(
+                        {"term": list(elastic), "elasticity": [round(v, 4) for v in elastic.values()]}
+                    ).to_csv(d / "frontier_coefficients.csv", index=False, encoding="utf-8")
+                    files.append("frontier_coefficients.csv")
+                    teres = pd.DataFrame({"unit": labels, "technical_efficiency": np.round(te, 4)})
+                    teres = teres.sort_values("technical_efficiency", ascending=False).reset_index(
+                        drop=True
+                    )
+                    teres.to_csv(d / "technical_efficiency.csv", index=False, encoding="utf-8")
+                    files.append("technical_efficiency.csv")
+                    try:
+                        import matplotlib
+
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        fig, ax = plt.subplots(figsize=(6, 4))
+                        ax.hist(te, bins=min(20, max(5, len(te) // 4)), color="#4C72B0", edgecolor="white")
+                        ax.axvline(float(np.mean(te)), color="#C44E52", ls="--", label=f"mean={np.mean(te):.3f}")
+                        ax.set_xlabel("technical efficiency")
+                        ax.set_ylabel("count")
+                        ax.set_title("SFA technical-efficiency distribution")
+                        ax.legend(fontsize=8)
+                        fig.tight_layout()
+                        fig.savefig(d / "efficiency_distribution.png", dpi=150)
+                        plt.close(fig)
+                        files.append("efficiency_distribution.png")
+                    except Exception:
+                        pass
+                    mean_te = float(np.mean(te))
+                    gamma = coef.get("gamma", float("nan"))
+                    lr_p = coef.get("lr_pvalue", float("nan"))
+                    estimates["mean_technical_efficiency"] = round(mean_te, 4)
+                    estimates["gamma"] = round(gamma, 4)
+                    estimates["lr_inefficiency_pvalue"] = round(lr_p, 4)
+                    estimates["n_dmu"] = float(len(labels))
+                    for k, v in elastic.items():
+                        if "Intercept" not in k:
+                            estimates[k] = round(v, 4)
+                    # if the one-sided LR test can't reject γ=0, the model is ~OLS and
+                    # the technical-efficiency scores are not trustworthy (Opus catch).
+                    ineff_sig = lr_p < 0.05
+                    te_warn = (
+                        ""
+                        if ineff_sig
+                        else "；⚠ 低效 LR 检验不显著（无统计学上的无效率），模型接近 OLS，技术效率值不可靠"
+                    )
+                    summary.append(
+                        f"{entry.method} 完成（R/frontier）：Cobb-Douglas 前沿 [{output_col}] ~ {in_cols}；"
+                        f"平均技术效率 {mean_te:.3f}（最优=1）；γ={gamma:.3f}"
+                        "（=σ_u²/(σ_u²+σ_v²) 比值，越近 1 越说明偏离前沿主要是低效而非噪声）；"
+                        f"低效存在性 LR 检验 p={lr_p:.3g}（{'显著存在低效' if ineff_sig else '不显著'}）"
+                        f"{te_warn}。弹性见 frontier_coefficients.csv。"
+                        "⚠ 默认首列为产出、其余投入；假定 Cobb-Douglas + 半正态低效。"
+                    )
+                    code += [
+                        "library(frontier)  # 随机前沿(Cobb-Douglas, ML)",
+                        f"# sfa(log({output_col}) ~ {' + '.join(f'log({c})' for c in in_cols)}); efficiencies()",
+                    ]
+                except Exception as err:
+                    summary.append(f"SFA 拟合失败：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
 
     elif entry.id == "malmquist":
         import numpy as np
