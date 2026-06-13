@@ -438,6 +438,58 @@ def _plotly_scatter(coords, labels, path: Path, title: str, xlab: str, ylab: str
         pass
 
 
+def _mcda_inputs(df, fp):
+    """Shared MCDA setup: numeric criteria (continuous+count, excl id/unit/time),
+    an alternative-label column (first id/categorical) or row index. Returns
+    (X matrix, criteria names, alternative labels). Raises if < 2 criteria."""
+    _excl = {fp.unit_col, fp.time_col}
+    crit = [
+        c.name for c in fp.columns if c.kind in {"continuous", "count"} and c.name not in _excl
+    ]
+    if len(crit) < 2:
+        raise ValueError("需要 ≥2 个数值型评价指标")
+    label_col = next(
+        (c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name not in _excl),
+        None,
+    )
+    cols = crit + ([label_col] if label_col else [])
+    sub = df[cols].dropna()
+    X = sub[crit].to_numpy(dtype=float)
+    labels = (
+        sub[label_col].astype(str).tolist()
+        if label_col
+        else [f"row{i + 1}" for i in range(len(X))]
+    )
+    return X, crit, labels
+
+
+def _minmax01(X):
+    """Min-max normalise each column to [0,1] (benefit direction). Constant
+    columns -> 0.5 (they get ~zero entropy weight downstream)."""
+    import numpy as np
+
+    lo, hi = X.min(axis=0), X.max(axis=0)
+    rng = hi - lo
+    return np.where(rng == 0, 0.5, (X - lo) / np.where(rng == 0, 1.0, rng))
+
+
+def _entropy_weights(Z):
+    """Objective entropy weights from a [0,1] benefit matrix Z (m alts × k crit).
+    Higher dispersion -> higher weight. Equal weights if degenerate."""
+    import numpy as np
+
+    m = Z.shape[0]
+    if m < 2:
+        return np.ones(Z.shape[1]) / Z.shape[1]
+    col_sum = np.where(Z.sum(axis=0) == 0, 1.0, Z.sum(axis=0))
+    P = Z / col_sum
+    with np.errstate(divide="ignore", invalid="ignore"):
+        plnp = np.where(P > 0, P * np.log(P), 0.0)
+    e = -plnp.sum(axis=0) / np.log(m)
+    diff = 1.0 - e
+    return diff / diff.sum() if diff.sum() > 0 else np.ones(Z.shape[1]) / Z.shape[1]
+
+
 def _sem_via_lavaan(csv_path, spec: str) -> dict:
     """Fit a CFA via R's lavaan (gold standard) through the R bridge. Returns a
     backend-agnostic result dict, or raises so the caller falls back to semopy."""
@@ -1992,6 +2044,63 @@ def run_analysis(
                     ]
             except Exception as err:
                 summary.append(f"PERMANOVA 失败：{err}")
+
+    elif entry.id == "topsis":
+        import numpy as np
+
+        try:
+            X, crit, labels = _mcda_inputs(df, fp)
+        except ValueError as err:
+            summary.append(f"TOPSIS 失败：{err}")
+        else:
+            import pandas as pd
+
+            Z = _minmax01(X)  # benefit-normalised to [0,1]
+            w = _entropy_weights(Z)
+            V = Z * w
+            a_best, a_worst = V.max(axis=0), V.min(axis=0)
+            dp = np.sqrt(((V - a_best) ** 2).sum(axis=1))
+            dn = np.sqrt(((V - a_worst) ** 2).sum(axis=1))
+            score = dn / (dp + dn + 1e-12)
+            res = pd.DataFrame({"alternative": labels, "score": np.round(score, 4)})
+            res["rank"] = res["score"].rank(ascending=False, method="min").astype(int)
+            res = res.sort_values("rank").reset_index(drop=True)
+            res.to_csv(d / "topsis_scores.csv", index=False, encoding="utf-8")
+            files.append("topsis_scores.csv")
+            pd.DataFrame({"criterion": crit, "entropy_weight": np.round(w, 4)}).to_csv(
+                d / "weights.csv", index=False, encoding="utf-8"
+            )
+            files.append("weights.csv")
+            try:
+                import matplotlib
+
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                top = res.head(20).iloc[::-1]
+                fig, ax = plt.subplots(figsize=(6, max(3, len(top) * 0.32)))
+                ax.barh(top["alternative"].astype(str), top["score"], color="#4C72B0")
+                ax.set_xlabel("TOPSIS closeness score")
+                ax.set_title(f"Entropy-weighted TOPSIS ranking (top {len(top)})")
+                fig.tight_layout()
+                fig.savefig(d / "topsis_ranking.png", dpi=150)
+                plt.close(fig)
+                files.append("topsis_ranking.png")
+            except Exception:
+                pass
+            best = labels[int(np.argmax(score))]
+            estimates["top_score"] = round(float(score.max()), 4)
+            estimates["n_alternatives"] = float(len(labels))
+            estimates["n_criteria"] = float(len(crit))
+            summary.append(
+                f"{entry.method} 完成：{len(labels)} 个方案 × {len(crit)} 个指标；"
+                f"最优方案 [{best}]（贴近度 {score.max():.3f}）；熵权见 weights.csv。"
+                "⚠ 假定所有指标为效益型（越大越好）；若有成本型指标（越小越好）请说明以反向。"
+            )
+            code += [
+                "import numpy as np  # 熵权-TOPSIS",
+                "# Z=min-max[0,1]; w=熵权; V=Z*w; 距理想最优/最劣 -> 贴近度 dn/(dp+dn)",
+            ]
 
     elif entry.id == "idw_interpolation":
         import numpy as np

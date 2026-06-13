@@ -1,0 +1,19 @@
+# Multi-criteria evaluation (MCDA) / 综合评价 catalog entries.
+
+- id: topsis
+  method: Entropy-weighted TOPSIS (comprehensive evaluation)
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: Rank alternatives (rows) across multiple indicators by their closeness to the ideal-best vs ideal-worst (TOPSIS), with objective entropy weights. Common in agronomy comprehensive evaluation — ranking varieties, treatments, or regions.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - ranked closeness scores
+    - entropy weights per indicator
+  executor_ref: numpy
+  biases:
+    - assumes every indicator is benefit-type (higher is better) unless told otherwise — cost indicators must be reversed
+    - entropy weights reflect data dispersion, not substantive importance
+    - scores are relative to the current set of alternatives (adding/removing rows changes ranks)
