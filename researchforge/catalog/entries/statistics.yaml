@@ -17,6 +17,24 @@
     - perfect separation
     - omitted variable bias
 
+- id: mediation
+  method: Mediation analysis (X to M to Y)
+  domain: statistics
+  family: causal
+  goal: explain
+  description: Decompose the effect of X on Y into an indirect effect through a mediator M (ACME) and a direct effect (ADE), with Monte-Carlo confidence intervals (statsmodels Mediation, Imai et al.). Reports total effect and proportion mediated.
+  preconditions:
+    min_continuous: 3
+    min_rows: 30
+  produces:
+    - indirect (ACME) / direct (ADE) / total effect with CIs
+    - proportion mediated
+  executor_ref: statsmodels
+  biases:
+    - X / M / Y are assigned by column order by default — set your hypothesized X to M to Y path
+    - causal mediation assumes no unmeasured confounding of X-M, X-Y, and M-Y
+    - linear models assume no X-by-M interaction (moderated mediation not modelled)
+
 - id: survival_analysis
   method: Survival analysis (Kaplan-Meier + Cox PH)
   domain: statistics
