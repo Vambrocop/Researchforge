@@ -102,6 +102,29 @@ def _cmd_benchmark() -> int:
     return 0
 
 
+def _cmd_discover(persist: bool = False) -> int:
+    from researchforge.catalog.discover import discover_candidates
+
+    found = discover_candidates(persist=persist)
+    if not found:
+        print("自我进化：未发现新方法（候选都已在目录/队列中）。")
+        return 0
+    print(f"自我进化发现 {len(found)} 个候选方法（按优先级排序，均为 pending，不自动上线）：")
+    for m in found:
+        b = m.breakdown
+        print(
+            f"  [{m.priority:3d}] {m.method}（{m.family}）— 新颖{b.get('novelty')}"
+            f"/可发表{b.get('publishability')}/流行{b.get('popularity')}"
+        )
+        print(f"        {m.rationale}  来源: {', '.join(m.sources) or '—'}")
+    if persist:
+        print("\n已写入候选队列（candidate_queue/discovered.yaml）。"
+              "用 `researchforge candidates` 查看；实现+测试后方可 promote。")
+    else:
+        print("\n（加 --persist 写入候选队列）")
+    return 0
+
+
 def _cmd_candidates() -> int:
     from researchforge.catalog.candidates import load_candidates
 
@@ -154,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
     sub.add_parser("benchmark", help="score engine quality on known cases")
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
+    disc = sub.add_parser("discover", help="self-evolution: discover + score new candidate methods")
+    disc.add_argument("--persist", action="store_true", help="write discoveries into the candidate queue")
     promo = sub.add_parser("promote", help="promote a ready candidate into the live catalog")
     promo.add_argument("candidate_id", help="candidate analysis id")
     web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
@@ -173,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_benchmark()
     if args.command == "candidates":
         return _cmd_candidates()
+    if args.command == "discover":
+        return _cmd_discover(args.persist)
     if args.command == "promote":
         return _cmd_promote(args.candidate_id)
     if args.command == "web":

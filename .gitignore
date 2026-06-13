@@ -37,3 +37,6 @@ Thumbs.db
 # Skill ingestion 工作区（原件不入库，登记结果入 docs/）
 skills_inbox/_processed/
 skills_inbox/*.zip
+
+# 自我进化发现的候选队列（运行时生成的 backlog，按需 --persist，不入库）
+researchforge/catalog/candidate_queue/discovered.yaml
