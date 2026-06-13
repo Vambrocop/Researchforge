@@ -35,6 +35,22 @@
     - causal mediation assumes no unmeasured confounding of X-M, X-Y, and M-Y
     - linear models assume no X-by-M interaction (moderated mediation not modelled)
 
+- id: pls_sem
+  method: PLS-SEM (partial least squares SEM)
+  domain: statistics
+  family: sem
+  goal: explain
+  description: Variance-based, prediction-oriented structural equation modeling for latent constructs (small-sample / non-normal friendly). Needs a user-specified measurement model (indicators to latent constructs) + structural paths, which the engine cannot infer — surfaces guidance and auto-runnable alternatives (CB-SEM / EFA).
+  preconditions:
+    min_continuous: 4
+    min_rows: 30
+  produces:
+    - guidance (requires a measurement-model spec)
+  executor_ref: plspm / SmartPLS
+  biases:
+    - requires a theory-driven measurement + structural model — not auto-inferable
+    - PLS-SEM is prediction-oriented; for covariance-fit / theory testing use CB-SEM (the sem analysis)
+
 - id: survival_analysis
   method: Survival analysis (Kaplan-Meier + Cox PH)
   domain: statistics

@@ -4695,6 +4695,13 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"VAR/Granger 失败：{err}")
 
+    elif entry.id == "pls_sem":
+        summary.append(
+            "PLS-SEM（偏最小二乘结构方程）需要你指定**测量模型**（哪些指标→哪个潜变量）与结构路径；"
+            "引擎无法自动推断（随意分组会产出无意义结果，故不自动跑）。请指定测量模型后用 plspm / SmartPLS 运行；"
+            "或先用 **SEM**（CB-SEM，自动单因子 CFA，经 lavaan/semopy）/ **EFA**（探索因子结构）作可自动执行的替代。"
+        )
+
     elif entry.id == "iv_regression":
         summary.append(
             "工具变量回归（2SLS）需要你指定外生工具变量（instrument），引擎无法自动识别。"
