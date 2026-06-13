@@ -765,6 +765,52 @@ def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, 
     return diag, pref, coef
 
 
+def _dynamic_gmm_via_r(csv_path, unit: str, time: str, y: str, predictors: list[str]):
+    """Arellano-Bond difference-GMM dynamic panel via R plm::pgmm. Returns
+    (coef DataFrame [term, estimate, std_err, p_value], diagnostics dict with
+    sargan_stat/p and ar1_p/ar2_p). Raises so the caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rhs = " + ".join([f"lag({y}, 1)", *predictors])
+    # cap GMM instruments at lags 2-4 (not 2:99) to curb instrument proliferation,
+    # which otherwise inflates/weakens the Sargan test (Roodman; Opus catch).
+    rcode = (
+        "suppressMessages(library(plm))\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f'pd <- pdata.frame(d, index=c("{unit}","{time}"))\n'
+        f"m <- pgmm({y} ~ {rhs} | lag({y}, 2:4), data=pd, effect=\"individual\", model=\"twosteps\")\n"
+        "s <- summary(m, robust=TRUE); ct <- s$coefficients\n"
+        'cat("##COEF\\n")\n'
+        'for (nm in rownames(ct)) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", nm, ct[nm,1], ct[nm,2], ct[nm,4]))\n'
+        "a1 <- mtest(m, order=1); a2 <- mtest(m, order=2)\n"
+        'cat("##DIAG\\n")\n'
+        'cat(sprintf("sargan_stat|%.6f\\nsargan_p|%.6f\\n", s$sargan$statistic, s$sargan$p.value))\n'
+        'cat(sprintf("ar1_p|%.6f\\nar2_p|%.6f\\n", a1$p.value, a2$p.value))\n'
+    )
+    out = rbridge.run_r(rcode, timeout=180)
+    section, crows, diag = None, [], {}
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##COEF":
+            section = "C"
+        elif s == "##DIAG":
+            section = "D"
+        elif "|" in s and section == "C":
+            crows.append(s.rsplit("|", 3))  # term may contain no |; split last 3 fields
+        elif "|" in s and section == "D":
+            k, v = s.split("|", 1)
+            diag[k] = float(v)
+    if not crows:
+        raise RuntimeError("pgmm 未返回系数")
+    coef = pd.DataFrame(crows, columns=["term", "estimate", "std_err", "p_value"])
+    for c in ("estimate", "std_err", "p_value"):
+        coef[c] = pd.to_numeric(coef[c], errors="coerce")
+    return coef, diag
+
+
 def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
     frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
@@ -3539,6 +3585,119 @@ def run_analysis(
                     ]
                 except Exception as err:
                     summary.append(f"随机效应模型失败：{err}")
+
+    elif entry.id == "dynamic_panel_gmm":
+        import re
+
+        from researchforge.executor import rbridge
+
+        if not (fp.unit_col and fp.time_col):
+            summary.append("动态面板 GMM 失败：需要面板数据（单位列 + 时间列）。")
+        else:
+            y = next(
+                (c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}),
+                None,
+            )
+            preds = [
+                c.name
+                for c in fp.columns
+                if c.kind in {"continuous", "binary"} and c.name not in {y, fp.unit_col, fp.time_col}
+            ][:5]
+            names_safe = y is not None and all(
+                re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c))
+                for c in [y, *preds, fp.unit_col, fp.time_col]
+            )
+            n_periods = int(df[fp.time_col].nunique())
+            if y is None or not preds:
+                summary.append("动态面板 GMM 失败：需要连续结果变量 + ≥1 个预测变量。")
+            elif n_periods < 3:
+                summary.append("动态面板 GMM 失败：需要 ≥3 个时间期（差分 GMM 与 AR 检验要求）。")
+            elif not (rbridge.r_available() and rbridge.r_package_available("plm")):
+                summary.append(
+                    "动态面板 GMM 需要 R 的 plm 包（未检测到）。安装：install.packages('plm')；"
+                    "或用 panel_fixed_effects / random_effects。"
+                )
+            elif not names_safe:
+                summary.append("动态面板 GMM 失败：列名需为标识符式（字母/数字/. _）。")
+            else:
+                sub = df[[fp.unit_col, fp.time_col, y, *preds]].dropna()
+                csv = d / "_gmm_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    import numpy as np
+
+                    coef, diag = _dynamic_gmm_via_r(csv, fp.unit_col, fp.time_col, y, preds)
+                    coef["term"] = [
+                        f"lag_{y}" if str(t).startswith("lag(") else str(t) for t in coef["term"]
+                    ]
+                    coef.to_csv(d / "gmm_coefficients.csv", index=False, encoding="utf-8")
+                    files.append("gmm_coefficients.csv")
+                    sargan_p = diag.get("sargan_p", float("nan"))
+                    ar1_p = diag.get("ar1_p", float("nan"))
+                    ar2_p = diag.get("ar2_p", float("nan"))
+                    sargan_ok = sargan_p > 0.05
+                    ar2_ok = ar2_p > 0.05
+                    (d / "diagnostics.txt").write_text(
+                        "动态面板 GMM (Arellano-Bond 差分 GMM, twosteps, Windmeijer 稳健 SE)\n"
+                        "工具集限 lag 2-4（抑制工具过度增殖；多工具会抬高/弱化 Sargan）。\n"
+                        f"Sargan 过度识别检验 p = {sargan_p:.4g}（注：Sargan 非稳健,非 Hansen J）"
+                        f"（{'工具有效（不拒）' if sargan_ok else '被拒 → 工具集可疑'}）\n"
+                        f"AR(1) p = {ar1_p:.4g}（差分后通常显著，正常）\n"
+                        f"AR(2) p = {ar2_p:.4g} "
+                        f"（{'无二阶自相关 → GMM 一致' if ar2_ok else '⚠ 有二阶自相关 → GMM 不一致'}）\n\n"
+                        + coef.to_string(index=False),
+                        encoding="utf-8",
+                    )
+                    files.append("diagnostics.txt")
+                    try:
+                        import matplotlib
+
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+
+                        fig, ax = plt.subplots(figsize=(5, 3))
+                        ax.errorbar(
+                            coef["estimate"], range(len(coef)),
+                            xerr=1.96 * coef["std_err"], fmt="o",
+                        )
+                        ax.axvline(0, color="grey", ls="--")
+                        ax.set_yticks(range(len(coef)))
+                        ax.set_yticklabels(coef["term"])
+                        ax.set_xlabel("GMM coefficient (95% CI)")
+                        ax.set_title("Dynamic panel GMM (Arellano-Bond)")
+                        fig.tight_layout()
+                        fig.savefig(d / "coefficients.png", dpi=150)
+                        plt.close(fig)
+                        files.append("coefficients.png")
+                    except Exception:
+                        pass
+                    lag_rows = coef[coef["term"].str.startswith("lag_")]
+                    persistence = float(lag_rows.iloc[0]["estimate"]) if len(lag_rows) else float("nan")
+                    estimates["persistence_lag_coef"] = round(persistence, 4)
+                    estimates["sargan_p"] = round(sargan_p, 4)
+                    estimates["ar2_p"] = round(ar2_p, 4)
+                    for _, r in coef.iterrows():
+                        if not str(r["term"]).startswith("lag_"):
+                            estimates[str(r["term"])] = round(float(r["estimate"]), 4)
+                    valid = sargan_ok and ar2_ok
+                    summary.append(
+                        f"{entry.method} 完成（R/plm，{n_periods} 期）：滞后被解释变量系数（持续性）"
+                        f"={persistence:.3f}；Sargan p={sargan_p:.3g}"
+                        f"（{'工具有效' if sargan_ok else '工具可疑'}），AR(2) p={ar2_p:.3g}"
+                        f"（{'无二阶自相关' if ar2_ok else '⚠有二阶自相关、GMM不一致'}）"
+                        f"{'' if valid else ' —— ⚠ 诊断未全通过,结果存疑'}。系数见 gmm_coefficients.csv。"
+                    )
+                    code += [
+                        "library(plm)  # Arellano-Bond 差分 GMM",
+                        f"# pgmm({y} ~ lag({y},1) + ... | lag({y},2:4), effect='individual', model='twosteps')",
+                    ]
+                except Exception as err:
+                    summary.append(f"动态面板 GMM 失败：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
 
     elif entry.id == "iv_regression":
         summary.append(

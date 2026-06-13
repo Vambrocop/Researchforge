@@ -18,3 +18,23 @@
     - random effects assume the unit effect is uncorrelated with regressors — the Hausman test checks exactly this; if rejected, use FE
     - needs within-unit variation; time-invariant regressors are dropped under FE
     - inference assumes no remaining serial correlation beyond the panel structure
+
+- id: dynamic_panel_gmm
+  method: Dynamic panel GMM (Arellano-Bond)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: Estimate a dynamic panel where the outcome depends on its own lag plus covariates, via the Arellano-Bond difference-GMM estimator (lagged levels instrument the differenced lag). Reports coefficients, the Sargan overidentification test, and AR(1)/AR(2) serial-correlation tests. Use when a lagged dependent variable would bias FE/RE.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - GMM coefficients (incl. lagged dependent)
+    - Sargan overidentification test
+    - AR(1) / AR(2) serial-correlation tests
+  executor_ref: plm (R)
+  biases:
+    - instrument proliferation overfits and can INFLATE (weaken) the Sargan test — instruments are capped at lags 2-4 to mitigate; reported overid test is Sargan (not heteroskedasticity-robust Hansen J)
+    - needs enough time periods (T >= 3) and units; small-T dynamics are fragile
+    - validity hinges on no second-order serial correlation — the AR(2) test must NOT reject; covariates are treated as strictly exogenous
