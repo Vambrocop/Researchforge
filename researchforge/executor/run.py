@@ -744,6 +744,60 @@ def _fsqca_via_r(csv_path, outcome: str, conditions: list[str]):
     return sol_str, tab
 
 
+def _kriging_via_r(csv_path, lon: str, lat: str, value: str):
+    """Ordinary kriging via R gstat: auto-fit a variogram (Sph/Exp/Gau), LOO
+    cross-validation RMSE, and predict a 40x40 grid with kriging variance.
+    Returns (meta dict, grid DataFrame[lon,lat,pred,var]). Raises on failure."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    rcode = (
+        "suppressMessages({library(gstat); library(sp)})\n"
+        f'd <- read.csv("{csv_r}")\n'
+        f"coordinates(d) <- ~{lon}+{lat}\n"
+        f"v <- variogram({value} ~ 1, d)\n"
+        # explicit initial psill/range/nugget so fit.variogram doesn't silently
+        # return a poor/zero-nugget fit from bare defaults (Opus catch).
+        f'vy <- var(d@data[["{value}"]], na.rm=TRUE)\n'
+        # Spherical/Exponential only — the Gaussian model gives near-singular
+        # kriging matrices and unstable (blown-up) predictions (Opus catch via test).
+        'vm <- fit.variogram(v, vgm(psill=0.9*vy, model=c("Sph","Exp"), '
+        "range=max(v$dist)/2, nugget=0.1*vy))\n"
+        f"cv <- krige.cv({value} ~ 1, d, model=vm, nfold=nrow(d@data), verbose=FALSE)\n"
+        "rmse <- sqrt(mean(cv$residual^2, na.rm=TRUE))\n"
+        "bb <- d@bbox\n"
+        f"g <- expand.grid({lon}=seq(bb[1,1],bb[1,2],length.out=40), "
+        f"{lat}=seq(bb[2,1],bb[2,2],length.out=40)); coordinates(g) <- ~{lon}+{lat}\n"
+        f"k <- krige({value} ~ 1, d, g, model=vm, debug.level=0)\n"
+        'cat("##META\\n")\n'
+        "n <- nrow(vm)\n"
+        'cat(sprintf("model|%s\\nrange|%.5f\\nloo_rmse|%.5f\\n", as.character(vm$model[n]), vm$range[n], rmse))\n'
+        'cat("##GRID\\n"); gd <- as.data.frame(k)\n'
+        f'for (i in seq_len(nrow(gd))) cat(sprintf("%.5f|%.5f|%.5f|%.5f\\n", gd${lon}[i], gd${lat}[i], gd$var1.pred[i], gd$var1.var[i]))\n'
+    )
+    out = rbridge.run_r(rcode, timeout=240)
+    section, meta, rows = None, {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##META":
+            section = "M"
+        elif s == "##GRID":
+            section = "G"
+        elif section == "M" and "|" in s:
+            kk, vv = s.split("|", 1)
+            meta[kk] = vv if kk == "model" else float(vv)
+        elif section == "G" and "|" in s:
+            rows.append(s.split("|"))
+    if not rows or "loo_rmse" not in meta:
+        raise RuntimeError("gstat kriging 未返回结果（变异函数拟合可能失败）")
+    grid = pd.DataFrame(rows, columns=[lon, lat, "prediction", "kriging_variance"])
+    for c in (lon, lat, "prediction", "kriging_variance"):
+        grid[c] = pd.to_numeric(grid[c], errors="coerce")
+    return meta, grid
+
+
 def _spatial_reg_via_r(csv_path, outcome: str, predictors: list[str], lon: str, lat: str):
     """Spatial regression via R spdep/spatialreg: OLS residual Moran test, then
     SAR (lag) and SEM (error) on k-NN weights, AIC model choice. Reports the
@@ -2698,6 +2752,109 @@ def run_analysis(
                 "import numpy as np  # 灰色关联分析(GRA)",
                 "# Δ=|1-min-max|; ξ=(Δmin+0.5Δmax)/(Δ+0.5Δmax); 关联度=ξ 行均值",
             ]
+
+    elif entry.id == "kriging":
+        import re
+
+        from researchforge.executor import rbridge
+
+        geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
+        value = next(
+            (c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}),
+            None,
+        )
+        lon = next((g for g in geo if "lon" in g.lower() or "lng" in g.lower()), geo[-1] if geo else None)
+        lat = next((g for g in geo if g != lon), geo[0] if geo else None)
+        names_safe = value is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [value, *geo]
+        )
+        if len(geo) < 2 or value is None:
+            summary.append("克里金失败：需要经纬度坐标 + 一个连续值变量。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("gstat")):
+            summary.append(
+                "克里金需要 R 的 gstat 包（未检测到）。安装：install.packages('gstat')；"
+                "或用 idw_interpolation（纯 Python，无需 R）。"
+            )
+        elif not names_safe:
+            summary.append("克里金失败：列名需为标识符式（字母/数字/. _）。")
+        else:
+            import numpy as np
+            import pandas as pd
+
+            sub = df[[*geo, value]].dropna()
+            csv = d / "_krig_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                meta, grid = _kriging_via_r(csv, lon, lat, value)
+                grid["kriging_variance"] = grid["kriging_variance"].clip(lower=0.0)  # numerical guard
+                grid.to_csv(d / "kriged_surface.csv", index=False, encoding="utf-8")
+                files.append("kriged_surface.csv")
+                try:
+                    import matplotlib
+
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
+
+                    piv_p = grid.pivot(index=lat, columns=lon, values="prediction")
+                    piv_v = grid.pivot(index=lat, columns=lon, values="kriging_variance")
+                    ext = [grid[lon].min(), grid[lon].max(), grid[lat].min(), grid[lat].max()]
+                    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+                    im0 = axes[0].imshow(piv_p.values, extent=ext, origin="lower", cmap="YlOrBr", aspect="auto")
+                    axes[0].scatter(sub[lon], sub[lat], c=sub[value], cmap="YlOrBr", s=16, edgecolor="#222", linewidth=0.3)
+                    fig.colorbar(im0, ax=axes[0], label=value)
+                    axes[0].set_title(f"Kriged surface — {value}")
+                    im1 = axes[1].imshow(piv_v.values, extent=ext, origin="lower", cmap="Purples", aspect="auto")
+                    axes[1].scatter(sub[lon], sub[lat], c="black", s=6)
+                    fig.colorbar(im1, ax=axes[1], label="kriging variance")
+                    axes[1].set_title("Kriging variance (uncertainty)")
+                    for ax in axes:
+                        ax.set_xlabel(lon)
+                        ax.set_ylabel(lat)
+                    fig.tight_layout()
+                    fig.savefig(d / "kriging.png", dpi=150)
+                    plt.close(fig)
+                    files.append("kriging.png")
+                except Exception:
+                    pass
+                rmse = float(meta.get("loo_rmse", float("nan")))
+                vrng = float(sub[value].max() - sub[value].min())
+                # active stationarity check: OK assumes a constant mean; if a linear
+                # lon/lat trend explains much variance, universal kriging is better.
+                amat = np.column_stack(
+                    [np.ones(len(sub)), sub[lon].to_numpy(float), sub[lat].to_numpy(float)]
+                )
+                yv = sub[value].to_numpy(float)
+                cf, *_ = np.linalg.lstsq(amat, yv, rcond=None)
+                ss_tot = float(((yv - yv.mean()) ** 2).sum())
+                trend_r2 = 1.0 - float(((yv - amat @ cf) ** 2).sum()) / ss_tot if ss_tot > 0 else 0.0
+                estimates["loo_rmse"] = round(rmse, 4)
+                estimates["variogram_range"] = round(float(meta.get("range", float("nan"))), 4)
+                estimates["trend_r2"] = round(trend_r2, 4)
+                estimates["n_points"] = float(len(sub))
+                rel = f"（≈值域 {vrng:.3g} 的 {100 * rmse / vrng:.1f}%）" if vrng > 0 else ""
+                trend_warn = (
+                    f"；⚠ 检测到强空间趋势（经纬度 OLS R²={trend_r2:.2f}>0.5），普通克里金的平稳假定会有偏，"
+                    f"建议改用泛克里金（{value} ~ 经度+纬度）"
+                    if trend_r2 > 0.5
+                    else ""
+                )
+                summary.append(
+                    f"{entry.method} 完成（R/gstat）：{value} 在 {len(sub)} 点上普通克里金插值为 40×40 面；"
+                    f"变异函数模型={meta.get('model')}（range={meta.get('range', 0):.3g}）；"
+                    f"留一交叉验证 RMSE={rmse:.4g}{rel}；另出克里金方差(不确定性)图{trend_warn}。"
+                    "⚠ 默认首连续列为值；经纬度按欧氏近似。"
+                )
+                code += [
+                    "library(gstat); library(sp)  # 普通克里金",
+                    f"# variogram({value}~1) -> fit.variogram(Sph/Exp/Gau) -> krige + krige.cv(LOO)",
+                ]
+            except Exception as err:
+                summary.append(f"克里金失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
 
     elif entry.id == "idw_interpolation":
         import numpy as np

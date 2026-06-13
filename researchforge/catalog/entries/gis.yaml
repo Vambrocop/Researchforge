@@ -20,6 +20,26 @@
     - euclidean distance on lat/lon approximates true geodesic neighbours
     - non-stationarity and edge effects
 
+- id: kriging
+  method: Ordinary kriging (geostatistical interpolation)
+  domain: gis
+  family: spatial
+  goal: predict
+  description: Geostatistical interpolation that fits a variogram to the spatial autocorrelation structure, then predicts a value surface by ordinary kriging — unlike IDW it is a best linear unbiased predictor and also yields a kriging-variance (uncertainty) map. Leave-one-out cross-validation RMSE. Uses R gstat.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - kriged surface + kriging-variance (uncertainty) map
+    - fitted variogram
+    - leave-one-out cross-validation RMSE
+  executor_ref: gstat (R)
+  biases:
+    - assumes intrinsic stationarity — a strong spatial trend should be modelled (universal kriging), not ignored
+    - the variogram model and its fit drive predictions; the auto-fit may be suboptimal
+    - euclidean distance on lat/lon approximates the true geodesic distance
+
 - id: spatial_regression
   method: Spatial regression (SAR / SEM)
   domain: gis
