@@ -62,6 +62,25 @@
     - time-varying confounders
     - serial correlation
 
+- id: double_ml
+  method: Double / debiased machine learning (DML, doubleml)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Estimate the average treatment effect (ATE) of a treatment on an outcome while flexibly controlling for many (possibly nonlinear) confounders, using machine-learning nuisance models (outcome + treatment/propensity) with Neyman-orthogonal moments and cross-fitting (Chernozhukov et al.). Binary treatment uses the interactive regression model (IRM, a fully nonparametric ATE); continuous treatment uses the partially-linear model (PLR). RandomForest learners. Reports ATE + robust 95% CI and a propensity-overlap check.
+  preconditions:
+    requires_treatment: true
+    min_rows: 100
+  produces:
+    - ATE + 95% CI (orthogonal, cross-fitted)
+    - propensity-overlap warning
+    - ATE point + CI plot
+  executor_ref: doubleml
+  biases:
+    - causal ATE only under unconfoundedness (all confounders measured + included as controls) and overlap/positivity — not auto-satisfied
+    - treatment auto-detected as a binary column / set via config treatment; controls default to the other numeric columns
+    - ML nuisance fits + cross-fitting add randomness; near-0/1 propensities (poor overlap) make the ATE unstable (flagged)
+
 - id: rdd
   method: Regression discontinuity design (RDD, rdrobust)
   domain: economics

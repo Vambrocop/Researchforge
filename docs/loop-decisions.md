@@ -13,6 +13,8 @@
 > - 动态面板 GMM(#7)：`endogenous`(内生协变量列表)、`gmm_lags`([lo,hi])
 > - SEM(#4)：`model_spec`(lavaan/semopy 语法字符串)
 > - 差异丰度(#9)：`da_method`(clr_mw / clr_welch / aldex2[R 金标准已接]；ancombc 降级)
+> - RDD 断点回归：`running`(驱动变量,必填)、`cutoff`(断点,必填)、`outcome`
+> - 双重机器学习 DML：`treatment`(处理列)、`controls`(混杂列表)、`outcome`、`n_folds`(默认5)、`seed`(默认0,固定交叉拟合切分)
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 
