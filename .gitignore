@@ -30,9 +30,12 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Claude Code 本地状态/运行时（机器相关，不入库；仅保留将来可能的共享 settings.json）
+# Claude Code 本地状态/运行时（机器相关，不入库；仅保留共享的 settings.json + 项目工具）
 .claude/*
 !.claude/settings.json
+# 共享项目工具：推断双审子代理 + 加分析脚手架技能（settings.local.json 仍不入库，含机器相关 bypass/allow）
+!.claude/agents/
+!.claude/skills/
 
 # Skill ingestion 工作区（原件不入库，登记结果入 docs/）
 skills_inbox/_processed/
