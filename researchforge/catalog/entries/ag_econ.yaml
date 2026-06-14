@@ -62,6 +62,26 @@
     - time-varying confounders
     - serial correlation
 
+- id: rdd
+  method: Regression discontinuity design (RDD, rdrobust)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Sharp regression discontinuity — estimates the causal jump in an outcome at a cutoff of a continuous running/assignment variable (e.g. a test score, age, or eligibility threshold), where treatment switches on. Uses rdrobust (Calonico-Cattaneo-Titiunik) local-linear estimation with an MSE-optimal bandwidth and robust bias-corrected confidence intervals, plus a binned RD plot. The running variable and cutoff are design-specific and supplied via config.
+  preconditions:
+    min_continuous: 2
+    min_rows: 100
+  produces:
+    - RD effect (local treatment effect) + robust 95% CI
+    - MSE-optimal bandwidth + effective sample size
+    - binned RD plot
+  executor_ref: rdrobust
+  biases:
+    - requires config running (assignment variable) + cutoff — the engine cannot infer the design
+    - sharp design only — assumes treatment probability jumps 0 to 1 at the cutoff (full compliance); a fuzzy threshold (take-up < 100%) needs fuzzy RDD (not enabled) or the estimate is biased
+    - identifies only a LOCAL effect at the cutoff (limited external validity away from it)
+    - assumes potential-outcome means are continuous at the cutoff (no other policy/confounder jumps there) and the running variable cannot be precisely manipulated (run a McCrary density / sorting test)
+
 - id: synthetic_control
   method: Synthetic control method (Abadie)
   domain: economics

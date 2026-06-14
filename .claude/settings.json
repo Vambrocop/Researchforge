@@ -3,7 +3,13 @@
     "allow": [
       "Bash(git --no-pager grep -n \"# compute\" -- researchforge/executor/run.py)",
       "Bash(git --no-pager grep -n \"code += \\\\[\" -- researchforge/executor/run.py)",
-      "Bash(powershell -NoProfile -Command 'if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\''\\) { \\(Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' -Raw\\) -match '\\\\''\"model\"'\\\\'' | Out-Null; Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' | Select-String -Pattern '\\\\''model'\\\\'' }; Write-Output '\\\\''--- user ~/.claude/settings.json ---'\\\\''; if \\(Test-Path $env:USERPROFILE'\\\\''/.claude/settings.json'\\\\''\\) { Get-Content \\($env:USERPROFILE + '\\\\''/.claude/settings.json'\\\\''\\) } else { Write-Output '\\\\''\\(no user settings.json\\)'\\\\'' }; Write-Output '\\\\''--- local settings ---'\\\\''; if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\''\\) { Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\'' } else { Write-Output '\\\\''\\(no settings.local.json\\)'\\\\'' }')"
+      "Bash(powershell -NoProfile -Command 'if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\''\\) { \\(Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' -Raw\\) -match '\\\\''\"model\"'\\\\'' | Out-Null; Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.json'\\\\'' | Select-String -Pattern '\\\\''model'\\\\'' }; Write-Output '\\\\''--- user ~/.claude/settings.json ---'\\\\''; if \\(Test-Path $env:USERPROFILE'\\\\''/.claude/settings.json'\\\\''\\) { Get-Content \\($env:USERPROFILE + '\\\\''/.claude/settings.json'\\\\''\\) } else { Write-Output '\\\\''\\(no user settings.json\\)'\\\\'' }; Write-Output '\\\\''--- local settings ---'\\\\''; if \\(Test-Path '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\''\\) { Get-Content '\\\\''E:/my-projects/Researchforge/.claude/settings.local.json'\\\\'' } else { Write-Output '\\\\''\\(no settings.local.json\\)'\\\\'' }')",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_rdd.py -q)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest -q)",
+      "Bash(cd \"E:/my-projects/Researchforge\" && grep -E \"[0-9]+ passed|failed\" /tmp/full.log | tail -1; git add -A && git commit -q -F .git/COMMIT_EDITMSG_RF && rm -f .git/COMMIT_EDITMSG_RF && echo COMMITTED; echo \"unpushed: $\\(git log origin/main..HEAD --oneline | wc -l\\)\")"
+    ],
+    "additionalDirectories": [
+      "e:\\my-projects\\Researchforge\\.git"
     ]
   }
 }
