@@ -62,6 +62,25 @@
     - time-varying confounders
     - serial correlation
 
+- id: causal_forest
+  method: Causal forest (heterogeneous treatment effects, econml)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Estimate how a treatment effect VARIES across individuals (conditional average treatment effect, CATE) using econml's CausalForestDML — a causal-forest double-ML estimator. Residualizes outcome and treatment on the covariates, then grows a causal forest over the effect-modifiers. Reports the overall ATE + CI, the CATE distribution, the share of individuals with a significant effect, which covariates drive heterogeneity (feature importances), and CATE plots. Complements double_ml (which gives only the average effect).
+  preconditions:
+    requires_treatment: true
+    min_rows: 200
+  produces:
+    - overall ATE + 95% CI
+    - CATE distribution + share with significant effect
+    - heterogeneity drivers (feature importances) + CATE plots
+  executor_ref: econml
+  biases:
+    - same causal assumptions as DML — unconfoundedness + overlap; not auto-satisfied
+    - CATE is exploratory — subgroup / effect-modifier findings risk false positives and need pre-registration or external validation
+    - ML forest + cross-fitting add randomness (seed-pinned); needs a fairly large sample for stable heterogeneity
+
 - id: double_ml
   method: Double / debiased machine learning (DML, doubleml)
   domain: economics

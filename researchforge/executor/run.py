@@ -1369,6 +1369,88 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
     return out
 
 
+def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discrete, seed, hist_png, scatter_png):
+    """Heterogeneous treatment effects (CATE) via econml CausalForestDML — a
+    causal-forest DML estimator: residualize Y and T on the covariates (ML), then
+    grow a causal forest over the effect-modifiers X to estimate effect(x). Reports
+    the overall ATE, the CATE distribution, the share of individuals with a
+    significant effect, and which modifiers drive heterogeneity. Binary treatment
+    is normalized to {0,1} (disclosed). Returns a dict; writes a CATE histogram and
+    a CATE-vs-top-modifier scatter. Raises so the caller can degrade honestly."""
+    import numpy as np
+    from econml.dml import CausalForestDML
+    from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
+    sub = df[[outcome, treatment, *modifiers]].dropna().copy()
+    treat_map = None
+    if discrete:
+        vals = sorted(sub[treatment].unique().tolist(), key=lambda v: str(v))
+        if set(vals) != {0, 1}:
+            treat_map = {vals[0]: 0, vals[1]: 1}
+            sub[treatment] = sub[treatment].map(treat_map).astype(int)
+    np.random.seed(int(seed))
+    Y = sub[outcome].astype(float).to_numpy()
+    T = sub[treatment].to_numpy()
+    X = sub[modifiers].astype(float).to_numpy()
+    model_t = (
+        RandomForestClassifier(n_estimators=100, random_state=int(seed))
+        if discrete
+        else RandomForestRegressor(n_estimators=100, random_state=int(seed))
+    )
+    est = CausalForestDML(
+        model_y=RandomForestRegressor(n_estimators=100, random_state=int(seed)),
+        model_t=model_t, discrete_treatment=discrete, n_estimators=300,
+        random_state=int(seed), cv=n_folds,
+    )
+    est.fit(Y, T, X=X)
+    cate = np.asarray(est.effect(X), dtype=float)
+    ate = float(est.ate(X))
+    a_lb, a_ub = (float(v) for v in est.ate_interval(X, alpha=0.05))
+    lb, ub = est.effect_interval(X, alpha=0.05)  # per-row CI
+    lb, ub = np.asarray(lb, dtype=float), np.asarray(ub, dtype=float)
+    frac_sig = float(np.mean((lb > 0) | (ub < 0)))  # share with a significant individual effect
+    imp = np.asarray(est.feature_importances_, dtype=float)
+    order = np.argsort(imp)[::-1]
+    drivers = [(modifiers[i], round(float(imp[i]), 3)) for i in order]
+    out = {
+        "ate": ate, "ate_lb": a_lb, "ate_ub": a_ub,
+        "cate_mean": float(cate.mean()), "cate_sd": float(cate.std()),
+        "cate_p10": float(np.percentile(cate, 10)), "cate_p90": float(np.percentile(cate, 90)),
+        "frac_significant": frac_sig, "drivers": drivers, "n": int(sub.shape[0]),
+        "treat_map": treat_map,
+    }
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.hist(cate, bins=30, color="#4C72B0", edgecolor="white")
+        ax.axvline(ate, color="#C44E52", ls="--", label=f"ATE={ate:.3f}")
+        ax.axvline(0, color="grey", ls=":", lw=0.8)
+        ax.set_xlabel(f"individual treatment effect (CATE) of {treatment} on {outcome}")
+        ax.set_ylabel("count")
+        ax.set_title("CATE distribution (heterogeneous effects)")
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(hist_png, dpi=150)
+        plt.close(fig)
+        top = order[0]
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        ax2.scatter(X[:, top], cate, s=10, alpha=0.4, edgecolor="none", color="#55A868")
+        ax2.axhline(0, color="grey", ls=":", lw=0.8)
+        ax2.set_xlabel(f"{modifiers[top]} (top effect-modifier)")
+        ax2.set_ylabel("CATE")
+        ax2.set_title(f"CATE vs {modifiers[top]}")
+        fig2.tight_layout()
+        fig2.savefig(scatter_png, dpi=150)
+        plt.close(fig2)
+    except Exception:
+        pass
+    return out
+
+
 def _rdd_via_rdrobust(df, outcome, running, cutoff, plot_path):
     """Sharp regression discontinuity (Calonico–Cattaneo–Titiunik) via rdrobust:
     local-linear estimate of the outcome jump at the cutoff, MSE-optimal bandwidth,
@@ -4436,6 +4518,104 @@ def run_analysis(
                     csv.unlink()
                 except OSError:
                     pass
+
+    elif entry.id == "causal_forest":
+        import importlib.util
+
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
+        treatment = cfg.get("treatment")
+        if treatment is None:
+            treatment = next(
+                (c.name for c in fp.columns if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}),
+                None,
+            )
+        outcome = cfg["outcome"] if cfg.get("outcome") in cont else next((c for c in cont if c != treatment), None)
+        forced_mod = [c for c in (cfg.get("effect_modifiers") or cfg.get("controls") or cfg.get("predictors") or []) if c in df.columns and c not in {outcome, treatment}]
+        if forced_mod:
+            modifiers = forced_mod[:15]
+        else:
+            modifiers = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"}
+                and c.name not in {outcome, treatment, fp.unit_col, fp.time_col}
+            ][:12]
+        try:
+            n_folds = max(2, int(cfg.get("n_folds", 4)))
+        except (TypeError, ValueError):
+            n_folds = 4
+        try:
+            seed = int(cfg.get("seed", 0))
+        except (TypeError, ValueError):
+            seed = 0
+        if importlib.util.find_spec("econml") is None:
+            summary.append("因果森林需要 econml 包（未检测到）。安装：pip install econml；或用 double_ml（平均效应 ATE）。")
+        elif treatment is None:
+            summary.append("因果森林失败：需要一个处理变量。用 config={\"treatment\":\"<列>\"} 指定。")
+        elif outcome is None:
+            summary.append("因果森林失败：需要一个连续结果变量（≠ treatment）。")
+        elif not modifiers:
+            summary.append("因果森林失败：需要 ≥1 个协变量/效应修饰因子（用于估计异质效应 CATE）。")
+        else:
+            try:
+                import pandas as pd
+
+                disc = df[treatment].dropna().nunique() == 2
+                res = _causal_forest_via_econml(
+                    df, outcome, treatment, modifiers, n_folds, disc, seed,
+                    d / "cate_hist.png", d / "cate_vs_modifier.png",
+                )
+                for png in ("cate_hist.png", "cate_vs_modifier.png"):
+                    if (d / png).exists():
+                        files.append(png)
+                ate, alb, aub = res["ate"], res["ate_lb"], res["ate_ub"]
+                csd, p10, p90 = res["cate_sd"], res["cate_p10"], res["cate_p90"]
+                frac = res["frac_significant"]
+                drivers = res["drivers"]
+                pd.DataFrame(drivers, columns=["modifier", "importance"]).to_csv(
+                    d / "heterogeneity_drivers.csv", index=False, encoding="utf-8"
+                )
+                files.append("heterogeneity_drivers.csv")
+                estimates["ate"] = round(ate, 4)
+                estimates["ate_lb"] = round(alb, 4)
+                estimates["ate_ub"] = round(aub, 4)
+                estimates["cate_sd"] = round(csd, 4)
+                estimates["frac_significant"] = round(frac, 3)
+                top = drivers[0]
+                # heterogeneity heuristic: CATE spread large relative to |ATE|
+                het = "明显" if csd > 0.25 * (abs(ate) + 1e-9) else "较弱"
+                enc_txt = ""
+                if res.get("treat_map"):
+                    k0 = [k for k, v in res["treat_map"].items() if v == 0][0]
+                    k1 = [k for k, v in res["treat_map"].items() if v == 1][0]
+                    enc_txt = f"；处理编码 {k0}→0、{k1}→1"
+                (d / "causal_forest.txt").write_text(
+                    f"因果森林 CATE（econml CausalForestDML，RandomForest，{n_folds} 折，seed={seed}）\n"
+                    f"处理 {treatment} → 结果 {outcome}，效应修饰因子 {len(modifiers)} 个{enc_txt}\n"
+                    f"总体 ATE = {ate:.4f}，95% CI [{alb:.4f}, {aub:.4f}]\n"
+                    f"CATE 分布：均值 {res['cate_mean']:.4f}，SD {csd:.4f}，[P10,P90]=[{p10:.4f},{p90:.4f}]\n"
+                    f"个体效应显著（逐行 95% CI 不含 0）占比 {frac:.0%}"
+                    "（未校正多重比较，零效应下基线约 5%）；"
+                    f"异质性{het}\n"
+                    f"异质性主要驱动（特征重要性）：{drivers[:3]}\n"
+                    "CATE 用 ML 估计异质效应；因果解释同样依赖无未观测混杂 + 重叠假定；"
+                    "CATE 偏探索性，子组结论需预注册/外部验证（防多重比较假阳性）；"
+                    "若处理编码方向反了，请用 config['treatment'] 传入预编码 {0,1}。\n",
+                    encoding="utf-8",
+                )
+                files.append("causal_forest.txt")
+                summary.append(
+                    f"{entry.method} 完成（econml，RF×{n_folds}折，seed={seed}）：处理 {treatment} → {outcome}；"
+                    f"ATE={ate:.4f}（95% CI [{alb:.4f}, {aub:.4f}]）；CATE 异质性{het}"
+                    f"（SD={csd:.3f}，P10–P90=[{p10:.3f},{p90:.3f}]，{frac:.0%} 个体效应显著）；"
+                    f"主要驱动 {top[0]}（重要性 {top[1]}）。"
+                    "⚠ 因果解释依赖无未观测混杂 + 重叠；CATE 偏探索、子组结论需外部验证。" + enc_txt
+                )
+                code += [
+                    "from econml.dml import CausalForestDML  # 因果森林(异质处理效应 CATE)",
+                    f"# CausalForestDML(discrete_treatment={disc}, random_state={seed}).fit(Y,T,X=modifiers); effect(X)",
+                ]
+            except Exception as err:
+                summary.append(f"因果森林拟合失败：{err}")
 
     elif entry.id == "double_ml":
         import importlib.util

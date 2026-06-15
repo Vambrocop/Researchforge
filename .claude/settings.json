@@ -28,7 +28,11 @@
       "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/probe_mixed.R)",
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_mrconst.csv meta_regression --config '{\"moderators\":[\"dose\",\"xconst\"]}')",
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_mrconst.csv meta_regression --config '{\"moderators\":[\"xconst\"]}')",
-      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_metareg.csv meta_regression --config '{\"moderators\":[\"dose\"],\"method\":\"FE\"}')"
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_metareg.csv meta_regression --config '{\"moderators\":[\"dose\"],\"method\":\"FE\"}')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_causalforest.csv causal_forest --config '{\"treatment\":\"treat\",\"outcome\":\"y\"}')",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_causal_forest.py -q)",
+      "Bash(echo \"CF_EXIT=$?\")",
+      "Bash(PYTHONUTF8=1 py -3 -c \"import econml, sklearn, numpy; print\\('econml', econml.__version__\\); print\\('sklearn', sklearn.__version__\\); print\\('numpy', numpy.__version__\\)\")"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",
