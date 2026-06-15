@@ -32,7 +32,16 @@
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_causalforest.csv causal_forest --config '{\"treatment\":\"treat\",\"outcome\":\"y\"}')",
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_causal_forest.py -q)",
       "Bash(echo \"CF_EXIT=$?\")",
-      "Bash(PYTHONUTF8=1 py -3 -c \"import econml, sklearn, numpy; print\\('econml', econml.__version__\\); print\\('sklearn', sklearn.__version__\\); print\\('numpy', numpy.__version__\\)\")"
+      "Bash(PYTHONUTF8=1 py -3 -c \"import econml, sklearn, numpy; print\\('econml', econml.__version__\\); print\\('sklearn', sklearn.__version__\\); print\\('numpy', numpy.__version__\\)\")",
+      "Bash('C:/Program Files/R/R-4.6.0/bin/Rscript.exe' -e ' *)",
+      "Bash('C:/Program Files/R/R-4.6.0/bin/Rscript.exe' -e 'suppressMessages\\(library\\(mgcv\\)\\); set.seed\\(1\\); n<-400; ng<-20; grp<-factor\\(rep\\(1:ng,each=n/ng\\)\\); re<-rnorm\\(ng,0,1.2\\); x1<-runif\\(n,0,10\\); x2<-runif\\(n,-3,3\\); y<-sin\\(x1\\)+0.4*x2^2+re[as.integer\\(grp\\)]+rnorm\\(n,0,0.5\\); d<-data.frame\\(y,x1,x2,grp\\); m<-gam\\(y~s\\(x1\\)+s\\(x2\\)+s\\(grp,bs=\"re\"\\),data=d,method=\"REML\"\\); s<-summary\\(m\\); cat\\(\"ROWS:\",paste\\(rownames\\(s$s.table\\),collapse=\" | \"\\),\"\\\\n\"\\); cat\\(\"DEV\",round\\(s$dev.expl,4\\),\"\\\\n\"\\); vc<-gam.vcomp\\(m,rescale=TRUE\\); cat\\(\"VCNAMES:\",paste\\(rownames\\(vc\\),collapse=\" | \"\\),\"\\\\n\"\\); print\\(round\\(vc,4\\)\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_gamm.R)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_gamm2.R)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_gamm3.R)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_gamm.csv gamm)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_gamm.py -q)",
+      "Bash(echo \"GAMM_EXIT=$?\")",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_gammrev.R)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

@@ -183,6 +183,26 @@
     - Poisson models raw counts; rate outcomes (events per exposure) need offset(log(exposure)), which is not supported here
     - glmer can fail to converge / give singular fits with few groups (auto-pick needs >=5) or sparse cells — treat unstable fits cautiously; ICC is on the latent logit scale
 
+- id: gamm
+  method: Generalized additive mixed model (GAMM, mgcv)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Combines GAM smooth (penalised-spline) terms for continuous predictors with a random intercept for a grouping variable (clustered / repeated-measures data), via mgcv's s(group, bs="re") in a single REML fit. Captures nonlinear covariate effects AND between-group heterogeneity at once. Reports smooth-term significance (edf), the random-intercept SD, deviance explained, adjusted R-squared, and partial-effect plots. (Pure smoothing -> gam; pure random effects on a linear model -> mixed_effects.)
+  preconditions:
+    requires_group: true
+    min_continuous: 2
+    min_rows: 50
+  produces:
+    - smooth-term table (edf + significance)
+    - random-intercept SD
+    - deviance explained / adjusted R-squared + partial-effect plots
+  executor_ref: mgcv
+  biases:
+    - grouping variable for the random intercept is auto-picked (panel unit / repeated category) — set config group if wrong
+    - assumes a Gaussian / identity-link continuous outcome and normally-distributed random intercepts
+    - smooth basis (k=10) caps wiggliness; boundary extrapolation unreliable; needs enough groups (>=5) for a stable variance
+
 - id: gam
   method: Generalized additive model (GAM, mgcv)
   domain: statistics

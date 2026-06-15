@@ -1619,6 +1619,81 @@ def _glmm_via_r(csv_path, outcome: str, predictors: list[str], group: str, famil
     return fixed, re_d
 
 
+def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path):
+    """Generalized additive mixed model via R mgcv: GAM smooth (penalised-spline)
+    terms s(x) for continuous predictors + a random intercept for `group` via the
+    "re" smooth basis s(group, bs="re") (Wood's single-object GAMM, REML). Returns
+    (smooth_df[term,edf,F,p] for covariate smooths, param_df, re dict{edf,p,sd},
+    fit{dev_expl,r_sq,n}). Writes partial-effect plots for the covariate smooths.
+    Raises so the caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    png_r = str(png_path).replace("\\", "/")
+    re_term = f's({group}, bs="re")'
+    rhs = " + ".join([f"s({t})" for t in smooth_terms] + list(linear_terms) + [re_term])
+    n_panels = max(1, len(smooth_terms))
+    rcode = (
+        "suppressMessages(library(mgcv))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f'd[["{group}"]] <- as.factor(d[["{group}"]])\n'
+        f'm <- gam({outcome} ~ {rhs}, data=d, method="REML")\n'
+        "s <- summary(m)\n"
+        f're_row <- "s({group})"\n'
+        'cat("##S\\n")\n'
+        "if (!is.null(s$s.table)) for (i in seq_len(nrow(s$s.table))) "
+        "if (rownames(s$s.table)[i] != re_row) "
+        'cat(sprintf("%s|%.4f|%.4f|%.6g\\n", rownames(s$s.table)[i], '
+        's$s.table[i,"edf"], s$s.table[i,"F"], s$s.table[i,"p-value"]))\n'
+        'cat("##P\\n")\n'
+        "if (!is.null(s$p.table)) for (i in seq_len(nrow(s$p.table))) "
+        'cat(sprintf("%s|%.6f|%.6f|%.6g\\n", rownames(s$p.table)[i], '
+        "s$p.table[i,1], s$p.table[i,2], s$p.table[i,4]))\n"
+        'cat("##R\\n")\n'
+        "ri <- which(rownames(s$s.table) == re_row)\n"
+        'if (length(ri)) cat(sprintf("re_edf|%.4f\\nre_p|%.6g\\n", s$s.table[ri,"edf"], s$s.table[ri,"p-value"]))\n'
+        # random-effect SD closed form for bs="re": sqrt(scale / smoothing-param)
+        f're_sd <- tryCatch(as.numeric(sqrt(m$sig2 / m$sp["s({group})"])), error=function(e) NA)\n'
+        'if (!is.na(re_sd)) cat(sprintf("re_sd|%.6f\\n", re_sd))\n'
+        'cat("##F\\n")\n'
+        'cat(sprintf("dev_expl|%.4f\\nr_sq|%.4f\\nn|%d\\n", s$dev.expl, s$r.sq, s$n))\n'
+        # plot only the covariate smooths (skip the RE term, which is select index n_panels+1)
+        f'png("{png_r}", width=900, height=max(350, 320*ceiling({n_panels}/2)), res=120)\n'
+        f"par(mfrow=c(ceiling({n_panels}/2), min(2,{n_panels})))\n"
+        f"for (i in 1:{n_panels}) plot(m, select=i, shade=TRUE, seWithMean=TRUE)\n"
+        "dev.off()\n"
+    )
+    out = rbridge.run_r(rcode, timeout=120)
+    section, srows, prows, re_d, fit = None, [], [], {}, {}
+    for line in out.splitlines():
+        s = line.strip()
+        if s in ("##S", "##P", "##R", "##F"):
+            section = s
+        elif "|" in s and section == "##S":
+            srows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "##P":
+            prows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "##R":
+            k, v = s.split("|", 1)
+            re_d[k] = float(v)
+        elif "|" in s and section == "##F":
+            k, v = s.split("|", 1)
+            fit[k] = float(v)
+    if "dev_expl" not in fit:
+        raise RuntimeError("mgcv GAMM 未返回结果")
+    smooth_df = pd.DataFrame(srows, columns=["term", "edf", "F", "p_value"]) if srows else pd.DataFrame(columns=["term", "edf", "F", "p_value"])
+    param_df = pd.DataFrame(prows, columns=["term", "estimate", "std_err", "p_value"]) if prows else pd.DataFrame(columns=["term", "estimate", "std_err", "p_value"])
+    for col in ("edf", "F", "p_value"):
+        if len(smooth_df):
+            smooth_df[col] = pd.to_numeric(smooth_df[col], errors="coerce")
+    for col in ("estimate", "std_err", "p_value"):
+        if len(param_df):
+            param_df[col] = pd.to_numeric(param_df[col], errors="coerce")
+    return smooth_df, param_df, re_d, fit
+
+
 def _gam_via_r(csv_path, outcome: str, smooth_terms: list[str], linear_terms: list[str], png_path):
     """Generalized additive model via R mgcv (gold standard): smooth (penalised
     spline) terms s(x) for continuous predictors, parametric terms for the rest,
@@ -5015,6 +5090,107 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"GLMM 拟合失败（可能不收敛）：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "gamm":
+        import re
+
+        from researchforge.executor import rbridge
+
+        # grouping for the random intercept (config, else panel unit, else a
+        # categorical/id column with real clustering — >=5 groups, like GLMM)
+        group = cfg.get("group") or fp.unit_col
+        if not group:
+            group = next(
+                (c.name for c in fp.columns if c.kind in {"categorical", "id"}
+                 and c.name not in {fp.unit_col, fp.time_col} and 5 <= c.n_unique < fp.n_rows),
+                None,
+            )
+        _excl = {fp.unit_col, fp.time_col, group}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c not in {y, group}]
+        if forced:
+            preds = forced[:8]
+        else:
+            preds = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"} and c.name not in {y, group, fp.unit_col, fp.time_col}
+            ][:6]
+        smooth = [p for p in preds if p in cont and df[p].dropna().nunique() >= 10]
+        linear = [p for p in preds if p not in smooth]
+        names_safe = y is not None and group is not None and all(
+            re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [y, group, *preds]
+        )
+        if y is None or not preds:
+            summary.append("GAMM 失败：需要 1 个连续结果变量 + ≥1 个预测变量。")
+        elif group is None:
+            summary.append("GAMM 失败：需要一个分组变量做随机截距（面板单位列或重复出现的类别列，≥5 组）。")
+        elif not smooth:
+            summary.append(
+                "GAMM 跳过：没有可平滑的连续预测变量（需 ≥10 个不同取值）。"
+                "若只需随机效应用 mixed_effects；若只需平滑用 gam。"
+            )
+        elif not (rbridge.r_available() and rbridge.r_package_available("mgcv")):
+            summary.append("GAMM 需要 R 的 mgcv 包（未检测到）。安装：install.packages('mgcv')。")
+        elif not names_safe:
+            summary.append("GAMM 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            import pandas as pd
+
+            sub = df[[y, group, *preds]].dropna()
+            csv = d / "_gamm_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                smooth_df, param_df, re_d, fit = _gamm_via_r(csv, y, smooth, linear, group, d / "gamm_smooths.png")
+                if len(smooth_df):
+                    smooth_df.to_csv(d / "smooth_terms.csv", index=False, encoding="utf-8")
+                    files.append("smooth_terms.csv")
+                if (d / "gamm_smooths.png").exists():
+                    files.append("gamm_smooths.png")
+                dev, r2, n = fit["dev_expl"], fit["r_sq"], int(fit["n"])
+                re_sd = re_d.get("re_sd", float("nan"))
+                re_p = re_d.get("re_p", float("nan"))
+                estimates["deviance_explained"] = round(dev, 4)
+                estimates["adj_r_squared"] = round(r2, 4)
+                estimates["random_intercept_sd"] = round(re_sd, 4) if re_sd == re_sd else float("nan")
+                estimates["n"] = float(n)
+                nonlin = []
+                for _, r in smooth_df.iterrows():
+                    estimates[f"edf_{r['term']}"] = round(float(r["edf"]), 3)
+                    if float(r["edf"]) > 1.5 and float(r["p_value"]) < 0.05:
+                        nonlin.append(str(r["term"]))
+                nl_txt = (
+                    f"显著非线性项：{nonlin}（edf>1.5 且 p<0.05）"
+                    if nonlin else "各平滑项近线性或不显著"
+                )
+                re_txt = f"随机截距 SD={re_sd:.3f}（按 {group} 聚类）" if re_sd == re_sd else f"随机截距（按 {group}）"
+                (d / "gamm_summary.txt").write_text(
+                    f"广义可加混合模型 GAMM（mgcv，REML）：{y} ~ "
+                    + " + ".join([f"s({t})" for t in smooth] + linear) + f" + s({group}, bs='re')\n"
+                    f"偏差解释 {dev:.1%}，调整 R² {r2:.3f}，n={n}；{re_txt}，RE 显著性 p={re_p:.3g}\n"
+                    f"{nl_txt}\n"
+                    "edf=有效自由度（1=直线）；随机截距吸收组间基线差异，平滑项 p 检验项≠0（非线性检验）。\n"
+                    "默认高斯族+identity link（连续结果）。\n\n"
+                    "平滑项：\n" + (smooth_df.to_string(index=False) if len(smooth_df) else "（无）"),
+                    encoding="utf-8",
+                )
+                files.append("gamm_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/mgcv，REML）：{y} ~ {len(smooth)} 个平滑项 + {len(linear)} 个线性项"
+                    f" + (1|{group})；偏差解释 {dev:.1%}，调整 R²={r2:.3f}（n={n}）；{re_txt}；{nl_txt}。"
+                    "⚠ 高斯族；平滑项默认薄板样条 k=10，边界外推不可靠；随机截距假定组效应~正态。"
+                )
+                code += [
+                    "library(mgcv)  # 广义可加混合模型 GAMM",
+                    f"# gam({y} ~ " + " + ".join([f's({t})' for t in smooth] + linear) + f" + s({group}, bs='re'), method='REML')",
+                ]
+            except Exception as err:
+                summary.append(f"GAMM 拟合失败：{err}")
             finally:
                 try:
                     csv.unlink()
