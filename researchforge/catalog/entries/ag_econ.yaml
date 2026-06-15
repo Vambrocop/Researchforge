@@ -100,6 +100,26 @@
     - treatment auto-detected as a binary column / set via config treatment; controls default to the other numeric columns
     - ML nuisance fits + cross-fitting add randomness; near-0/1 propensities (poor overlap) make the ATE unstable (flagged)
 
+- id: changes_in_changes
+  method: Changes-in-changes (distributional DID, qte)
+  domain: economics
+  family: causal
+  goal: explain
+  description: A distributional generalization of difference-in-differences (Athey & Imbens 2006) for a treated vs control group over two periods. Instead of just a mean effect it estimates quantile treatment effects (QTE) across the whole outcome distribution plus the overall ATT, relaxing parallel-trends to a monotonicity / rank-invariance assumption. Uses R qte::CiC with bootstrap inference; reports the QTE-by-quantile curve. Treated group / time / periods come from a treatment indicator + time column or config.
+  preconditions:
+    requires_treatment: true
+    requires_time: true
+    min_rows: 100
+  produces:
+    - overall ATT + 95% CI
+    - quantile treatment effects (QTE) across the distribution + CIs
+    - QTE-by-quantile plot
+  executor_ref: qte
+  biases:
+    - needs a treated-group indicator + a numeric 2-period time column (group coding auto-normalized to 0/1; verify the direction)
+    - relaxes parallel-trends to monotonicity / rank-invariance of the outcome — still assumes no anticipation and stable group composition
+    - bootstrap SEs; small groups or few mass points make the tails / QTE unstable
+
 - id: rdd
   method: Regression discontinuity design (RDD, rdrobust)
   domain: economics

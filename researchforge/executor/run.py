@@ -1451,6 +1451,61 @@ def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discre
     return out
 
 
+def _cic_via_r(csv_path, outcome, treat, time, t_post, t_pre, probs, qte_png):
+    """Changes-in-changes (Athey & Imbens 2006) via R qte::CiC — a distributional
+    generalization of DID: estimates quantile treatment effects (QTE) across the
+    outcome distribution plus the overall ATT, relaxing parallel-trends to a
+    monotonicity/rank-invariance assumption. Returns a dict (ATT + CI, per-quantile
+    QTE + CI). Writes a QTE-by-quantile plot. Raises so the caller degrades."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    png_r = str(qte_png).replace("\\", "/")
+    probs_r = ", ".join(f"{p:.4f}" for p in probs)
+    # t_post / t_pre are interpolated as numeric literals (validated numeric upstream)
+    rcode = (
+        "suppressMessages(library(qte))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        'd[[".rid"]] <- seq_len(nrow(d))\n'
+        f'r <- CiC({outcome} ~ {treat}, t={t_post}, tmin1={t_pre}, tname="{time}", '
+        'data=d, idname=".rid", panel=FALSE, '
+        f"probs=c({probs_r}), se=TRUE, iters=100)\n"
+        'cat("##A\\n")\n'
+        'cat(sprintf("ate|%.6f\\nate_lb|%.6f\\nate_ub|%.6f\\nate_se|%.6f\\n", '
+        "r$ate, r$ate.lower, r$ate.upper, r$ate.se))\n"
+        'cat("##Q\\n")\n'
+        "for (i in seq_along(r$probs)) cat(sprintf('%.4f|%.6f|%.6f|%.6f|%.6f\\n', "
+        "r$probs[i], r$qte[i], r$qte.se[i], r$qte.lower[i], r$qte.upper[i]))\n"
+        f'png("{png_r}", width=760, height=520, res=120)\n'
+        "plot(r$probs, r$qte, type='b', pch=19, ylim=range(c(r$qte.lower, r$qte.upper)), "
+        'xlab="quantile", ylab="quantile treatment effect (QTE)", main="Changes-in-changes: QTE by quantile")\n'
+        "arrows(r$probs, r$qte.lower, r$probs, r$qte.upper, length=0.03, angle=90, code=3, col='grey')\n"
+        "abline(h=r$ate, lty=2, col='red'); abline(h=0, lty=3, col='grey')\n"
+        "dev.off()\n"
+    )
+    out = rbridge.run_r(rcode, timeout=240)
+    section, meta, qrows = None, {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##A":
+            section = "A"
+        elif s == "##Q":
+            section = "Q"
+        elif "|" in s and section == "A":
+            k, v = s.split("|", 1)
+            meta[k] = float(v)
+        elif "|" in s and section == "Q":
+            qrows.append(s.split("|"))
+    if "ate" not in meta or not qrows:
+        raise RuntimeError("qte CiC 未返回结果（检查分组/时间/结果列与两期设置）")
+    qte = pd.DataFrame(qrows, columns=["quantile", "qte", "se", "ci_lb", "ci_ub"])
+    for c in ("quantile", "qte", "se", "ci_lb", "ci_ub"):
+        qte[c] = pd.to_numeric(qte[c], errors="coerce")
+    return meta, qte
+
+
 def _rdd_via_rdrobust(df, outcome, running, cutoff, plot_path):
     """Sharp regression discontinuity (Calonico–Cattaneo–Titiunik) via rdrobust:
     local-linear estimate of the outcome jump at the cutoff, MSE-optimal bandwidth,
@@ -4787,6 +4842,133 @@ def run_analysis(
             except Exception as err:
                 summary.append(f"双重机器学习拟合失败：{err}")
 
+    elif entry.id == "changes_in_changes":
+        import re
+
+        import pandas as pd
+
+        from researchforge.executor import rbridge
+
+        time = cfg.get("time") or fp.time_col
+        _excl = {fp.unit_col, time}
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+        outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        treat = cfg.get("treatment")
+        if treat is None:
+            treat = next(
+                (c.name for c in fp.columns if c.kind == "binary" and c.name not in {outcome, time, fp.unit_col}),
+                None,
+            )
+        # periods: config [pre,post], else the last two distinct time values; must be numeric
+        periods = sorted(pd.to_numeric(df[time], errors="coerce").dropna().unique()) if (time and time in df.columns) else []
+        want = cfg.get("periods")
+        if isinstance(want, (list, tuple)) and len(want) == 2:
+            try:
+                t_pre, t_post = float(want[0]), float(want[1])
+            except (TypeError, ValueError):
+                t_pre = t_post = None
+        elif len(periods) >= 2:
+            t_pre, t_post = float(periods[-2]), float(periods[-1])
+        else:
+            t_pre = t_post = None
+        probs = cfg.get("probs") or [round(0.1 * i, 2) for i in range(1, 10)]
+        names_safe = all(
+            outcome and treat and time and re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c))
+            for c in [outcome, treat, time]
+        )
+        if not (rbridge.r_available() and rbridge.r_package_available("qte")):
+            summary.append("Changes-in-changes 需要 R 的 qte 包（未检测到）。安装：install.packages('qte')；或用 did / quantile_regression。")
+        elif outcome is None or treat is None or not time:
+            summary.append(
+                "Changes-in-changes 失败：需要 结果变量 + 处理组指示(二值) + 时间变量(两期)。"
+                "用 config={\"outcome\":..,\"treatment\":..,\"time\":..} 指定。"
+            )
+        elif t_pre is None or t_post is None:
+            summary.append("Changes-in-changes 失败：时间列需为数值且 ≥2 期（或 config periods=[前,后]）。")
+        elif not names_safe:
+            summary.append("Changes-in-changes 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            sub = df[[outcome, treat, time]].copy()
+            sub[time] = pd.to_numeric(sub[time], errors="coerce")
+            sub = sub[sub[time].isin([t_pre, t_post])].dropna()
+            # Normalize the group indicator to {0,1}: CiC imputes the COUNTERFACTUAL
+            # for group==1, so which value maps to 1 (treated) determines the SIGN and
+            # WHICH group's effect is estimated — a lexicographic guess can silently
+            # invert it (Opus catch). Prefer config['treated_group']; else use the {0,1}
+            # convention; else map sorted but disclose the direction prominently.
+            tvals = sorted(sub[treat].dropna().unique().tolist(), key=lambda v: str(v))
+            treated_group = cfg.get("treated_group")
+            treat_map, treated_label, dir_explicit = None, None, False
+            if len(tvals) == 2:
+                if treated_group is not None and treated_group in tvals:
+                    other = [v for v in tvals if v != treated_group][0]
+                    treat_map = {other: 0, treated_group: 1}
+                    sub[treat] = sub[treat].map(treat_map)
+                    treated_label, dir_explicit = treated_group, True
+                elif set(tvals) == {0, 1}:
+                    treated_label = 1  # standard 1=treated convention; no remap
+                else:
+                    treat_map = {tvals[0]: 0, tvals[1]: 1}
+                    sub[treat] = sub[treat].map(treat_map)
+                    treated_label = tvals[1]
+            if sub[treat].dropna().nunique() != 2:
+                summary.append("Changes-in-changes 失败：处理组指示需恰好 2 类（处理 vs 对照）。")
+            elif any(sub[(sub[time] == p)][treat].nunique() < 2 for p in (t_pre, t_post)):
+                summary.append("Changes-in-changes 失败：每期都需同时有处理组与对照组样本。")
+            else:
+                csv = d / "_cic_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    meta, qte = _cic_via_r(csv, outcome, treat, time, t_post, t_pre, probs, d / "cic_qte.png")
+                    qte.to_csv(d / "cic_qte.csv", index=False, encoding="utf-8")
+                    files.append("cic_qte.csv")
+                    if (d / "cic_qte.png").exists():
+                        files.append("cic_qte.png")
+                    att, alb, aub = meta["ate"], meta["ate_lb"], meta["ate_ub"]
+                    estimates["att"] = round(att, 4)
+                    estimates["att_lb"] = round(alb, 4)
+                    estimates["att_ub"] = round(aub, 4)
+                    estimates["qte_min"] = round(float(qte["qte"].min()), 4)
+                    estimates["qte_max"] = round(float(qte["qte"].max()), 4)
+                    sig = "显著" if (alb > 0 or aub < 0) else "不显著"
+                    spread = float(qte["qte"].max() - qte["qte"].min())
+                    het = "效应随分位明显变化（分布性异质）" if spread > 0.5 * (abs(att) + 1e-9) else "效应在各分位较一致"
+                    # ALWAYS disclose which value is treated(=1) — direction sets the sign
+                    enc_txt = (
+                        f"；处理组(=1) 取 [{treated_label}]"
+                        + ("（config 指定）" if dir_explicit else "，方向若反请用 config treated_group 指定")
+                    )
+                    if len(periods) > 2 and not (isinstance(want, (list, tuple)) and len(want) == 2):
+                        enc_txt += f"；⚠ 检测到 >2 期，仅用最后两期 {t_pre:g}→{t_post:g}（其余忽略，可用 config periods 指定）"
+                    (d / "cic_summary.txt").write_text(
+                        f"Changes-in-changes（Athey-Imbens 2006，R qte::CiC，{t_pre:g}→{t_post:g}）\n"
+                        f"结果 {outcome}，处理组 {treat}，时间 {time}{enc_txt}\n"
+                        f"总体 ATT = {att:.4f}，95% CI [{alb:.4f}, {aub:.4f}]（{sig}）\n"
+                        f"分位处理效应 QTE 范围 [{qte['qte'].min():.4f}, {qte['qte'].max():.4f}]；{het}\n"
+                        "CiC 是 DID 的分布推广：放松「平行趋势」为单调/秩不变假定，识别整条反事实分布；"
+                        "QTE 看处理对结果分布不同位置的异质影响。仍需无预期/无组成变化等 DID 类假定。\n\n"
+                        + qte.to_string(index=False),
+                        encoding="utf-8",
+                    )
+                    files.append("cic_summary.txt")
+                    summary.append(
+                        f"{entry.method} 完成（R/qte，{t_pre:g}→{t_post:g}）：结果 {outcome}，处理组 {treat}；"
+                        f"ATT={att:.4f}（95% CI [{alb:.4f}, {aub:.4f}]，{sig}）；"
+                        f"QTE 范围 [{qte['qte'].min():.3f}, {qte['qte'].max():.3f}]，{het}。"
+                        "⚠ DID 的分布版：放松平行趋势为单调/秩不变；仍依赖无预期/无组成变化等假定。" + enc_txt
+                    )
+                    code += [
+                        "library(qte)  # changes-in-changes (Athey-Imbens 分布 DID)",
+                        f"# CiC({outcome} ~ {treat}, t={t_post:g}, tmin1={t_pre:g}, tname='{time}', panel=FALSE, se=TRUE)",
+                    ]
+                except Exception as err:
+                    summary.append(f"Changes-in-changes 拟合失败：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
+
     elif entry.id == "rdd":
         import importlib.util
 
@@ -5150,8 +5332,14 @@ def run_analysis(
                 if len(smooth_df):
                     smooth_df.to_csv(d / "smooth_terms.csv", index=False, encoding="utf-8")
                     files.append("smooth_terms.csv")
+                if len(param_df):  # surface the linear/parametric coefficients (Opus: were computed but unsaved)
+                    param_df.to_csv(d / "parametric_terms.csv", index=False, encoding="utf-8")
+                    files.append("parametric_terms.csv")
                 if (d / "gamm_smooths.png").exists():
                     files.append("gamm_smooths.png")
+                # few-groups variance component is unreliable; warn when the group (config/unit) has <5 levels
+                n_grp = int(sub[group].nunique())
+                fewg_txt = f"；⚠ 仅 {n_grp} 组随机效应，方差分量不稳，RE-SD/显著性仅供参考" if n_grp < 5 else ""
                 dev, r2, n = fit["dev_expl"], fit["r_sq"], int(fit["n"])
                 re_sd = re_d.get("re_sd", float("nan"))
                 re_p = re_d.get("re_p", float("nan"))
@@ -5173,8 +5361,9 @@ def run_analysis(
                     f"广义可加混合模型 GAMM（mgcv，REML）：{y} ~ "
                     + " + ".join([f"s({t})" for t in smooth] + linear) + f" + s({group}, bs='re')\n"
                     f"偏差解释 {dev:.1%}，调整 R² {r2:.3f}，n={n}；{re_txt}，RE 显著性 p={re_p:.3g}\n"
-                    f"{nl_txt}\n"
-                    "edf=有效自由度（1=直线）；随机截距吸收组间基线差异，平滑项 p 检验项≠0（非线性检验）。\n"
+                    f"{nl_txt}{fewg_txt}\n"
+                    "edf=有效自由度（1=直线）；随机截距吸收组间基线差异。平滑项 p 检验项≠0"
+                    "（edf>1.5 仅为非线性的描述性标记，非正式检验）；RE 的 p/edf 为近似自由度检验。\n"
                     "默认高斯族+identity link（连续结果）。\n\n"
                     "平滑项：\n" + (smooth_df.to_string(index=False) if len(smooth_df) else "（无）"),
                     encoding="utf-8",
@@ -5183,7 +5372,7 @@ def run_analysis(
                 summary.append(
                     f"{entry.method} 完成（R/mgcv，REML）：{y} ~ {len(smooth)} 个平滑项 + {len(linear)} 个线性项"
                     f" + (1|{group})；偏差解释 {dev:.1%}，调整 R²={r2:.3f}（n={n}）；{re_txt}；{nl_txt}。"
-                    "⚠ 高斯族；平滑项默认薄板样条 k=10，边界外推不可靠；随机截距假定组效应~正态。"
+                    "⚠ 高斯族；平滑项默认薄板样条 k=10，边界外推不可靠；随机截距假定组效应~正态。" + fewg_txt
                 )
                 code += [
                     "library(mgcv)  # 广义可加混合模型 GAMM",
