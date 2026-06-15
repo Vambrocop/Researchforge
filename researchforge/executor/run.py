@@ -1608,6 +1608,86 @@ def _gam_via_r(csv_path, outcome: str, smooth_terms: list[str], linear_terms: li
     return smooth_df, param_df, fit
 
 
+def _meta_regression_via_r(csv_path, *, measure, roles, moderators, study, method, bubble_png, bubble_mod=None):
+    """Meta-regression via R metafor — rma(yi, vi, mods = ~ moderators): explains
+    between-study heterogeneity with study-level moderators. `measure` is "GEN"
+    (pre-computed yi + vi/sei) or an escalc measure ("SMD"/"MD"/"OR"/"RR"/"RD").
+    Reports the moderator coefficient table, the omnibus moderator test (QM),
+    residual heterogeneity (I2/tau2), and R2 (% heterogeneity explained). Writes a
+    bubble plot for the first moderator. Returns (coef_df, stats dict). Column
+    names go through an identifier guard upstream. Raises so the caller degrades."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    bp_r = str(bubble_png).replace("\\", "/")
+    if measure == "GEN":
+        vi = f'd[["{roles["vi"]}"]]' if roles.get("vi") else f'(d[["{roles["sei"]}"]])^2'
+        esc = f'yi <- d[["{roles["yi"]}"]]; vi <- {vi}\n'
+    elif measure in ("SMD", "MD"):
+        esc = (
+            f'es <- escalc(measure="{measure}", m1i=d[["{roles["m1"]}"]], '
+            f'sd1i=d[["{roles["sd1"]}"]], n1i=d[["{roles["n1"]}"]], '
+            f'm2i=d[["{roles["m2"]}"]], sd2i=d[["{roles["sd2"]}"]], n2i=d[["{roles["n2"]}"]])\n'
+            "yi <- es$yi; vi <- es$vi\n"
+        )
+    else:  # OR / RR / RD
+        esc = (
+            f'es <- escalc(measure="{measure}", ai=d[["{roles["ai"]}"]], '
+            f'bi=d[["{roles["bi"]}"]], ci=d[["{roles["ci"]}"]], di=d[["{roles["di"]}"]])\n'
+            "yi <- es$yi; vi <- es$vi\n"
+        )
+    mods_r = "~ " + " + ".join(moderators)
+    rcode = (
+        "suppressMessages(library(metafor))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        + esc
+        + f"m <- rma(yi, vi, mods = {mods_r}, data=d, method=\"{method}\")\n"
+        'cat("##C\\n")\n'
+        "for (i in seq_len(nrow(m$beta))) cat(sprintf('%s|%.6f|%.6f|%.6g|%.6f|%.6f\\n', "
+        "rownames(m$beta)[i], m$beta[i], m$se[i], m$pval[i], m$ci.lb[i], m$ci.ub[i]))\n"
+        'cat("##S\\n")\n'
+        'cat(sprintf("QM|%.6f\\nQMp|%.6g\\nR2|%.4f\\nI2_resid|%.4f\\ntau2_resid|%.6f\\nk|%d\\n", '
+        "m$QM, m$QMp, ifelse(is.null(m$R2),NA,m$R2), m$I2, m$tau2, m$k))\n"
+        # also report the surviving moderator terms so the caller can detect drops
+        'cat("##T\\n"); for (t in rownames(m$beta)) cat(t, "\\n")\n'
+        # bubble plot for a NUMERIC moderator only (regplot needs continuous); guard failures
+        + (
+            f'tryCatch({{png("{bp_r}", width=760, height=600, res=120); '
+            f'regplot(m, mod="{bubble_mod}", shade=TRUE); dev.off()}}, error=function(e) NULL)\n'
+            if bubble_mod else ""
+        )
+    )
+    out = rbridge.run_r(rcode, timeout=120)
+    section, crows, stats, surviving = None, [], {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##C":
+            section = "C"
+        elif s == "##S":
+            section = "S"
+        elif s == "##T":
+            section = "T"
+        elif "|" in s and section == "C":
+            crows.append(s.rsplit("|", 5))
+        elif "|" in s and section == "S":
+            k, v = s.split("|", 1)
+            try:
+                stats[k] = float(v)  # NA (constant/collinear moderator) -> NaN, not a crash
+            except ValueError:
+                stats[k] = float("nan")
+        elif section == "T" and s:
+            surviving.append(s)
+    if not crows or "QM" not in stats:
+        raise RuntimeError("metafor meta-regression 未返回结果（检查效应量/调节变量列）")
+    coef = pd.DataFrame(crows, columns=["term", "estimate", "se", "p_value", "ci_lb", "ci_ub"])
+    for c in ("estimate", "se", "p_value", "ci_lb", "ci_ub"):
+        coef[c] = pd.to_numeric(coef[c], errors="coerce")
+    stats["_surviving"] = [t for t in surviving if t != "intrcpt"]
+    return coef, stats
+
+
 def _sfa_via_r(csv_path, output: str, inputs: list[str]):
     """Stochastic Frontier Analysis via R frontier: Cobb-Douglas production
     frontier log(y) ~ Σ log(x), ML with composed error v−u. Returns
@@ -4864,6 +4944,133 @@ def run_analysis(
                     csv.unlink()
                 except OSError:
                     pass
+
+    elif entry.id == "meta_regression":
+        import re
+
+        import pandas as pd
+
+        from researchforge.executor import rbridge
+
+        low = {c.name.lower(): c.name for c in fp.columns}
+
+        def _pick(*names):
+            return next((low[n] for n in names if n in low), None)
+
+        measure = str(cfg.get("measure") or "").upper()
+        method = str(cfg.get("method") or "REML").upper()
+        study = cfg.get("study") or _pick("study", "study_id", "studyid", "label", "author", "trial", "name", "id", "source")
+        yi = cfg.get("effect") or _pick("yi", "effect", "es", "effect_size", "smd", "logor", "d", "g", "lnrr")
+        vi = cfg.get("variance") or _pick("vi", "var", "variance", "v", "samp_var")
+        sei = cfg.get("se") or _pick("sei", "se", "std_err", "stderr", "se_effect")
+        m1, sd1, n1 = _pick("m1", "m1i", "mean1", "mean_t", "mt"), _pick("sd1", "sd1i", "sd_t", "sdt"), _pick("n1", "n1i", "nt", "n_t")
+        m2, sd2, n2 = _pick("m2", "m2i", "mean2", "mean_c", "mc"), _pick("sd2", "sd2i", "sd_c", "sdc"), _pick("n2", "n2i", "nc", "n_c")
+        ai, bi, ci_, di = _pick("ai", "events1", "a"), _pick("bi", "b"), _pick("ci", "events2", "c"), _pick("di", "d")
+        roles, es_cols = {}, []
+        if measure in ("", "GEN") and yi and (vi or sei):
+            measure, roles, es_cols = "GEN", {"yi": yi, "vi": vi, "sei": sei}, [yi, vi or sei]
+        elif measure in ("", "SMD", "MD") and all([m1, sd1, n1, m2, sd2, n2]):
+            measure = measure if measure in ("SMD", "MD") else "SMD"
+            roles, es_cols = {"m1": m1, "sd1": sd1, "n1": n1, "m2": m2, "sd2": sd2, "n2": n2}, [m1, sd1, n1, m2, sd2, n2]
+        elif measure in ("", "OR", "RR", "RD") and all([ai, bi, ci_, di]):
+            measure = measure if measure in ("OR", "RR", "RD") else "OR"
+            roles, es_cols = {"ai": ai, "bi": bi, "ci": ci_, "di": di}, [ai, bi, ci_, di]
+        # moderators: config, else numeric/categorical columns not used as effect-size/study.
+        # exclude ALL resolved role columns (consumed or not) so a leftover precision column
+        # (e.g. an unused sei when vi was picked) can't sneak in as a moderator (Opus catch).
+        used = {c for c in (yi, vi, sei, m1, sd1, n1, m2, sd2, n2, ai, bi, ci_, di, study) if c}
+        forced_mods = [c for c in (cfg.get("moderators") or cfg.get("predictors") or []) if c in df.columns and c not in used]
+        if forced_mods:
+            moderators = forced_mods[:5]
+        else:
+            moderators = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary", "categorical"} and c.name not in used
+                and c.name not in {fp.unit_col, fp.time_col}
+            ][:4]
+        # drop constant moderators — metafor silently drops them and would mislabel the
+        # omnibus as a moderator test (Opus catch); filter in Python first.
+        const_mods = [m for m in moderators if df[m].dropna().nunique() <= 1]
+        moderators = [m for m in moderators if m not in const_mods]
+        _num_kind = {c.name: c.kind for c in fp.columns}
+        bubble_mod = next((m for m in moderators if _num_kind.get(m) in {"continuous", "count"}), None)
+        cols_all = [c for c in [*es_cols, study, *moderators] if c]
+        names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in moderators) if moderators else False
+        if not roles:
+            summary.append(
+                "Meta 回归失败：未识别到效应量数据（需 yi+vi/sei，或两组 m/sd/n，或 2×2 ai/bi/ci/di）。详见 docs/meta-analysis.md。"
+            )
+        elif not moderators:
+            summary.append("Meta 回归失败：需要 ≥1 个研究层调节变量（解释异质性的协变量）。用 config['moderators'] 指定。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("metafor")):
+            summary.append("Meta 回归需要 R 的 metafor 包（未检测到）。安装：install.packages('metafor')。")
+        elif not names_safe:
+            summary.append("Meta 回归失败：调节变量列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            sub = df[cols_all].dropna()
+            if len(sub) < len(moderators) + 3:
+                summary.append(f"Meta 回归失败：有效研究数 {len(sub)} 太少（需 > 调节变量数 {len(moderators)}+2）。")
+            else:
+                csv = d / "_metareg_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    coef, st = _meta_regression_via_r(
+                        csv, measure=measure, roles=roles, moderators=moderators,
+                        study=study, method=method, bubble_png=d / "bubble.png", bubble_mod=bubble_mod,
+                    )
+                    surviving = st.get("_surviving", [])
+                    if not surviving:
+                        raise RuntimeError("所有调节变量被 metafor 剔除（常量/完全共线），无可解释的调节项")
+                    coef.to_csv(d / "meta_regression_coef.csv", index=False, encoding="utf-8")
+                    files.append("meta_regression_coef.csv")
+                    if (d / "bubble.png").exists():
+                        files.append("bubble.png")
+                    qm, qmp = st["QM"], st["QMp"]
+                    r2 = float("nan") if method == "FE" else st.get("R2", float("nan"))
+                    i2r, k = st["I2_resid"], int(st["k"])
+                    # disclose moderators dropped as constant (Python) or collinear (metafor)
+                    drop_note = f"；⚠ 常量调节变量已剔除：{const_mods}" if const_mods else ""
+                    if len(surviving) < len(moderators):
+                        drop_note += "；⚠ 部分调节变量因共线被 metafor 剔除（见系数表实际项）"
+                    estimates["QM_pvalue"] = round(qmp, 4)
+                    estimates["R2_percent"] = round(r2, 2) if r2 == r2 else float("nan")
+                    estimates["I2_residual"] = round(i2r, 2)
+                    estimates["k_studies"] = float(k)
+                    for _, r in coef.iterrows():
+                        if r["term"] != "intrcpt":
+                            estimates[f"beta_{r['term']}"] = round(float(r["estimate"]), 4)
+                    sig_mods = [r["term"] for _, r in coef.iterrows() if r["term"] != "intrcpt" and float(r["p_value"]) < 0.05]
+                    r2_txt = f"，调节变量解释了 {r2:.0f}% 的研究间异质性" if r2 == r2 else ""
+                    (d / "meta_regression.txt").write_text(
+                        f"Meta 回归（metafor rma，{method}，k={k} 研究，measure={measure}）\n"
+                        f"调节变量：{moderators}\n"
+                        f"omnibus 检验 QM={qm:.3f}，p={qmp:.4g}"
+                        f"（{'调节变量整体显著' if qmp < 0.05 else '调节变量整体不显著'}）\n"
+                        f"残差异质性 I²={i2r:.1f}%{r2_txt}\n"
+                        f"显著调节变量（p<0.05）：{sig_mods}\n"
+                        "注：meta 回归是观察性的（研究层混杂、生态谬误风险）；"
+                        "调节变量少、研究数少时易过拟合/假阳性（建议每 10 项研究 ≤1 个调节变量）。\n\n"
+                        + coef.to_string(index=False),
+                        encoding="utf-8",
+                    )
+                    files.append("meta_regression.txt")
+                    summary.append(
+                        f"{entry.method} 完成（R/metafor，{method}）：合并 {k} 项研究、调节变量 {moderators}；"
+                        f"omnibus p={qmp:.3g}（{'整体显著' if qmp < 0.05 else '整体不显著'}）"
+                        f"{r2_txt}；残差 I²={i2r:.1f}%；显著项 {sig_mods}。"
+                        "⚠ 研究层观察性关联（非个体因果，慎防生态谬误）；研究少易过拟合。" + drop_note
+                    )
+                    code += [
+                        "library(metafor)  # meta 回归（调节变量解释异质性）",
+                        f"# rma(yi, vi, mods = ~ {' + '.join(moderators)}, method='{method}'); QM 检验 + R²",
+                    ]
+                except Exception as err:
+                    summary.append(f"Meta 回归失败：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
 
     elif entry.id == "meta_analysis":
         import pandas as pd

@@ -11,10 +11,28 @@
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_double_ml.py -q)",
       "Bash(echo \"DML_EXIT=$?\")",
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_dmlstr.csv double_ml --config '{\"treatment\":\"grp\",\"outcome\":\"y\"}')",
-      "Bash(echo \"FULLDONE EXIT=$?\")"
+      "Bash(echo \"FULLDONE EXIT=$?\")",
+      "Bash('C:/Program Files/R/R-4.6.0/bin/Rscript.exe' -e 'suppressMessages\\(library\\(metafor\\)\\); set.seed\\(1\\); k<-25; mod<-runif\\(k,0,10\\); yi<-0.2+0.08*mod+rnorm\\(k,0,0.1\\); vi<-runif\\(k,0.01,0.05\\); m<-rma\\(yi,vi,mods=~mod,method=\"REML\"\\); cat\\(\"beta:\",paste\\(round\\(m$beta,4\\),collapse=\",\"\\),\"| QMp:\",round\\(m$QMp,4\\),\"| R2:\",round\\(m$R2,2\\),\"| I2res:\",round\\(m$I2,2\\),\"\\\\n\"\\); cat\\(\"rownames:\",paste\\(rownames\\(m$beta\\),collapse=\",\"\\),\"\\\\n\"\\)')",
+      "Bash('C:/Program Files/R/R-4.6.0/bin/Rscript.exe' -e 'suppressMessages\\(library\\(metafor\\)\\); set.seed\\(1\\); k<-25; mod<-runif\\(k,0,10\\); yi<-0.2+0.08*mod+rnorm\\(k,0,0.1\\); vi<-runif\\(k,0.01,0.05\\); m<-rma\\(yi,vi,mods=~mod,method=\"REML\"\\); cat\\(\"BETA\",paste\\(round\\(as.numeric\\(m$beta\\),4\\),collapse=\",\"\\),\"\\\\n\"\\); cat\\(\"ROWNAMES\",paste\\(rownames\\(m$beta\\),collapse=\",\"\\),\"\\\\n\"\\); cat\\(\"SE\",paste\\(round\\(m$se,4\\),collapse=\",\"\\),\"\\\\n\"\\); cat\\(\"PVAL\",paste\\(round\\(m$pval,4\\),collapse=\",\"\\),\"\\\\n\"\\); cat\\(\"QM\",round\\(m$QM,4\\),\"QMp\",round\\(m$QMp,5\\),\"\\\\n\"\\); cat\\(\"R2\",round\\(m$R2,2\\),\"I2res\",round\\(m$I2,2\\),\"tau2\",round\\(m$tau2,4\\),\"\\\\n\"\\)')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_metareg.csv meta_regression --config '{\"moderators\":[\"dose\",\"year\"]}')",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_meta_regression.py -q)",
+      "Bash(echo \"MR_EXIT=$?\")",
+      "Bash(Rscript --version)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla -e 'cat\\(requireNamespace\\(\"metafor\", quietly=TRUE\\)\\)')",
+      "Bash(cat)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/probe4.R)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/probe5.R)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/probe6.R)",
+      "Bash(ls /e/my-projects/Researchforge/tests/ | grep -i meta 2>&1)",
+      "Read(//e/my-projects/Researchforge/tests//**)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/probe_mixed.R)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_mrconst.csv meta_regression --config '{\"moderators\":[\"dose\",\"xconst\"]}')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_mrconst.csv meta_regression --config '{\"moderators\":[\"xconst\"]}')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_metareg.csv meta_regression --config '{\"moderators\":[\"dose\"],\"method\":\"FE\"}')"
     ],
     "additionalDirectories": [
-      "e:\\my-projects\\Researchforge\\.git"
+      "e:\\my-projects\\Researchforge\\.git",
+      "E:\\my-projects\\Researchforge\\.git"
     ]
   }
 }

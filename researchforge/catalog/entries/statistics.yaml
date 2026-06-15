@@ -204,6 +204,25 @@
     - smooth basis dimension (k=10) caps wiggliness; boundary / sparse-region extrapolation is unreliable
     - GAM shows association, not causation; concurvity (nonlinear collinearity, flagged when worst > 0.8) can destabilise smooths
 
+- id: meta_regression
+  method: Meta-regression (moderators, metafor)
+  domain: statistics
+  family: meta
+  goal: synthesize
+  description: Extends meta-analysis by regressing study-level effect sizes on one or more study-level moderators (covariates) to explain between-study heterogeneity. Reports the moderator coefficient table, the omnibus moderator test (QM), residual heterogeneity (I-squared / tau-squared), R-squared (proportion of heterogeneity explained), and a bubble plot. Same effect-size inputs as meta-analysis (pre-computed yi + vi/sei, raw two-group means, or 2x2 counts) plus moderator columns.
+  preconditions:
+    requires_effect_sizes: true
+    min_rows: 5
+  produces:
+    - moderator coefficient table (estimate + CI + p)
+    - omnibus moderator test (QM) + R-squared (heterogeneity explained)
+    - residual heterogeneity + bubble plot
+  executor_ref: metafor
+  biases:
+    - meta-regression is observational at the study level — associations, not individual-level causation (ecological fallacy risk)
+    - few studies relative to moderators overfits / inflates false positives (rule of thumb >=10 studies per moderator)
+    - inherits the biases of the primary studies; residual heterogeneity may remain after moderators
+
 - id: meta_analysis
   method: Meta-analysis (random/fixed-effects, metafor)
   domain: statistics
