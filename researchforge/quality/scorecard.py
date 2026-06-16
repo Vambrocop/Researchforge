@@ -123,8 +123,8 @@ def compute_scorecard(catalog=None) -> ProjectScorecard:
     dims["novelty"] = _clip(45 + m["n_modern"] * 4)
     notes["novelty"] = f"{int(m['n_modern'])} 个现代/趋势方法（DML/causal_forest/conformal…）+ 自我进化发现"
 
-    dims["performance"] = 62
-    notes["performance"] = "纯 Python 分析快；R 后端方法较慢（桥/拟合），全量套件 ~2-4min（待并行/分层提速）"
+    dims["performance"] = 70
+    notes["performance"] = "纯 Python 分析快；R 后端较慢但已接 pytest-xdist（-n 2 全量 4:29→2:49）+ slow 分层快循环；R worker 内存重（-n auto 会 OOM）故未满"
 
     dims["usability"] = _clip(58 + m["has_web_ui"] * 25)
     notes["usability"] = (
