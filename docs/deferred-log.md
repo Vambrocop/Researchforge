@@ -26,7 +26,7 @@ RDD（running/cutoff）、synthetic_control（treated_unit/treatment_time）、c
 | 无 web 前端 | 有 FastAPI service | **阶段3**：建前端（上传→推荐+评分卡→跑→报告） |
 | 评分卡流行/新颖维是离线编辑先验 | scoring.py 规则 | 趋势引擎接通后用真实流行度/更新喂回 |
 | BART 样本内 R²（无 CV） | 已披露"偏乐观" | 可加 holdout/CV R² |
-| ~~**`run.py` 巨石**：7935 行 / `run_analysis` ~5500 行 / 67 分支 elif~~ | ✅ **已解决（2026-06-16）** | 拆成 15 个 `executor/branches/*.py`（注册表分发，`_branch_api.py` 的 `Ctx`/`register`/`BRANCH_REGISTRY`），`run_analysis` 只剩 setup+dispatch+teardown。**run.py 7935→2442 行**；70/70 id 注册、0 缺失、无循环导入；全量 227 绿。「prompt too long」元凶根除（读单族文件即可） |
+| ~~**`run.py` 巨石**：7935 行 / `run_analysis` ~5500 行 / 67 分支 elif~~ | ✅ **已解决（2026-06-16）** | 拆成 15 个 `executor/branches/*.py`（注册表分发，`_branch_api.py`）+ helper 迁 `_helpers/{core,backends}.py`（run.py re-export）。`run_analysis` 只剩 setup+dispatch+teardown。**run.py 7935→148 行、最大模块 1436<1500**；70/70 id 注册、0 缺失、无循环；全量 227 绿 + `test_module_size` 护栏锁定 ≤1500。「prompt too long」元凶根除 |
 | 48 处静默 `except Exception: pass` | 多为绘图 best-effort（合规，CLAUDE.md 允许）；0 处裸 `except:`（好） | 抽查**非绘图**的静默吞错（包住 CSV/文件写/估计计算的），至少 `summary.append("…失败")` 或记日志，别静默丢 |
 
 ## 环境/装包（本机已装，便于复现）

@@ -23,9 +23,10 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **survival 等**：时长列可能被 profiler 当 `time_col`——这类分支别排除 time_col。
 
 ### 引擎架构 & 读码纪律（怎么避免「prompt too long」）
-- **分发 = 注册表优先**：`run_analysis`（`executor/run.py`）只做 setup（读数据/cfg/输出目录/`summary`…）→ `BRANCH_REGISTRY.get(entry.id)` 命中则 `handler(ctx)`，否则落到**尚未迁出的 elif 尾链** → teardown（写 code/report、返回 `RunResult`）。
-- **分析逻辑住在 `executor/branches/<family>.py`**：每分支是 `@register("<id>") def _branch_<id>(ctx)`，开头 `df, fp, entry, cfg, d = ctx.df, …；files, summary, estimates, code = ctx.files, …` 解包后写逻辑（**mutate** summary/estimates/files/code，别 rebind）。`Ctx`/`register`/`BRANCH_REGISTRY` 在 `executor/_branch_api.py`。helper 仍留 `run.py`，family 模块按需 `from researchforge.executor.run import _xxx`。`branches/__init__.py` import 各 family 触发注册；`run.py` **末尾**才 import branches 包（helper 都定义后，避免循环）。批量迁移工具：`_migrate_branches.py`（一次性脚本）。
-- **历史教训**：run.py 曾 7935 行、`run_analysis` 单函数 ~5500 行 / 66 分支 elif——**整文件读一次就撑爆上下文（VS Code「prompt too long」元凶）**。
+- **分发 = 纯注册表**：`run_analysis`（`executor/run.py`，现仅 ~148 行）只做 setup（读数据/cfg/输出目录/`summary`…）→ `BRANCH_REGISTRY.get(entry.id)` 命中则 `handler(ctx)`、否则 else 占位 → teardown（写 code/report、返回 `RunResult`）。elif 链已全部迁出。
+- **分析逻辑住在 `executor/branches/<family>.py`**：每分支是 `@register("<id>") def _branch_<id>(ctx)`，开头 `df, fp, entry, cfg, d = ctx.df, …；files, summary, estimates, code = ctx.files, …` 解包后写逻辑（**mutate** summary/estimates/files/code，别 rebind）。`Ctx`/`register`/`BRANCH_REGISTRY` 在 `executor/_branch_api.py`。
+- **helper 在 `executor/_helpers/{core,backends}.py`**（core=计算/绘图/纯 Python 方法；backends=R 桥/econml/doubleml/semopy 委托），由 `run.py` **re-export**，故 family 模块与测试仍 `from researchforge.executor.run import _xxx` 不变。`branches/__init__.py` import 各 family 触发注册；`run.py` **末尾**才 import branches 包（避免循环）。
+- **已拆解（历史教训）**：run.py 曾 7935 行 / `run_analysis` ~5500 行 / 67 分支 elif——**整文件读一次就撑爆上下文（VS Code「prompt too long」元凶）**。现最大模块 <1500 行。**护栏**：`tests/test_module_size.py` 强制 `researchforge/**/*.py` ≤1500 行（超了就拆到 branches/ 或 _helpers/），评分卡设计维也据此给分。
 - **读码纪律**：**别整文件读 `run.py` / 大文件**——用 `Grep` 定位 + 带 `offset/limit` 的 `Read` 只读片段；长会话定期 `/compact`；新分支进 `branches/` 让单文件保持小而专。（`/add-analysis` 技能的 run.py-elif 模板待更新为 branches/ 处理器。）
 
 ## 红线 & 工作流（不可逆动作守紧）
