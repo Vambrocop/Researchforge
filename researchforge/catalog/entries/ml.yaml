@@ -1,5 +1,23 @@
 # Machine-learning catalog entries — predictive (non-causal) methods.
 
+- id: bart
+  method: Bayesian additive regression trees (BART, dbarts)
+  domain: machine learning
+  family: ml
+  goal: predict
+  description: A sum-of-trees Bayesian nonparametric regression for a continuous outcome — automatically captures nonlinearities and interactions with regularizing priors and gives posterior uncertainty. Reports in-sample R-squared / RMSE, the residual sigma, and a variable-importance ranking from posterior split counts, plus an importance plot. Uses R dbarts.
+  preconditions:
+    min_continuous: 2
+    min_rows: 50
+  produces:
+    - in-sample R-squared / RMSE / residual sigma
+    - variable importance (posterior split share) + plot
+  executor_ref: dbarts
+  biases:
+    - first continuous column is the outcome by default — set config outcome/predictors
+    - in-sample R-squared is optimistic (no cross-validation); split-share importance is rough and splits credit among correlated predictors
+    - BART is predictive, not causal; MCMC adds randomness (seed-pinned)
+
 - id: network_analysis
   method: Network / graph analysis (networkx)
   domain: network science

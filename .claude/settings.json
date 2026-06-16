@@ -69,7 +69,20 @@
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_network.csv network_analysis)",
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_network_analysis.py -q)",
       "Bash(echo \"NET_EXIT=$?\")",
-      "Bash(echo \"DONE EXIT=$?\")"
+      "Bash(echo \"DONE EXIT=$?\")",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'cat\\(\"dbarts:\", requireNamespace\\(\"dbarts\", quietly=TRUE\\), \"\\\\n\"\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'install.packages\\(\"dbarts\", repos=\"https://cloud.r-project.org\"\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'cat\\(\"dbarts installed:\", requireNamespace\\(\"dbarts\", quietly=TRUE\\), \"\\\\n\"\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_bart.R)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_bart.csv bart)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_bart.py -q)",
+      "Bash(echo \"BART_EXIT=$?\")",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/Rscript.exe\" --vanilla /tmp/probe_bart.R)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/Rscript.exe\" --vanilla /tmp/probe_bart2.R)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/Rscript.exe\" --vanilla /tmp/probe_bart5.R)",
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/Rscript.exe\" --vanilla /tmp/probe_bart6.R)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/_tmp_bartc.csv bart --config '{\"outcome\":\"y\",\"predictors\":[\"x1\",\"x2\",\"x3\",\"xconst\"]}')",
+      "Bash(xargs cat)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

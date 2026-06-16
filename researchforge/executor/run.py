@@ -1834,6 +1834,61 @@ def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path):
     return smooth_df, param_df, re_d, fit
 
 
+def _bart_via_r(csv_path, outcome: str, predictors: list[str], ntree: int, seed: int, png_path):
+    """Bayesian Additive Regression Trees (Chipman et al.) via R dbarts: a
+    sum-of-trees Bayesian nonparametric regression for a continuous outcome.
+    Returns (metrics dict: r2/rmse/sigma/n, variable-importance DataFrame from
+    posterior split counts). Writes a variable-importance bar plot. Raises so the
+    caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    png_r = str(png_path).replace("\\", "/")
+    preds_r = ", ".join(f'"{p}"' for p in predictors)
+    rcode = (
+        "suppressMessages(library(dbarts))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f"preds <- c({preds_r})\n"
+        f'y <- d[["{outcome}"]]; X <- d[, preds, drop=FALSE]\n'
+        f"set.seed({int(seed)})\n"
+        f"fit <- bart(x.train=X, y.train=y, ntree={int(ntree)}, keeptrees=FALSE, verbose=FALSE)\n"
+        "yhat <- fit$yhat.train.mean\n"
+        "r2 <- 1 - sum((y-yhat)^2)/sum((y-mean(y))^2); rmse <- sqrt(mean((y-yhat)^2))\n"
+        'cat("##M\\n")\n'
+        'cat(sprintf("r2|%.6f\\nrmse|%.6f\\nsigma|%.6f\\nn|%d\\n", r2, rmse, mean(fit$sigma), length(y)))\n'
+        # label from the columns dbarts ACTUALLY used (it drops constant cols / expands
+        # factors), NOT the input preds vector — else labels misalign (Opus catch).
+        "vc <- colMeans(fit$varcount); vc <- vc/sum(vc); nm <- colnames(fit$varcount)\n"
+        'cat("##V\\n")\n'
+        "ord <- order(vc, decreasing=TRUE)\n"
+        'for (i in ord) cat(sprintf("%s|%.6f\\n", nm[i], vc[i]))\n'
+        f'png("{png_r}", width=720, height=max(300, 36*length(nm)), res=120)\n'
+        "par(mar=c(4,8,2,1)); barplot(rev(vc[ord]), names.arg=rev(nm[ord]), horiz=TRUE, las=1, "
+        'col="#4C72B0", xlab="variable split share", main="BART variable importance")\n'
+        "dev.off()\n"
+    )
+    out = rbridge.run_r(rcode, timeout=240)
+    section, meta, vrows = None, {}, []
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##M":
+            section = "M"
+        elif s == "##V":
+            section = "V"
+        elif "|" in s and section == "M":
+            k, v = s.split("|", 1)
+            meta[k] = float(v)
+        elif "|" in s and section == "V":
+            vrows.append(s.rsplit("|", 1))
+    if "r2" not in meta or not vrows:
+        raise RuntimeError("dbarts BART 未返回结果")
+    varimp = pd.DataFrame(vrows, columns=["predictor", "split_share"])
+    varimp["split_share"] = pd.to_numeric(varimp["split_share"], errors="coerce")
+    return meta, varimp
+
+
 def _gam_via_r(csv_path, outcome: str, smooth_terms: list[str], linear_terms: list[str], png_path):
     """Generalized additive model via R mgcv (gold standard): smooth (penalised
     spline) terms s(x) for continuous predictors, parametric terms for the rest,
@@ -5532,6 +5587,82 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"GAMM 拟合失败：{err}")
+            finally:
+                try:
+                    csv.unlink()
+                except OSError:
+                    pass
+
+    elif entry.id == "bart":
+        import re
+
+        from researchforge.executor import rbridge
+
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
+        y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
+        if forced:
+            preds = forced[:20]
+        else:
+            preds = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"} and c.name not in {y, fp.unit_col, fp.time_col}
+            ][:15]
+        try:
+            ntree = max(10, int(cfg.get("ntree", 100)))
+        except (TypeError, ValueError):
+            ntree = 100
+        try:
+            seed = int(cfg.get("seed", 0))
+        except (TypeError, ValueError):
+            seed = 0
+        names_safe = y is not None and all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [y, *preds])
+        if y is None or not preds:
+            summary.append("BART 失败：需要 1 个连续结果变量 + ≥1 个预测变量。")
+        elif not (rbridge.r_available() and rbridge.r_package_available("dbarts")):
+            summary.append("BART 需要 R 的 dbarts 包（未检测到）。安装：install.packages('dbarts')；或用 random_forest / gam。")
+        elif not names_safe:
+            summary.append("BART 失败：列名需为标识符式（字母/数字/. _），R 列选择要求。")
+        else:
+            import pandas as pd
+
+            sub = df[[y, *preds]].dropna()
+            csv = d / "_bart_input.csv"
+            sub.to_csv(csv, index=False)
+            try:
+                meta, varimp = _bart_via_r(csv, y, preds, ntree, seed, d / "bart_varimp.png")
+                varimp.to_csv(d / "bart_variable_importance.csv", index=False, encoding="utf-8")
+                files.append("bart_variable_importance.csv")
+                if (d / "bart_varimp.png").exists():
+                    files.append("bart_varimp.png")
+                r2, rmse, sigma, n = meta["r2"], meta["rmse"], meta["sigma"], int(meta["n"])
+                estimates["r_squared_insample"] = round(r2, 4)
+                estimates["rmse"] = round(rmse, 4)
+                estimates["sigma"] = round(sigma, 4)
+                estimates["n"] = float(n)
+                top = varimp.head(3)["predictor"].tolist()
+                (d / "bart_summary.txt").write_text(
+                    f"BART 贝叶斯加性回归树（dbarts，{ntree} 树，seed={seed}）：{y} ~ {len(preds)} 个预测变量\n"
+                    f"样本内 R² = {r2:.4f}，RMSE = {rmse:.4f}，残差 σ = {sigma:.4f}，n={n}\n"
+                    f"变量重要性（分裂占比）前 3：{top}\n"
+                    "BART = 正则化先验下的树之和，自动建非线性 + 交互，给后验不确定性。\n"
+                    "注：R² 为样本内（偏乐观，无交叉验证）；分裂占比是粗略的重要性度量"
+                    "（相关变量间会摊分）；BART 是预测性的，非因果。\n\n"
+                    + varimp.to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("bart_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（R/dbarts，{ntree} 树）：{y} ~ {len(preds)} 个预测变量；"
+                    f"样本内 R²={r2:.3f}，RMSE={rmse:.3f}，残差 σ={sigma:.3f}（n={n}）；"
+                    f"最重要预测变量 {top}。⚠ 样本内 R² 偏乐观（无 CV）；分裂占比为粗略重要性；预测性非因果。"
+                )
+                code += [
+                    "library(dbarts)  # 贝叶斯加性回归树 BART",
+                    f"# bart(x.train=X, y.train=y, ntree={ntree}); yhat.train.mean + varcount 重要性",
+                ]
+            except Exception as err:
+                summary.append(f"BART 拟合失败：{err}")
             finally:
                 try:
                     csv.unlink()
