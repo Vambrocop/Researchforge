@@ -7,5 +7,21 @@ Add a family submodule import here as it is migrated out of the run.py monolith.
 
 from __future__ import annotations
 
-# Migrated families (each import registers its handlers):
-from . import soil  # noqa: F401
+# Each import registers that family's handlers:
+from . import (  # noqa: F401
+    causal,
+    configurational,
+    ecology,
+    econometrics,
+    efficiency,
+    mcda,
+    meta,
+    ml,
+    regression,
+    sem,
+    soil,
+    spatial,
+    statistics,
+    survival,
+    timeseries,
+)
