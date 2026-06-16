@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from researchforge.quality.scorecard import MODULE_LINE_LIMIT
+
 REPO = Path(__file__).resolve().parents[1]
-LIMIT = 1500  # lines; also the threshold the scorecard rewards for "modular" design
+LIMIT = MODULE_LINE_LIMIT  # single source of truth (also the scorecard's "modular" design threshold)
 
 
 def test_no_source_module_exceeds_line_limit() -> None:

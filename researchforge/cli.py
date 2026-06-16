@@ -166,15 +166,11 @@ def _cmd_status() -> int:
     import subprocess
     from pathlib import Path
 
-    from researchforge.quality import compute_scorecard
+    from researchforge.quality.scorecard import DIM_LABELS, MODULE_LINE_LIMIT, compute_scorecard
 
     repo = Path(__file__).resolve().parent.parent
     sc = compute_scorecard()
     m = sc.metrics
-    label = {
-        "completeness": "完整", "correctness": "准确", "rigor": "严谨", "honesty": "诚实",
-        "design": "设计", "novelty": "新颖", "performance": "快速", "usability": "可用",
-    }
     weak = sorted(sc.dimensions.items(), key=lambda kv: kv[1])
 
     def _git(*a: str) -> str:
@@ -186,19 +182,8 @@ def _cmd_status() -> int:
 
     branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "?"
     dirty = bool(_git("status", "--porcelain"))
-    unpushed = _git("rev-list", "--count", "@{u}..HEAD") or _git("rev-list", "--count", "origin/main..HEAD")
-
-    canaries = []
-    for p in (repo / "researchforge").rglob("*.py"):
-        if "__pycache__" in str(p):
-            continue
-        try:
-            n = len(p.read_text(encoding="utf-8").splitlines())
-        except Exception:
-            continue
-        if n >= 1000:
-            canaries.append((str(p.relative_to(repo)).replace("\\", "/"), n))
-    canaries.sort(key=lambda t: -t[1])
+    _u = _git("rev-list", "--count", "@{u}..HEAD") or _git("rev-list", "--count", "origin/main..HEAD")
+    n_unpushed = int(_u) if _u.isdigit() else None
 
     nexts: list[str] = []
     dlog = repo / "docs" / "deferred-log.md"
@@ -211,10 +196,10 @@ def _cmd_status() -> int:
     print("ResearchForge — 状态速览  (researchforge status)")
     print("=" * 56)
     print(f"健康  总分 {sc.overall}/100   最弱: "
-          + " · ".join(f"{label[k]} {v}" for k, v in weak[:3]))
+          + " · ".join(f"{DIM_LABELS[k]} {v}" for k, v in weak[:3]))
     print(f"规模  {int(m['n_methods'])} 方法 / {int(m['n_families'])} 族 / "
-          f"{int(m['n_test_files'])} 测试文件 / 最大模块 {int(m.get('max_module_lines', 0))} 行 (护栏 1500)")
-    print(f"Git   分支 {branch} · 未推送 {unpushed or '?'} · 工作树 {'有改动' if dirty else '干净'}")
+          f"{int(m['n_test_files'])} 测试文件 / 最大模块 {int(m.get('max_module_lines', 0))} 行 (护栏 {MODULE_LINE_LIMIT})")
+    print(f"Git   分支 {branch} · 未推送 {n_unpushed if n_unpushed is not None else '?'} · 工作树 {'有改动' if dirty else '干净'}")
 
     print("\n🔜 下一波 (docs/deferred-log.md):")
     if nexts:
@@ -225,11 +210,12 @@ def _cmd_status() -> int:
 
     print("\n需改进 (自动探测):")
     for k, v in weak[:2]:
-        print(f"  - {label[k]}性 {v} —— {sc.notes[k].split('；')[0].split('（')[0]}")
-    for rel, n in canaries:
-        print(f"  - {'⚠ 逼近' if n >= 1200 else '留意'}护栏: {rel} ({n}/1500 行)")
-    if unpushed and unpushed != "0":
-        print(f"  - {unpushed} 个 commit 未 push（用户说『今天 ok』才推）")
+        print(f"  - {DIM_LABELS[k]} {v} —— {sc.notes[k].split('；')[0].split('（')[0]}")
+    warn_at = int(MODULE_LINE_LIMIT * 0.8)
+    for rel, n in sc.large_modules:
+        print(f"  - {'⚠ 逼近' if n >= warn_at else '留意'}护栏: {rel} ({n}/{MODULE_LINE_LIMIT} 行)")
+    if n_unpushed:
+        print(f"  - {n_unpushed} 个 commit 未 push（用户说『今天 ok』才推）")
     if dirty:
         print("  - 工作树有未提交改动")
 

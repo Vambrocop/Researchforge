@@ -27,57 +27,70 @@ _MODERN = {
     "conformal_prediction", "gsynth", "quantile_forest",
 }
 
+# Canonical Chinese labels for the 8 dimensions — single source of truth for table()
+# and `cli status` (so the two don't drift when a dimension is added/renamed).
+DIM_LABELS = {
+    "completeness": "完整性", "correctness": "准确性", "rigor": "专业性·严谨",
+    "honesty": "诚实性", "design": "设计性", "novelty": "新颖性",
+    "performance": "快速性", "usability": "可用性",
+}
+
+# Max lines per source module — the test_module_size guardrail AND the design-score
+# modularity threshold. One number, imported everywhere it's enforced/displayed.
+MODULE_LINE_LIMIT = 1500
+
 
 class ProjectScorecard(BaseModel):
     dimensions: dict[str, int]          # name -> 0-100
     notes: dict[str, str]               # name -> justification
     overall: int
     metrics: dict[str, float]           # raw measured signals (for transparency)
+    large_modules: list[tuple[str, int]] = []  # (path, lines) for modules >= 1000 lines
 
     def table(self) -> str:
         order = ["completeness", "correctness", "rigor", "honesty", "design",
                  "novelty", "performance", "usability"]
-        label = {
-            "completeness": "完整性", "correctness": "准确性", "rigor": "专业性·严谨",
-            "honesty": "诚实性", "design": "设计性", "novelty": "新颖性",
-            "performance": "快速性", "usability": "可用性",
-        }
-        rows = [f"  {label[k]:<8} {self.dimensions[k]:3d}  — {self.notes[k]}" for k in order]
+        rows = [f"  {DIM_LABELS[k]:<8} {self.dimensions[k]:3d}  — {self.notes[k]}" for k in order]
         return "\n".join(rows)
 
 
-def _measure(catalog) -> dict:
+def _measure(catalog) -> tuple[dict, list[tuple[str, int]]]:
     methods = catalog.all()
     ids = {e.id for e in methods}
     n = len(methods)
     families = len({e.family for e in methods})
     n_biases = sum(len(e.biases) for e in methods)
     test_files = list((_REPO / "tests").glob("test_*.py"))
-    # disclosure signals (⚠ / 诚实降级 / 失败：) are spread across the executor now that
-    # the run.py monolith was split into branches/*.py — scan all of them, not just run.py.
+    # ONE walk over researchforge/**/*.py computes: the largest module (design signal),
+    # the disclosure-signal counts (⚠ / 诚实降级 / 失败：, which live in the executor
+    # analysis code: run.py + branches/*.py), and the list of large modules (so `cli
+    # status` can show canaries without re-walking the tree).
     exec_dir = _REPO / "researchforge" / "executor"
-    exec_src = ""
-    for _p in [exec_dir / "run.py", *sorted((exec_dir / "branches").glob("*.py"))]:
-        try:
-            exec_src += _p.read_text(encoding="utf-8")
-        except Exception:
-            pass
-    # largest module in lines — a structural/design signal (the monolith split cut it ~7935→2442)
-    max_mod = 0
-    for _p in (_REPO / "researchforge").rglob("*.py"):
-        if "__pycache__" in str(_p):
+    run_py, branches_dir = exec_dir / "run.py", exec_dir / "branches"
+    max_mod = n_warn = n_degrade = 0
+    large: list[tuple[str, int]] = []
+    for p in (_REPO / "researchforge").rglob("*.py"):
+        if "__pycache__" in str(p):
             continue
         try:
-            max_mod = max(max_mod, len(_p.read_text(encoding="utf-8").splitlines()))
+            txt = p.read_text(encoding="utf-8")
         except Exception:
-            pass
-    return {
+            continue
+        lines = len(txt.splitlines())
+        max_mod = max(max_mod, lines)
+        if lines >= 1000:
+            large.append((str(p.relative_to(_REPO)).replace("\\", "/"), lines))
+        if p == run_py or p.parent == branches_dir:
+            n_warn += txt.count("⚠")
+            n_degrade += txt.count("诚实降级") + txt.count("失败：")
+    large.sort(key=lambda t: -t[1])
+    m = {
         "n_methods": float(n),
         "n_families": float(families),
         "n_test_files": float(len(test_files)),
         "avg_biases": round(n_biases / n, 2) if n else 0.0,
-        "n_warn": float(exec_src.count("⚠")),
-        "n_degrade": float(exec_src.count("诚实降级") + exec_src.count("失败：")),
+        "n_warn": float(n_warn),
+        "n_degrade": float(n_degrade),
         "n_modern": float(len(ids & _MODERN)),
         "max_module_lines": float(max_mod),
         "has_web_ui": 1.0 if (_REPO / "researchforge" / "web" / "templates").exists() else 0.0,
@@ -85,6 +98,7 @@ def _measure(catalog) -> dict:
         "has_self_evolution": 1.0 if (_REPO / "researchforge" / "catalog" / "discover.py").exists() else 0.0,
         "has_inference_reviewer": 1.0 if (_REPO / ".claude" / "agents" / "inference-reviewer.md").exists() else 0.0,
     }
+    return m, large
 
 
 def _clip(x: float) -> int:
@@ -95,7 +109,7 @@ def compute_scorecard(catalog=None) -> ProjectScorecard:
     from researchforge.catalog.registry import Catalog
 
     catalog = catalog or Catalog.load()
-    m = _measure(catalog)
+    m, large = _measure(catalog)
     n, fam = m["n_methods"], m["n_families"]
 
     dims, notes = {}, {}
@@ -111,9 +125,9 @@ def compute_scorecard(catalog=None) -> ProjectScorecard:
     dims["honesty"] = _clip(60 + m["n_degrade"] * 0.4 + m["has_deferred_log"] * 8)
     notes["honesty"] = f"{int(m['n_degrade'])} 处诚实降级/失败提示、{int(m['n_warn'])} 处 ⚠ 披露；有未做事项日志"
 
-    # modularity: penalise a monolith. max module ~7935 -> +0; ~2442 -> +4; <1500 -> +8
+    # modularity: penalise a monolith. max module ~7935 -> +0; ~2442 -> +4; <=LIMIT -> +8
     mx = m["max_module_lines"]
-    modularity = 8 if mx <= 1500 else 4 if mx <= 3000 else 0
+    modularity = 8 if mx <= MODULE_LINE_LIMIT else 4 if mx <= 2 * MODULE_LINE_LIMIT else 0
     dims["design"] = _clip(60 + m["has_self_evolution"] * 12 + m["has_inference_reviewer"] * 10 + modularity)
     notes["design"] = (
         "三层(profiler→recommender→executor) + config 覆盖 + 自进化 + 子代理/技能/钩子；"
@@ -134,4 +148,4 @@ def compute_scorecard(catalog=None) -> ProjectScorecard:
     weights = {"completeness": 1.2, "correctness": 1.4, "rigor": 1.3, "honesty": 1.1,
                "design": 1.1, "novelty": 0.9, "performance": 0.8, "usability": 1.0}
     overall = round(sum(dims[k] * weights[k] for k in dims) / sum(weights.values()))
-    return ProjectScorecard(dimensions=dims, notes=notes, overall=overall, metrics=m)
+    return ProjectScorecard(dimensions=dims, notes=notes, overall=overall, metrics=m, large_modules=large)
