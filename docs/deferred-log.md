@@ -4,6 +4,16 @@
 > 每条：**项** · **为何没做/降级** · **当前可用替代/现状** · **如何补全/优化**。
 > 由 AI 自走时持续追加（受 CPU/GPU/装包/后端限制时尤其要写在这）。
 
+## 🔜 下一波（优先级，2026-06-16 更新）
+
+> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆（branches/ + _helpers/ + 注册表 + 自动发现 + ≤1500 护栏）、测试提速（`pytest -n 2` 全量 4:29→2:49 + `pytest -m "not slow"` 快循环；别用 `-n auto` 会 OOM）、conformal_prediction。评分卡 总分 89（设计 90 / 快速 70）。
+
+1. **Web 前端**（可用性 58，最大短板）：已有 FastAPI `researchforge/web/`，缺前端——上传→推荐（🟢🟡🔴 严谨度灯 + 6 维评分卡）→跑→报告/图。**动手前问用户**敲定栈（原生 HTML+模板 vs 框架）/样式/页面范围。
+2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级（抓不到回退 SEED）；流行度/更新喂回 `recommender/scoring.py`。
+3. **推断 backlog（可分批，每个 inference-reviewer 双审）**：DML/causal_forest 的 CV R²、causal_forest frac_significant 多重比较校正（BH/同时置信带）、BART holdout/CV R²、GAMM 非高斯族（binomial/poisson）。细节见下方「好点子」。
+
+---
+
 ## 方法层（method gaps）
 
 | 项 | 为何降级/未做 | 当前替代/现状 | 如何补全 |
