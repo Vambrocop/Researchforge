@@ -1105,6 +1105,71 @@ def _diff_abundance_aldex2_via_r(csv_path, taxa: list[str], group: str):
     return res
 
 
+def _jm_via_r(csv_path, idc, timec, marker, surv_time, event, covariates):
+    """Joint longitudinal–survival model via R JM (Rizopoulos): a linear mixed
+    model for the longitudinal marker + a Cox/Weibull-PH survival submodel, linked
+    by the ASSOCIATION parameter (how the current marker value shifts the event
+    hazard). Returns (event_df, long_df, fit dict). Column names are identifier-
+    guarded upstream. Raises so the caller can degrade honestly."""
+    import pandas as pd
+
+    from researchforge.executor import rbridge
+
+    csv_r = str(csv_path).replace("\\", "/")
+    covf = " + ".join(covariates) if covariates else "1"
+    rcode = (
+        "suppressMessages(library(JM))\n"
+        f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
+        f'd <- d[order(d[["{idc}"]], d[["{timec}"]]), ]\n'
+        f"lmeFit <- lme({marker} ~ {timec}, random = ~ {timec} | {idc}, data = d, "
+        'control = lmeControl(opt="optim", returnObject=TRUE))\n'
+        f'sid <- d[!duplicated(d[["{idc}"]]), ]\n'
+        f"coxFit <- coxph(Surv({surv_time}, {event}) ~ {covf}, data = sid, x = TRUE)\n"
+        f'jf <- jointModel(lmeFit, coxFit, timeVar = "{timec}", method = "weibull-PH-aGH")\n'
+        "s <- summary(jf)\n"
+        'cat("##E\\n"); ev <- s[["CoefTable-Event"]]\n'
+        'for (i in seq_len(nrow(ev))) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", '
+        "rownames(ev)[i], ev[i,1], ev[i,2], ev[i,4]))\n"
+        'cat("##L\\n"); lo <- s[["CoefTable-Long"]]\n'
+        'for (i in seq_len(nrow(lo))) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", '
+        "rownames(lo)[i], lo[i,1], lo[i,2], lo[i,4]))\n"
+        'cat("##F\\n")\n'
+        # count subjects/events directly from the per-subject data (s$d is not the event count)
+        f'nev <- sum(as.numeric(sid[["{event}"]]) == 1)\n'
+        "cat(sprintf(\"aic|%.4f\\nn_subjects|%d\\nn_events|%d\\nconv|%d\\n\", "
+        "s$AIC, nrow(sid), as.integer(nev), as.integer(jf$conv)))\n"
+    )
+    out = rbridge.run_r(rcode, timeout=300)
+    section, erows, lrows, fit = None, [], [], {}
+    for line in out.splitlines():
+        s = line.strip()
+        if s == "##E":
+            section = "E"
+        elif s == "##L":
+            section = "L"
+        elif s == "##F":
+            section = "F"
+        elif "|" in s and section == "E":
+            erows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "L":
+            lrows.append(s.rsplit("|", 3))
+        elif "|" in s and section == "F":
+            k, v = s.split("|", 1)
+            fit[k] = float(v)
+    if not erows or "aic" not in fit:
+        raise RuntimeError("JM jointModel 未返回结果（检查纵向/生存结构与收敛）")
+    # JM does NOT error on non-convergence — it returns numbers with conv!=0 (Opus
+    # catch). Reject them: a non-converged association/p-value is not trustworthy.
+    if fit.get("conv", 0) != 0:
+        raise RuntimeError("JM 联合模型未收敛（conv≠0），结果不可信——可换更简单的轨迹或加迭代")
+    ev = pd.DataFrame(erows, columns=["term", "value", "std_err", "p_value"])
+    lo = pd.DataFrame(lrows, columns=["term", "value", "std_err", "p_value"])
+    for t in (ev, lo):
+        for c in ("value", "std_err", "p_value"):
+            t[c] = pd.to_numeric(t[c], errors="coerce")
+    return ev, lo, fit
+
+
 def _meta_via_r(csv_path, *, measure, roles, study_col, method, forest_png, funnel_png):
     """Random/fixed-effects meta-analysis via R metafor. `measure` is "GEN"
     (pre-computed effect sizes yi + vi/sei) or an escalc measure ("SMD"/"MD"/
@@ -5048,6 +5113,135 @@ def run_analysis(
                 ]
             except Exception as err:
                 summary.append(f"双重机器学习拟合失败：{err}")
+
+    elif entry.id == "joint_longitudinal_survival":
+        import re
+
+        import pandas as pd
+
+        from researchforge.executor import rbridge
+
+        idc = cfg.get("id") or fp.unit_col
+        timec = cfg.get("time") or fp.time_col
+        marker = surv_time = event = None
+        covariates: list[str] = []
+        if idc and timec and idc in df.columns and timec in df.columns:
+            g = df.groupby(idc)
+            others = [c for c in df.columns if c not in {idc, timec}]
+            # per-subject (constant within id) vs within-subject varying columns
+            const_cols, vary_cols = [], []
+            for c in others:
+                try:
+                    (const_cols if g[c].nunique(dropna=True).max() <= 1 else vary_cols).append(c)
+                except TypeError:
+                    const_cols.append(c)
+            kind = {c.name: c.kind for c in fp.columns}
+            # event: a constant binary 0/1 column; surv_time: a constant continuous
+            # column (≠event); marker: a within-subject varying continuous column.
+            event = cfg.get("event") or next(
+                (c for c in const_cols if kind.get(c) == "binary"
+                 and set(pd.to_numeric(df[c], errors="coerce").dropna().unique()) <= {0, 1}),
+                None,
+            )
+            surv_time = cfg.get("event_time") or next(
+                (c for c in const_cols if c != event and kind.get(c) in {"continuous", "count", "id"}
+                 and pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique() > 2),
+                None,
+            )
+            marker = cfg.get("marker") or next(
+                (c for c in vary_cols if kind.get(c) == "continuous" and c not in {surv_time, event}),
+                None,
+            )
+            covariates = [c for c in (cfg.get("covariates") or [])
+                          if c in const_cols and c not in {event, surv_time}][:4]
+            if not cfg.get("covariates"):
+                covariates = [c for c in const_cols if c not in {event, surv_time}
+                              and kind.get(c) in {"binary", "categorical", "continuous", "count"}][:2]
+        names_safe = all(
+            x and re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(x))
+            for x in [idc, timec, marker, surv_time, event, *covariates]
+        )
+        if not (rbridge.r_available() and rbridge.r_package_available("JM")):
+            summary.append("联合模型需要 R 的 JM 包（未检测到）。安装：install.packages('JM')；或分别用 mixed_effects（纵向）+ survival_analysis（生存）。")
+        elif not (idc and timec):
+            summary.append("联合模型失败：需要面板结构（受试者 id 列 + 随访时间列）。")
+        elif not (marker and surv_time and event):
+            summary.append(
+                "联合模型失败：需要 纵向标志物(随 id 内时间变化的连续列) + 生存时间(每受试者恒定的连续列) "
+                "+ 事件(每受试者恒定的 0/1 列)。用 config={\"marker\":..,\"event_time\":..,\"event\":..} 指定。"
+            )
+        elif not names_safe:
+            summary.append("联合模型失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+        else:
+            cols_all = [idc, timec, marker, surv_time, event, *covariates]
+            sub = df[cols_all].dropna()
+            # survival cols must be per-subject constant (auto-detect guarantees this,
+            # but a config override can bypass it → first-row dedup would silently use
+            # the first visit's value; Opus catch).
+            _g = sub.groupby(idc)
+            nonconst = [c for c in (surv_time, event, *covariates) if _g[c].nunique(dropna=True).max() > 1]
+            if sub[idc].nunique() < 20 or sub[event].astype(float).sum() < 10:
+                summary.append(
+                    f"联合模型失败：受试者数 {sub[idc].nunique()}（需 ≥20）或事件数 "
+                    f"{int(sub[event].astype(float).sum())}（需 ≥10）太少，联合模型不稳。"
+                )
+            elif nonconst:
+                summary.append(
+                    f"联合模型失败：生存时间/事件/协变量列 {nonconst} 在受试者内不恒定"
+                    "（应每受试者一个值）；请检查 config 指定的列。"
+                )
+            else:
+                csv = d / "_jm_input.csv"
+                sub.to_csv(csv, index=False)
+                try:
+                    ev, lo, fit = _jm_via_r(csv, idc, timec, marker, surv_time, event, covariates)
+                    ev.to_csv(d / "jm_event_submodel.csv", index=False, encoding="utf-8")
+                    lo.to_csv(d / "jm_longitudinal_submodel.csv", index=False, encoding="utf-8")
+                    files += ["jm_event_submodel.csv", "jm_longitudinal_submodel.csv"]
+                    arow = ev[ev["term"] == "Assoct"]
+                    assoc = float(arow["value"].iloc[0]) if len(arow) else float("nan")
+                    assoc_p = float(arow["p_value"].iloc[0]) if len(arow) else float("nan")
+                    srow = lo[lo["term"] == timec]
+                    slope = float(srow["value"].iloc[0]) if len(srow) else float("nan")
+                    estimates["association"] = round(assoc, 4)
+                    estimates["association_p"] = round(assoc_p, 4)
+                    estimates["longitudinal_slope"] = round(slope, 4)
+                    estimates["aic"] = round(fit["aic"], 2)
+                    estimates["n_subjects"] = float(int(fit["n_subjects"]))
+                    estimates["n_events"] = float(int(fit["n_events"]))
+                    sig = "显著" if assoc_p < 0.05 else "不显著"
+                    direction = "标志物越高、事件风险越低" if assoc < 0 else "标志物越高、事件风险越高"
+                    (d / "jm_summary.txt").write_text(
+                        f"联合纵向-生存模型（R JM，Weibull-PH，关联=当前标志物值）\n"
+                        f"标志物 {marker}（随 {timec}）↔ 事件 Surv({surv_time},{event})，"
+                        f"{int(fit['n_subjects'])} 受试者 / {int(fit['n_events'])} 事件，协变量 {covariates or '无'}\n"
+                        f"关联参数 Assoct = {assoc:.4f}（p={assoc_p:.4g}，{sig}）→ {direction}（log 风险比/单位标志物）\n"
+                        f"纵向斜率（{timec}）= {slope:.4f}；AIC={fit['aic']:.1f}\n"
+                        "联合模型同时建标志物轨迹与事件时间、用当前真值入风险，校正了"
+                        "测量误差与信息性删失（标准两步法/时变 Cox 不能）。\n"
+                        "假定：随机效应正态、关联通过当前真值、删失随机（MAR）。\n\n"
+                        "事件子模型：\n" + ev.to_string(index=False)
+                        + "\n\n纵向子模型：\n" + lo.to_string(index=False),
+                        encoding="utf-8",
+                    )
+                    files.append("jm_summary.txt")
+                    summary.append(
+                        f"{entry.method} 完成（R/JM）：标志物 {marker} ↔ 事件 {event}；"
+                        f"关联参数={assoc:.4f}（p={assoc_p:.3g}，{sig}，{direction}）；"
+                        f"纵向斜率={slope:.4f}；{int(fit['n_subjects'])} 受试者/{int(fit['n_events'])} 事件，AIC={fit['aic']:.1f}。"
+                        "⚠ 假定随机效应正态、关联经当前真值、删失随机(MAR)；联合建模校正测量误差+信息删失。"
+                    )
+                    code += [
+                        "library(JM)  # 联合纵向-生存模型",
+                        f"# lme({marker}~{timec},random=~{timec}|{idc}) + coxph(Surv({surv_time},{event})~..) -> jointModel",
+                    ]
+                except Exception as err:
+                    summary.append(f"联合模型拟合失败（可能不收敛）：{err}")
+                finally:
+                    try:
+                        csv.unlink()
+                    except OSError:
+                        pass
 
     elif entry.id == "changes_in_changes":
         import re

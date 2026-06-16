@@ -224,6 +224,26 @@
     - smooth basis dimension (k=10) caps wiggliness; boundary / sparse-region extrapolation is unreliable
     - GAM shows association, not causation; concurvity (nonlinear collinearity, flagged when worst > 0.8) can destabilise smooths
 
+- id: joint_longitudinal_survival
+  method: Joint longitudinal–survival model (JM)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: Jointly models a longitudinal biomarker trajectory (linear mixed model) and a time-to-event outcome (Weibull proportional-hazards), linked by an association parameter that quantifies how the current marker value shifts the event hazard. Corrects the measurement error and informative-dropout bias that a naive time-varying Cox / two-stage approach suffers. Needs panel data — a subject id, repeated marker measurements over a visit-time column, and a per-subject event time + 0/1 event indicator. Uses R JM.
+  preconditions:
+    is_panel: true
+    requires_binary_outcome: true
+    min_rows: 60
+  produces:
+    - association parameter (marker value ↔ event hazard) + p
+    - longitudinal-trajectory + survival submodel tables
+    - AIC, subjects, events
+  executor_ref: JM
+  biases:
+    - roles auto-detected (varying continuous = marker, per-subject constant continuous = event time, per-subject 0/1 = event) — set config marker/event_time/event if wrong
+    - assumes normal random effects, association via the current true marker value, and random (MAR) censoring
+    - needs enough subjects/events (>=20 / >=10 here) and can fail to converge; a single linear marker trajectory may be too simple
+
 - id: meta_regression
   method: Meta-regression (moderators, metafor)
   domain: statistics
