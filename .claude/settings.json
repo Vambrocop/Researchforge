@@ -115,11 +115,31 @@
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_bayesian_sem.py -q)",
       "Bash(echo \"BSEM_EXIT=$?\")",
       "Bash(cd \"E:/my-projects/Researchforge\" && grep -E \"[0-9]+ passed|failed\" /tmp/full.log | tail -1; git add -A && git commit -q -F .git/COMMIT_EDITMSG_RF && rm -f .git/COMMIT_EDITMSG_RF && echo COMMITTED; echo \"unpushed: $\\(git log origin/main..HEAD --oneline | wc -l\\)\"; echo \"=== discover queue now ===\"; PYTHONUTF8=1 py -3 -m researchforge.cli discover 2>&1 | head -1)",
-      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli scorecard --save)"
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli scorecard --save)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'install.packages\\(\"gsynth\", repos=\"https://cloud.r-project.org\"\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'cat\\(\"gsynth installed:\",requireNamespace\\(\"gsynth\",quietly=TRUE\\),\"\\\\n\"\\)')",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" data/_probe_gsynth.R)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'suppressMessages\\(library\\(gsynth\\)\\); data\\(gsynth\\); write.csv\\(simdata[,c\\(\"id\",\"time\",\"Y\",\"D\"\\)], \"data/demo_gsynth.csv\", row.names=FALSE\\)')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_gsynth.csv gsynth --config '{\"outcome\":\"Y\",\"treatment\":\"D\"}')",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_gsynth.py -q)",
+      "Bash(echo \"GS_EXIT=$?\")",
+      "Bash(Rscript /tmp/probe1.R)",
+      "Bash(cat > *)",
+      "Bash(PYTHONUTF8=1 py -3 /tmp/probe1.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe1.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe2.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe3.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe4.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe5.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe6.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe7.py)",
+      "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe8.py)",
+      "Bash(rm -f /tmp/probe*.py /tmp/probe*.R 2>/dev/null; echo done)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",
-      "E:\\my-projects\\Researchforge\\.git"
+      "E:\\my-projects\\Researchforge\\.git",
+      "\\tmp"
     ]
   }
 }

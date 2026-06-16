@@ -140,6 +140,28 @@
     - identifies only a LOCAL effect at the cutoff (limited external validity away from it)
     - assumes potential-outcome means are continuous at the cutoff (no other policy/confounder jumps there) and the running variable cannot be precisely manipulated (run a McCrary density / sorting test)
 
+- id: gsynth
+  method: Generalized synthetic control (interactive fixed effects)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Generalized synthetic control (Xu 2017) — estimates the average treatment effect on treated units via an interactive fixed-effects counterfactual (latent factors x loadings), handling MULTIPLE treated units and staggered adoption that the classic single-treated synthetic control cannot. The number of latent factors is chosen by cross-validation; inference via parametric bootstrap. Reports the overall ATT + CI, the number of factors, and a dynamic-ATT plot. Needs panel data + a 0/1 treatment indicator.
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    requires_time: true
+    min_rows: 100
+  produces:
+    - average ATT + 95% CI (interactive fixed effects)
+    - number of latent factors (CV) + treated/control counts
+    - dynamic ATT-by-time plot
+  executor_ref: gsynth
+  biases:
+    - treatment must be a 0/1 indicator (1 = that unit is under treatment that period); set config treatment if auto-detect is wrong
+    - assumes time-varying confounding is captured by a low-dimensional factor structure and donor units are unaffected by spillovers
+    - cross-validated factor count + bootstrap inference add randomness; seed-pinned, but in SMALL samples the CV-chosen factor count (and hence the ATT) can be seed-sensitive — check robustness across seeds
+    - needs enough control units (>=5) and sufficient pre-treatment periods per treated unit (gsynth silently drops treated units with <5 pre-periods; disclosed when it happens)
+
 - id: synthetic_control
   method: Synthetic control method (Abadie)
   domain: economics

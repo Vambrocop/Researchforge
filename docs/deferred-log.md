@@ -45,6 +45,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **joint model**：基线风险可选 **spline-PH**（更灵活）；`event_time` 自动检测可优先**按列名**（time/surv/fu/followup）而非"首个常量连续"。
 - **meta / CiC**：小 k（<10）偏倚检验功效不足（已披露）；FE 下 I²/τ² 无意义（已改）。
 
+**方法可运行性验证（用户点子 2026-06-16）：**
+- 原则：每个方法都用**真实示例数据**跑通 + 出图，**留代码**作为"可运行"凭证。
+- 小 demo（KB 级）：committed + 驱动测试（合成数据常不收敛，真实小样本更稳）。
+- 大数据（MB+）：**下载→跑通→作图→删数据留代码**（省空间），验证留痕记本日志（来源+结果，便于复现）。
+- 极致版：测试**从 R 包内置数据现取**（gsynth simdata / JM aids…），数据不进仓库、只留代码。
+
 **通用工程灵感：**
 - **profiler 增强**：按列名识别设计性角色（事件时间、驱动变量、处理组），减少 RDD/JM/synth 对 config 的依赖。
 - **测试提速**：pytest-xdist 并行 + R 慢测分层（`@pytest.mark.slow`）。
