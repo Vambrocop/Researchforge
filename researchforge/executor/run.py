@@ -1434,6 +1434,75 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
     return out
 
 
+def _conformal_prediction(df, outcome, predictors, alpha, seed, plot_path):
+    """Split (inductive) conformal prediction (Vovk; Lei et al.): distribution-free
+    prediction intervals with a finite-sample marginal coverage guarantee >= 1-alpha,
+    for ANY base regressor. Splits data into train / calibration / test; fits a
+    RandomForest on train; the conformity threshold q = the ceil((n_cal+1)(1-alpha))-th
+    smallest absolute calibration residual; interval = yhat +/- q. Returns a metrics
+    dict (target vs empirical coverage, mean width, q). Writes a coverage plot."""
+    import numpy as np
+    from sklearn.ensemble import RandomForestRegressor
+
+    sub = df[[outcome, *predictors]].dropna()
+    rng = np.random.default_rng(int(seed))
+    n = len(sub)
+    idx = rng.permutation(n)
+    n_tr, n_cal = int(0.5 * n), int(0.25 * n)
+    tr, cal, te = idx[:n_tr], idx[n_tr:n_tr + n_cal], idx[n_tr + n_cal:]
+    X = sub[predictors].to_numpy(dtype=float)
+    y = sub[outcome].to_numpy(dtype=float)
+    model = RandomForestRegressor(n_estimators=200, random_state=int(seed))
+    model.fit(X[tr], y[tr])
+    cal_scores = np.abs(y[cal] - model.predict(X[cal]))  # conformity scores
+    n_c = len(cal_scores)
+    raw_k = int(np.ceil((n_c + 1) * (1 - alpha)))  # exact conformal rank (finite-sample valid)
+    # raw_k > n_cal means the formal threshold is +inf (cal set too small for a 1-alpha
+    # guarantee); cap to the max residual as an approximation and flag it (Opus catch).
+    cal_too_small = raw_k > n_c
+    k = min(n_c, raw_k)
+    q = float(np.sort(cal_scores)[k - 1])  # k-th smallest -> threshold
+    yhat_te = model.predict(X[te])
+    covered = np.abs(y[te] - yhat_te) <= q
+    emp_cov = float(np.mean(covered))
+    ss_tot = float(np.sum((y[te] - y[te].mean()) ** 2))
+    r2_te = float(1 - np.sum((y[te] - yhat_te) ** 2) / ss_tot) if ss_tot > 1e-9 else float("nan")
+    out = {
+        "target_coverage": round(1 - alpha, 3),
+        "empirical_coverage": round(emp_cov, 3),
+        "mean_interval_width": round(2 * q, 4),
+        "conformal_q": round(q, 4),
+        "test_r2": round(r2_te, 4) if r2_te == r2_te else float("nan"),
+        "n_test": int(len(te)),
+        "n_calibration": int(n_c),
+        "cal_too_small": bool(cal_too_small),
+    }
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        order = np.argsort(yhat_te)
+        xs = np.arange(len(order))
+        fig, ax = plt.subplots(figsize=(7, 4.5))
+        ax.fill_between(xs, (yhat_te - q)[order], (yhat_te + q)[order], color="#4C72B0", alpha=0.25,
+                        label=f"{(1 - alpha):.0%} prediction interval")
+        ax.plot(xs, yhat_te[order], color="#4C72B0", lw=1, label="prediction")
+        ax.scatter(xs, y[te][order], s=12, c=np.where(covered[order], "#55A868", "#C44E52"),
+                   label="actual (green=covered)")
+        ax.set_xlabel("test points (sorted by prediction)")
+        ax.set_ylabel(outcome)
+        ax.set_title(f"Conformal prediction — empirical coverage {emp_cov:.1%} (target {(1 - alpha):.0%})")
+        ax.legend(fontsize=8)
+        fig.tight_layout()
+        fig.savefig(plot_path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+    return out
+
+
 def _network_via_nx(df, source, target, weight, directed, plot_path):
     """Graph / network analysis via networkx: graph-level metrics, node centralities
     (degree/betweenness/closeness/eigenvector), and Louvain community detection.
@@ -4910,6 +4979,85 @@ def run_analysis(
                     csv.unlink()
                 except OSError:
                     pass
+
+    elif entry.id == "conformal_prediction":
+        import importlib.util
+
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
+        y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+        forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
+        if forced:
+            preds = forced[:15]
+        else:
+            preds = [
+                c.name for c in fp.columns
+                if c.kind in {"continuous", "count", "binary"} and c.name not in {y, fp.unit_col, fp.time_col}
+            ][:12]
+        try:
+            alpha = min(0.5, max(0.01, float(cfg.get("alpha", 0.1))))
+        except (TypeError, ValueError):
+            alpha = 0.1
+        try:
+            seed = int(cfg.get("seed", 0))
+        except (TypeError, ValueError):
+            seed = 0
+        if importlib.util.find_spec("sklearn") is None:
+            summary.append("保形预测需要 scikit-learn（未检测到）。安装：pip install scikit-learn。")
+        elif y is None or not preds:
+            summary.append("保形预测失败：需要 1 个连续结果变量 + ≥1 个预测变量。")
+        elif len(df[[y, *preds]].dropna()) < 40:
+            summary.append("保形预测失败：有效样本 <40，无法做 训练/校准/测试 三分。")
+        else:
+            try:
+                import pandas as pd
+
+                res = _conformal_prediction(df, y, preds, alpha, seed, d / "conformal.png")
+                if (d / "conformal.png").exists():
+                    files.append("conformal.png")
+                pd.DataFrame([res]).to_csv(d / "conformal_metrics.csv", index=False, encoding="utf-8")
+                files.append("conformal_metrics.csv")
+                tc, ec = res["target_coverage"], res["empirical_coverage"]
+                w, qv = res["mean_interval_width"], res["conformal_q"]
+                for k_, v_ in res.items():
+                    estimates[k_] = float(v_)
+                # honest disclosure: when the calibration set is too small the 1-alpha
+                # finite-sample guarantee is UNATTAINABLE (cap fired) — never claim it then,
+                # and don't let cov_ok print "达标" for a void guarantee (inference-reviewer must-fix).
+                too_small = bool(res["cal_too_small"])
+                if too_small:
+                    n_c = int(res["n_calibration"])
+                    ceil_cov = n_c / (n_c + 1)
+                    cov_ok = "保证不可达：校准集过小"
+                    guarantee = (
+                        f"⚠ 校准集仅 {n_c} 个样本，对 α={alpha} 而言 ceil((n_cal+1)(1−α))>n_cal，"
+                        f"1−α 的有限样本覆盖保证**无法达到**；已退化为「最大校准残差」作区间上界"
+                        f"（可达覆盖上限≈n_cal/(n_cal+1)={ceil_cov:.1%}）。请增大样本或调高 α。"
+                    )
+                else:
+                    cov_ok = "达标" if ec >= tc - 0.05 else "偏低（样本/可交换性存疑）"
+                    guarantee = "保形预测给**分布无关、有限样本**的边际覆盖保证（任意基模型）。"
+                (d / "conformal_summary.txt").write_text(
+                    f"分裂保形预测（split conformal，RandomForest 基模型，α={alpha}）：{y} ~ {len(preds)} 个预测变量\n"
+                    f"目标覆盖 {tc:.0%}，测试集经验覆盖 {ec:.1%}（{cov_ok}）\n"
+                    f"保形阈值 q={qv:.4f}，平均区间宽 {w:.4f}（=2q）；测试 R²={res['test_r2']:.3f}；"
+                    f"校准 {res['n_calibration']} / 测试 {res['n_test']}\n"
+                    f"{guarantee}"
+                    "区间等宽（非自适应）；保证是边际而非条件覆盖；假定数据可交换(iid)。\n",
+                    encoding="utf-8",
+                )
+                files.append("conformal_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（split conformal，RF 基模型，α={alpha}）：{y} ~ {len(preds)} 预测变量；"
+                    f"目标覆盖 {tc:.0%}、测试经验覆盖 {ec:.1%}（{cov_ok}）；平均区间宽 {w:.3f}，测试 R²={res['test_r2']:.3f}。"
+                    + (guarantee if too_small
+                       else "⚠ 分布无关有限样本覆盖保证，但为**边际**(非条件)覆盖、区间等宽；假定可交换(iid)。")
+                )
+                code += [
+                    "from sklearn.ensemble import RandomForestRegressor  # 分裂保形预测",
+                    "# 训练拟合 -> 校准 |残差| 的 ceil((n+1)(1-α)) 分位 q -> 区间 ŷ±q（覆盖≥1-α）",
+                ]
+            except Exception as err:
+                summary.append(f"保形预测失败：{err}")
 
     elif entry.id == "network_analysis":
         import importlib.util

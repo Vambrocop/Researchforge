@@ -18,6 +18,26 @@
     - in-sample R-squared is optimistic (no cross-validation); split-share importance is rough and splits credit among correlated predictors
     - BART is predictive, not causal; MCMC adds randomness (seed-pinned)
 
+- id: conformal_prediction
+  method: Conformal prediction (distribution-free prediction intervals)
+  domain: machine learning
+  family: ml
+  goal: predict
+  description: Split (inductive) conformal prediction — wraps a RandomForest regressor to produce prediction intervals with a finite-sample, distribution-free marginal coverage guarantee (>= 1-alpha), for any base model. Splits data into train / calibration / test, calibrates the conformity threshold on held-out absolute residuals, and reports target vs empirical coverage, mean interval width, and a coverage plot. alpha (miscoverage) is configurable.
+  preconditions:
+    min_continuous: 2
+    min_rows: 40
+  produces:
+    - prediction intervals with coverage guarantee (>= 1-alpha)
+    - target vs empirical coverage + mean interval width
+    - coverage plot
+  executor_ref: scikit-learn
+  biases:
+    - first continuous column is the outcome by default — set config outcome/predictors/alpha
+    - coverage is MARGINAL (averaged over the population), not conditional on x; intervals are equal-width (non-adaptive)
+    - validity assumes the data are exchangeable (i.i.d.); covariate shift / time order breaks the guarantee
+    - the guarantee needs a large-enough calibration set (n_cal >= 1/alpha - 1); too small and it degrades to the max-residual bound (coverage ceiling n/(n+1) < 1-alpha) — the run flags this
+
 - id: network_analysis
   method: Network / graph analysis (networkx)
   domain: network science

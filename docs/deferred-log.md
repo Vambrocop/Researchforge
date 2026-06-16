@@ -26,6 +26,8 @@ RDD（running/cutoff）、synthetic_control（treated_unit/treatment_time）、c
 | 无 web 前端 | 有 FastAPI service | **阶段3**：建前端（上传→推荐+评分卡→跑→报告） |
 | 评分卡流行/新颖维是离线编辑先验 | scoring.py 规则 | 趋势引擎接通后用真实流行度/更新喂回 |
 | BART 样本内 R²（无 CV） | 已披露"偏乐观" | 可加 holdout/CV R² |
+| **`run.py` 巨石**：7935 行，`run_analysis` 单函数 ~5500 行（line 2391→EOF）/ 66 分支 `elif` | 能跑、测试全绿，但**读整文件会撑爆上下文（疑似 VS Code "prompt too long" 元凶）**、难维护、定位慢 | 按方法族拆 `executor/branches/*.py` + `id→handler` 注册表（registry dispatch），`run_analysis` 只做分发与公共脚手架；**以全量测试为护栏分批迁移**（高收益、需独立一轮谨慎做） |
+| 48 处静默 `except Exception: pass` | 多为绘图 best-effort（合规，CLAUDE.md 允许）；0 处裸 `except:`（好） | 抽查**非绘图**的静默吞错（包住 CSV/文件写/估计计算的），至少 `summary.append("…失败")` 或记日志，别静默丢 |
 
 ## 环境/装包（本机已装，便于复现）
 Py：rdrobust, doubleml, econml, networkx, dbarts(R), pysyncon, factor_analyzer, lifelines, linearmodels, semopy。
@@ -57,6 +59,11 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **inference-reviewer 子代理**本身是高价值资产——R 后端真推断几乎每个都能挑出真 bug（本阶段抓了 ~10 个 must-fix），值得保持每个真推断方法都派。
 - **评分卡**：趋势引擎接通后，用真实流行度/更新喂回 popularity/novelty 维（现为离线先验）。
 - **config 机制**：可做一个 `config schema` 校验 + 友好报错（现各分支自查）。
+
+**全量代码审核发现（2026-06-16, Opus max）：**
+- **头号结构债 = `run.py` 巨石**（见上工程表）。直接后果：①上下文易爆（"prompt too long"）②新增分析要在 5500 行函数里翻找。**建议下一个独立 effort 专门做拆分重构**，全量测试当护栏，每迁一族跑一次。
+- **静默吞错抽查**（见上工程表）：48 处 `except Exception: pass`，多数是绘图 best-effort（合规），但需抽查包住文件/估计的少数。
+- **正向确认**：0 处裸 `except:`；83 个测试文件；自评分卡（86 分）已诚实指出最弱两维 = **可用性 58（无 web 前端，阶段3）** 与 **快速性 62（R 测试慢，pytest-xdist/分层）**——与本审核独立结论一致，二者是当前最高优先优化项。
 
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

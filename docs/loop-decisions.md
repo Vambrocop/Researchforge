@@ -20,6 +20,7 @@
 > - GAMM：`outcome`、`predictors`、`group`(随机截距分组列)
 > - changes-in-changes：`outcome`、`treatment`、`time`、`treated_group`(=1 的处理组值,定方向)、`periods`[前,后]、`probs`
 > - 网络分析 network_analysis：`source`、`target`(边两端节点列)、`weight`(可选边权)、`directed`(默认 False)
+> - 保形预测 conformal_prediction：`outcome`(结果,默认首个连续列)、`predictors`(预测变量列表)、`alpha`(误覆盖率,默认0.1→90%区间)、`seed`(默认0,固定切分+RF)
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 

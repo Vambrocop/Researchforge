@@ -134,7 +134,11 @@
       "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe6.py)",
       "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe7.py)",
       "Bash(PYTHONPATH=\"e:/my-projects/Researchforge\" PYTHONUTF8=1 py -3 /tmp/probe8.py)",
-      "Bash(rm -f /tmp/probe*.py /tmp/probe*.R 2>/dev/null; echo done)"
+      "Bash(rm -f /tmp/probe*.py /tmp/probe*.R 2>/dev/null; echo done)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_conformal.csv conformal_prediction)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_conformal_prediction.py -q)",
+      "Bash(echo \"CP_EXIT=$?\")",
+      "Bash(PYTHONUTF8=1 py -3)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",
