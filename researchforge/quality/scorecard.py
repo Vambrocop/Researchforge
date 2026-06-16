@@ -53,18 +53,33 @@ def _measure(catalog) -> dict:
     families = len({e.family for e in methods})
     n_biases = sum(len(e.biases) for e in methods)
     test_files = list((_REPO / "tests").glob("test_*.py"))
-    try:
-        run_src = (_REPO / "researchforge" / "executor" / "run.py").read_text(encoding="utf-8")
-    except Exception:
-        run_src = ""
+    # disclosure signals (⚠ / 诚实降级 / 失败：) are spread across the executor now that
+    # the run.py monolith was split into branches/*.py — scan all of them, not just run.py.
+    exec_dir = _REPO / "researchforge" / "executor"
+    exec_src = ""
+    for _p in [exec_dir / "run.py", *sorted((exec_dir / "branches").glob("*.py"))]:
+        try:
+            exec_src += _p.read_text(encoding="utf-8")
+        except Exception:
+            pass
+    # largest module in lines — a structural/design signal (the monolith split cut it ~7935→2442)
+    max_mod = 0
+    for _p in (_REPO / "researchforge").rglob("*.py"):
+        if "__pycache__" in str(_p):
+            continue
+        try:
+            max_mod = max(max_mod, len(_p.read_text(encoding="utf-8").splitlines()))
+        except Exception:
+            pass
     return {
         "n_methods": float(n),
         "n_families": float(families),
         "n_test_files": float(len(test_files)),
         "avg_biases": round(n_biases / n, 2) if n else 0.0,
-        "n_warn": float(run_src.count("⚠")),
-        "n_degrade": float(run_src.count("诚实降级") + run_src.count("失败：")),
+        "n_warn": float(exec_src.count("⚠")),
+        "n_degrade": float(exec_src.count("诚实降级") + exec_src.count("失败：")),
         "n_modern": float(len(ids & _MODERN)),
+        "max_module_lines": float(max_mod),
         "has_web_ui": 1.0 if (_REPO / "researchforge" / "web" / "templates").exists() else 0.0,
         "has_deferred_log": 1.0 if (_REPO / "docs" / "deferred-log.md").exists() else 0.0,
         "has_self_evolution": 1.0 if (_REPO / "researchforge" / "catalog" / "discover.py").exists() else 0.0,
@@ -96,8 +111,14 @@ def compute_scorecard(catalog=None) -> ProjectScorecard:
     dims["honesty"] = _clip(60 + m["n_degrade"] * 0.4 + m["has_deferred_log"] * 8)
     notes["honesty"] = f"{int(m['n_degrade'])} 处诚实降级/失败提示、{int(m['n_warn'])} 处 ⚠ 披露；有未做事项日志"
 
-    dims["design"] = _clip(60 + m["has_self_evolution"] * 12 + m["has_inference_reviewer"] * 10)
-    notes["design"] = "三层(profiler→recommender→executor) + config 覆盖机制 + 自进化引擎 + 子代理/技能/钩子自动化"
+    # modularity: penalise a monolith. max module ~7935 -> +0; ~2442 -> +4; <1500 -> +8
+    mx = m["max_module_lines"]
+    modularity = 8 if mx <= 1500 else 4 if mx <= 3000 else 0
+    dims["design"] = _clip(60 + m["has_self_evolution"] * 12 + m["has_inference_reviewer"] * 10 + modularity)
+    notes["design"] = (
+        "三层(profiler→recommender→executor) + config 覆盖 + 自进化 + 子代理/技能/钩子；"
+        f"模块化：最大文件 {int(mx)} 行（巨石已拆 branches/ 注册表）"
+    )
 
     dims["novelty"] = _clip(45 + m["n_modern"] * 4)
     notes["novelty"] = f"{int(m['n_modern'])} 个现代/趋势方法（DML/causal_forest/conformal…）+ 自我进化发现"
