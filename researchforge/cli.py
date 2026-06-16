@@ -125,6 +125,40 @@ def _cmd_discover(persist: bool = False) -> int:
     return 0
 
 
+def _cmd_scorecard(save: bool = False) -> int:
+    import datetime as _dt
+    from pathlib import Path
+
+    from researchforge.quality import compute_scorecard
+
+    sc = compute_scorecard()
+    print(f"ResearchForge 项目自评分卡 — 总分 {sc.overall}/100\n")
+    print(sc.table())
+    if save:
+        doc = Path(__file__).resolve().parent.parent / "docs" / "scorecard.md"
+        order = ["completeness", "correctness", "rigor", "honesty", "design",
+                 "novelty", "performance", "usability"]
+        header = (
+            "# 项目自评分卡历史（Project Scorecard History）\n\n"
+            "> `cli scorecard --save` 每次追加一行；分数随项目改进而动，用于追踪提升。\n\n"
+            "| 日期 | 总分 | 完整性 | 准确性 | 严谨 | 诚实 | 设计 | 新颖 | 快速 | 可用 | 方法数 |\n"
+            "|---|---|---|---|---|---|---|---|---|---|---|\n"
+        )
+        if not doc.exists():
+            doc.write_text(header, encoding="utf-8")
+        row = (
+            f"| {_dt.date.today().isoformat()} | **{sc.overall}** | "
+            + " | ".join(str(sc.dimensions[k]) for k in order)
+            + f" | {int(sc.metrics['n_methods'])} |\n"
+        )
+        with doc.open("a", encoding="utf-8") as f:
+            f.write(row)
+        print(f"\n已追加到 {doc}（版本历史，可看趋势）。")
+    else:
+        print("\n（加 --save 把这次评分追加进 docs/scorecard.md 版本历史）")
+    return 0
+
+
 def _cmd_candidates() -> int:
     from researchforge.catalog.candidates import load_candidates
 
@@ -179,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
     disc = sub.add_parser("discover", help="self-evolution: discover + score new candidate methods")
     disc.add_argument("--persist", action="store_true", help="write discoveries into the candidate queue")
+    scd = sub.add_parser("scorecard", help="project self-assessment scorecard (versioned)")
+    scd.add_argument("--save", action="store_true", help="append this score to docs/scorecard.md history")
     promo = sub.add_parser("promote", help="promote a ready candidate into the live catalog")
     promo.add_argument("candidate_id", help="candidate analysis id")
     web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
@@ -200,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_candidates()
     if args.command == "discover":
         return _cmd_discover(args.persist)
+    if args.command == "scorecard":
+        return _cmd_scorecard(args.save)
     if args.command == "promote":
         return _cmd_promote(args.candidate_id)
     if args.command == "web":

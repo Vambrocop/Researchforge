@@ -114,7 +114,8 @@
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_sem.csv bayesian_sem)",
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_bayesian_sem.py -q)",
       "Bash(echo \"BSEM_EXIT=$?\")",
-      "Bash(cd \"E:/my-projects/Researchforge\" && grep -E \"[0-9]+ passed|failed\" /tmp/full.log | tail -1; git add -A && git commit -q -F .git/COMMIT_EDITMSG_RF && rm -f .git/COMMIT_EDITMSG_RF && echo COMMITTED; echo \"unpushed: $\\(git log origin/main..HEAD --oneline | wc -l\\)\"; echo \"=== discover queue now ===\"; PYTHONUTF8=1 py -3 -m researchforge.cli discover 2>&1 | head -1)"
+      "Bash(cd \"E:/my-projects/Researchforge\" && grep -E \"[0-9]+ passed|failed\" /tmp/full.log | tail -1; git add -A && git commit -q -F .git/COMMIT_EDITMSG_RF && rm -f .git/COMMIT_EDITMSG_RF && echo COMMITTED; echo \"unpushed: $\\(git log origin/main..HEAD --oneline | wc -l\\)\"; echo \"=== discover queue now ===\"; PYTHONUTF8=1 py -3 -m researchforge.cli discover 2>&1 | head -1)",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli scorecard --save)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",
