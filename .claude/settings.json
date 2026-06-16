@@ -106,7 +106,15 @@
       "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/jm_probe9.R)",
       "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/jm_probe10.R)",
       "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/jm_probe11.R)",
-      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/jm_probe12.R)"
+      "Bash(\"/c/Program Files/R/R-4.6.0/bin/x64/Rscript.exe\" --vanilla /tmp/jm_probe12.R)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'for\\(p in c\\(\"brms\",\"blavaan\",\"rstan\",\"cmdstanr\",\"rjags\",\"lavaan\"\\)\\) cat\\(p,\":\",requireNamespace\\(p,quietly=TRUE\\),\"\\\\n\"\\)')",
+      "Bash(where jags *)",
+      "Bash(\"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'cat\\(\"make:\", Sys.which\\(\"make\"\\)!=\"\", \" gcc:\", Sys.which\\(\"gcc\"\\)!=\"\", \"\\\\n\"\\)')",
+      "Bash(timeout 150 \"C:/Program Files/R/R-4.6.0/bin/Rscript.exe\" -e 'suppressMessages\\(library\\(brms\\)\\); set.seed\\(1\\); d<-data.frame\\(y=rnorm\\(50\\),x=rnorm\\(50\\)\\); fit<-tryCatch\\(brm\\(y~x, data=d, chains=1, iter=200, refresh=0, silent=2\\), error=function\\(e\\) paste\\(\"ERR:\",conditionMessage\\(e\\)\\)\\); if\\(is.character\\(fit\\)\\) cat\\(fit,\"\\\\n\"\\) else cat\\(\"BRMS_OK\\\\n\"\\)')",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_sem.csv bayesian_sem)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_bayesian_sem.py -q)",
+      "Bash(echo \"BSEM_EXIT=$?\")",
+      "Bash(cd \"E:/my-projects/Researchforge\" && grep -E \"[0-9]+ passed|failed\" /tmp/full.log | tail -1; git add -A && git commit -q -F .git/COMMIT_EDITMSG_RF && rm -f .git/COMMIT_EDITMSG_RF && echo COMMITTED; echo \"unpushed: $\\(git log origin/main..HEAD --oneline | wc -l\\)\"; echo \"=== discover queue now ===\"; PYTHONUTF8=1 py -3 -m researchforge.cli discover 2>&1 | head -1)"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

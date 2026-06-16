@@ -35,6 +35,22 @@
     - causal mediation assumes no unmeasured confounding of X-M, X-Y, and M-Y
     - linear models assume no X-by-M interaction (moderated mediation not modelled)
 
+- id: bayesian_sem
+  method: Bayesian structural equation modeling (blavaan)
+  domain: statistics
+  family: sem
+  goal: explain
+  description: Bayesian SEM — posterior distributions and credible intervals for loadings and structural paths, relaxing classical identification constraints and giving full uncertainty. Needs R blavaan plus a JAGS or Stan (C++ toolchain) backend and a theory-driven measurement model, none of which the engine can infer or safely auto-install — so it surfaces install guidance and the runnable frequentist alternatives (sem / efa).
+  preconditions:
+    min_continuous: 3
+    min_rows: 50
+  produces:
+    - guidance (requires blavaan + a JAGS/Stan backend + a measurement model)
+  executor_ref: blavaan
+  biases:
+    - requires a Bayesian backend (JAGS or Stan/RTools) + a theory-driven measurement model — not auto-runnable nor auto-installable here
+    - for point estimates + fit indices now, use the sem analysis (CB-SEM, lavaan/semopy) with config model_spec
+
 - id: pls_sem
   method: PLS-SEM (partial least squares SEM)
   domain: statistics

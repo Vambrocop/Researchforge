@@ -6883,6 +6883,35 @@ def run_analysis(
                     "# Gi* = (Wx - xbar*sum_w) / (S*sqrt((n*sum_w2 - sum_w^2)/(n-1)))",
                 ]
 
+    elif entry.id == "bayesian_sem":
+        from researchforge.executor import rbridge
+
+        _excl = {fp.unit_col, fp.time_col}
+        n_cont = sum(1 for c in fp.columns if c.kind == "continuous" and c.name not in _excl)
+        has_blavaan = rbridge.r_available() and rbridge.r_package_available("blavaan")
+        # Bayesian SEM needs blavaan + a JAGS or Stan backend (a C++ toolchain), AND a
+        # theory-driven measurement model — none auto-inferable. Honest-degrade to the
+        # runnable frequentist `sem` rather than trigger a heavy/fragile toolchain install.
+        if n_cont < 3:
+            summary.append("贝叶斯 SEM 跳过：需要 ≥3 个连续指标变量。")
+        else:
+            backend = (
+                "已检测到 blavaan，但仍需 JAGS 或 Stan(C++ 编译工具链) 后端运行，且需你提供测量模型"
+                if has_blavaan
+                else "未检测到 R 包 blavaan（且需 JAGS 或 Stan/RTools 编译后端）"
+            )
+            summary.append(
+                f"贝叶斯 SEM 暂以诚实降级提示（{backend}）。安装路径：install.packages('blavaan') + "
+                "装 JAGS（jags 官网二进制）或 Stan/RTools；并需理论测量模型。"
+                "**可直接运行的替代**：① `sem`（频率派 CB-SEM，经 lavaan/semopy，"
+                "用 config={\"model_spec\":\"<lavaan 语法>\"} 指定结构，给点估计 + CFI/TLI/RMSEA）；"
+                "② `efa`（探索因子结构）。贝叶斯 SEM 的后验分布/可信区间待后端就绪后接。"
+            )
+            code += [
+                "# 贝叶斯 SEM（待 blavaan + JAGS/Stan 后端）",
+                "library(blavaan)  # bsem(model, data, target='stan'|'jags')  —— 需测量模型 + 编译后端",
+            ]
+
     elif entry.id == "sem":
         import re
 

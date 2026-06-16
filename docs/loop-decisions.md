@@ -36,5 +36,12 @@
 | 9 | **差异丰度** | CLR + Mann-Whitney + BH-FDR（纯 Py 筛查法） | 上 R 金标准 ALDEx2 / ANCOM-BC（组成性更严谨） | ✅ 可配 `da_method`：clr_mw(默认)/clr_welch/**aldex2(R 金标准已接, MC-CLR+Welch)**；ancombc 桥待接(需 TreeSummarizedExperiment)→诚实降级 |
 
 ---
+
+## 诚实降级 / 待办（装包或后端门槛）
+
+- **bayesian_sem（贝叶斯 SEM）**：诚实降级。需 R `blavaan` + JAGS 或 Stan(C++ 编译)后端 + 理论测量模型；本机 blavaan 未装、无 RTools 编译器（brms 实测 `make not found` 无法编译）、无 JAGS。**不自动触发重型/易碎的工具链安装**。可运行替代：`sem`（频率派 CB-SEM，config model_spec）/ `efa`。**待办**：装 blavaan + JAGS（或 RTools/Stan）后，接 `bsem()` 真后验路径。
+- **差异丰度 #9 的 ANCOM-BC**：桥待接（需 TreeSummarizedExperiment）；ALDEx2 已接。
+
+---
 **怎么用**：你回来逐条说「第 N 条改成 X」，或「都先这样」。我据此把对应分析升级成接受参数/换默认，并重跑。
 （此清单由自走 loop 维护，新增方法若有新默认会续加。）
