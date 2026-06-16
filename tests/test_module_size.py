@@ -17,12 +17,13 @@ LIMIT = 1500  # lines; also the threshold the scorecard rewards for "modular" de
 
 def test_no_source_module_exceeds_line_limit() -> None:
     offenders = []
-    for p in (REPO / "researchforge").rglob("*.py"):
-        if "__pycache__" in str(p):
-            continue
-        n = len(p.read_text(encoding="utf-8").splitlines())
-        if n > LIMIT:
-            offenders.append(f"{p.relative_to(REPO)} ({n} lines)")
+    for root in ("researchforge", "tests"):  # cover source AND tests (reading risk applies to both)
+        for p in (REPO / root).rglob("*.py"):
+            if "__pycache__" in str(p):
+                continue
+            n = len(p.read_text(encoding="utf-8").splitlines())
+            if n > LIMIT:
+                offenders.append(f"{p.relative_to(REPO)} ({n} lines)")
     assert not offenders, (
         f"module(s) over {LIMIT} lines — split into smaller modules "
         f"(executor/branches/<family>.py or executor/_helpers/): {offenders}"

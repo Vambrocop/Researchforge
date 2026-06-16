@@ -26,7 +26,8 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **分发 = 纯注册表**：`run_analysis`（`executor/run.py`，现仅 ~148 行）只做 setup（读数据/cfg/输出目录/`summary`…）→ `BRANCH_REGISTRY.get(entry.id)` 命中则 `handler(ctx)`、否则 else 占位 → teardown（写 code/report、返回 `RunResult`）。elif 链已全部迁出。
 - **分析逻辑住在 `executor/branches/<family>.py`**：每分支是 `@register("<id>") def _branch_<id>(ctx)`，开头 `df, fp, entry, cfg, d = ctx.df, …；files, summary, estimates, code = ctx.files, …` 解包后写逻辑（**mutate** summary/estimates/files/code，别 rebind）。`Ctx`/`register`/`BRANCH_REGISTRY` 在 `executor/_branch_api.py`。
 - **helper 在 `executor/_helpers/{core,backends}.py`**（core=计算/绘图/纯 Python 方法；backends=R 桥/econml/doubleml/semopy 委托），由 `run.py` **re-export**，故 family 模块与测试仍 `from researchforge.executor.run import _xxx` 不变。`branches/__init__.py` import 各 family 触发注册；`run.py` **末尾**才 import branches 包（避免循环）。
-- **已拆解（历史教训）**：run.py 曾 7935 行 / `run_analysis` ~5500 行 / 67 分支 elif——**整文件读一次就撑爆上下文（VS Code「prompt too long」元凶）**。现最大模块 <1500 行。**护栏**：`tests/test_module_size.py` 强制 `researchforge/**/*.py` ≤1500 行（超了就拆到 branches/ 或 _helpers/），评分卡设计维也据此给分。
+- **已拆解（历史教训）**：run.py 曾 7935 行 / `run_analysis` ~5500 行 / 67 分支 elif——**整文件读一次就撑爆上下文（VS Code「prompt too long」元凶）**。现最大模块 <1500 行。**护栏**：`tests/test_module_size.py` 强制 `researchforge/` 与 `tests/` 的 *.py ≤1500 行（超了就拆），评分卡设计维也据此给分。
+- **防巨石复发的扩展约定（熔炉要长很多方法，必须可扩展）**：① **一个分析 = 一个模块**；② family 先是单文件 `branches/<family>.py`，**逼近 ~1200 行就提升为包** `branches/<family>/`（每方法一模块 `<id>.py`，并把该方法的 helper 从 `_helpers/` 搬进来同住）；③ `branches/__init__.py` 用 `pkgutil.walk_packages` **自动发现注册**——丢个文件进对应目录就自动注册，不用改 `__init__`、不抢 merge；④ 跨 family 共用的 helper 才留 `_helpers/`。护栏是强制力，本约定是「逼近时怎么拆」。当前金丝雀：`_helpers/backends.py`(1436)、`branches/statistics.py`(1021) 最先到顶。
 - **读码纪律**：**别整文件读 `run.py` / 大文件**——用 `Grep` 定位 + 带 `offset/limit` 的 `Read` 只读片段；长会话定期 `/compact`；新分支进 `branches/` 让单文件保持小而专。（`/add-analysis` 技能的 run.py-elif 模板待更新为 branches/ 处理器。）
 
 ## 红线 & 工作流（不可逆动作守紧）
