@@ -29,7 +29,7 @@ from researchforge.recommender.scoring import _DEFAULT, _FAMILY
 # Curated seed: trending / high-value methods ResearchForge does NOT yet have,
 # grounded in the 2025-26 method scan. Each is a method idea, not a wired analysis.
 SEED: list[dict] = [
-    {"id": "regression_discontinuity", "method": "Regression discontinuity design (RDD)",
+    {"id": "rdd", "method": "Regression discontinuity design (RDD)",
      "family": "causal", "domain": "economics", "goal": "explain",
      "rationale": "局部随机的强识别因果设计，高可发表；引擎有 DID/IV/合成控制但缺 RDD。",
      "sources": ["rdrobust (R/Python)"]},

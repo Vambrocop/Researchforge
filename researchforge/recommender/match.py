@@ -74,5 +74,9 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
             unmet.append(
                 "需要研究层效应量数据（yi+vi/sei，或两组 m/sd/n，或 2×2 ai/bi/ci/di）"
             )
+    if pre.requires_edgelist:
+        n_id = sum(1 for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col)
+        if n_id < 2:
+            unmet.append("需要 ≥2 个节点标识列（边的 source / target）")
 
     return (len(unmet) == 0, unmet)

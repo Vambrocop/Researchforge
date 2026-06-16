@@ -64,7 +64,12 @@
       "Bash('/c/Program Files/R/R-4.6.0/bin/Rscript.exe' --vanilla /tmp/probe6.R)",
       "Bash('/c/Program Files/R/R-4.6.0/bin/Rscript.exe' --vanilla /tmp/probe7.R)",
       "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_gamm.py tests/test_changes_in_changes.py -q)",
-      "Bash(echo \"GC_EXIT=$?\")"
+      "Bash(echo \"GC_EXIT=$?\")",
+      "Bash(xargs echo \"unpushed:\")",
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli run data/demo_network.csv network_analysis)",
+      "Bash(PYTHONUTF8=1 py -3 -m pytest tests/test_network_analysis.py -q)",
+      "Bash(echo \"NET_EXIT=$?\")",
+      "Bash(echo \"DONE EXIT=$?\")"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

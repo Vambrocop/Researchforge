@@ -15,6 +15,11 @@
 > - 差异丰度(#9)：`da_method`(clr_mw / clr_welch / aldex2[R 金标准已接]；ancombc 降级)
 > - RDD 断点回归：`running`(驱动变量,必填)、`cutoff`(断点,必填)、`outcome`
 > - 双重机器学习 DML：`treatment`(处理列)、`controls`(混杂列表)、`outcome`、`n_folds`(默认5)、`seed`(默认0,固定交叉拟合切分)
+> - 因果森林 causal_forest：`treatment`、`effect_modifiers`(异质特征列表)、`outcome`、`n_folds`、`seed`
+> - Meta 回归 meta_regression：`moderators`(调节变量列表)、`measure`、`method`(同 meta_analysis)
+> - GAMM：`outcome`、`predictors`、`group`(随机截距分组列)
+> - changes-in-changes：`outcome`、`treatment`、`time`、`treated_group`(=1 的处理组值,定方向)、`periods`[前,后]、`probs`
+> - 网络分析 network_analysis：`source`、`target`(边两端节点列)、`weight`(可选边权)、`directed`(默认 False)
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 

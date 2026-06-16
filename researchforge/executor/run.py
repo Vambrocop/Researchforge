@@ -1369,6 +1369,91 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
     return out
 
 
+def _network_via_nx(df, source, target, weight, directed, plot_path):
+    """Graph / network analysis via networkx: graph-level metrics, node centralities
+    (degree/betweenness/closeness/eigenvector), and Louvain community detection.
+    Deterministic (community uses a fixed seed). Returns (metrics dict, node
+    centrality DataFrame). Writes a spring-layout plot coloured by community.
+    Raises so the caller can degrade honestly."""
+    import networkx as nx
+    import numpy as np
+    import pandas as pd
+
+    cols = [source, target] + ([weight] if weight else [])
+    sub = df[cols].dropna()
+    create = nx.DiGraph if directed else nx.Graph
+    G = nx.from_pandas_edgelist(
+        sub, source, target, edge_attr=(weight if weight else None), create_using=create()
+    )
+    if G.number_of_nodes() < 3:
+        raise RuntimeError("有效节点 <3，无法做网络分析")
+    n, m = G.number_of_nodes(), G.number_of_edges()
+    UG = G.to_undirected() if directed else G
+    # components (weak for directed) + largest component for distance metrics
+    comps = list(nx.weakly_connected_components(G) if directed else nx.connected_components(G))
+    largest = max(comps, key=len)
+    Glc = UG.subgraph(largest)
+    metrics = {
+        "n_nodes": n, "n_edges": m,
+        "density": round(nx.density(G), 4),
+        "avg_degree": round((2 * m / n) if not directed else (m / n), 3),
+        "avg_clustering": round(nx.average_clustering(UG), 4),
+        "n_components": len(comps),
+        "largest_component_frac": round(len(largest) / n, 3),
+    }
+    if len(largest) <= 1500:  # distance metrics are O(N*E); cap to stay fast
+        metrics["diameter_largest"] = int(nx.diameter(Glc)) if len(largest) > 1 else 0
+        metrics["avg_path_len_largest"] = round(nx.average_shortest_path_length(Glc), 3) if len(largest) > 1 else 0.0
+    try:
+        metrics["degree_assortativity"] = round(nx.degree_assortativity_coefficient(G), 4)
+    except Exception:
+        metrics["degree_assortativity"] = float("nan")
+
+    w = weight if weight else None
+    deg = nx.degree_centrality(G)
+    bet = nx.betweenness_centrality(G, weight=w, seed=0) if n > 2 else {k: 0.0 for k in G}
+    clo = nx.closeness_centrality(G)
+    try:
+        eig = nx.eigenvector_centrality_numpy(G, weight=w)
+    except Exception:
+        eig = {k: float("nan") for k in G}
+    cent = pd.DataFrame({
+        "node": list(G.nodes()),
+        "degree_centrality": [round(deg[x], 4) for x in G.nodes()],
+        "betweenness": [round(bet[x], 4) for x in G.nodes()],
+        "closeness": [round(clo[x], 4) for x in G.nodes()],
+        "eigenvector": [round(eig[x], 4) if eig[x] == eig[x] else float("nan") for x in G.nodes()],
+    }).sort_values("degree_centrality", ascending=False).reset_index(drop=True)
+
+    # Louvain communities on the undirected graph (seeded -> reproducible)
+    comm = nx.community.louvain_communities(UG, weight=w, seed=0)
+    node2comm = {x: i for i, c in enumerate(comm) for x in c}
+    metrics["n_communities"] = len(comm)
+    metrics["modularity"] = round(nx.community.modularity(UG, comm, weight=w), 4)
+
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        Gp = UG if n <= 400 else UG.subgraph(largest)  # cap plotted graph size
+        pos = nx.spring_layout(Gp, seed=0, k=None)
+        colors = [node2comm.get(x, 0) for x in Gp.nodes()]
+        sizes = [30 + 600 * deg.get(x, 0) for x in Gp.nodes()]
+        fig, ax = plt.subplots(figsize=(7, 6))
+        nx.draw_networkx_edges(Gp, pos, alpha=0.25, ax=ax)
+        nx.draw_networkx_nodes(Gp, pos, node_color=colors, node_size=sizes, cmap="tab20", ax=ax)
+        ax.set_title(f"Network ({Gp.number_of_nodes()} nodes, {metrics['n_communities']} communities)")
+        ax.axis("off")
+        fig.tight_layout()
+        fig.savefig(plot_path, dpi=150)
+        plt.close(fig)
+    except Exception:
+        pass
+    return metrics, cent
+
+
 def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discrete, seed, hist_png, scatter_png):
     """Heterogeneous treatment effects (CATE) via econml CausalForestDML — a
     causal-forest DML estimator: residualize Y and T on the covariates (ML), then
@@ -4648,6 +4733,73 @@ def run_analysis(
                     csv.unlink()
                 except OSError:
                     pass
+
+    elif entry.id == "network_analysis":
+        import importlib.util
+
+        # node-identifier columns for an edge list: config source/target, else the
+        # first two id/categorical columns.
+        id_cols = [c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col]
+        source = cfg.get("source") or (id_cols[0] if id_cols else None)
+        target = cfg.get("target") or (id_cols[1] if len(id_cols) > 1 else None)
+        weight = cfg.get("weight")
+        if weight and (weight not in df.columns or weight in {source, target}):
+            weight = None
+        directed = bool(cfg.get("directed", False))
+        if importlib.util.find_spec("networkx") is None:
+            summary.append("网络分析需要 networkx 包（未检测到）。安装：pip install networkx。")
+        elif source is None or target is None or source == target or source not in df.columns or target not in df.columns:
+            summary.append(
+                "网络分析失败：需要两列节点标识（边的 source / target）。"
+                "用 config={\"source\":\"<列>\",\"target\":\"<列>\"} 指定（可选 weight）。"
+            )
+        else:
+            try:
+                import pandas as pd
+
+                metrics, cent = _network_via_nx(df, source, target, weight, directed, d / "network.png")
+                if (d / "network.png").exists():
+                    files.append("network.png")
+                pd.DataFrame(list(metrics.items()), columns=["metric", "value"]).to_csv(
+                    d / "network_metrics.csv", index=False, encoding="utf-8"
+                )
+                files.append("network_metrics.csv")
+                cent.to_csv(d / "node_centrality.csv", index=False, encoding="utf-8")
+                files.append("node_centrality.csv")
+                for k in ("n_nodes", "n_edges", "density", "avg_clustering", "n_communities", "modularity"):
+                    if k in metrics:
+                        estimates[k] = float(metrics[k])
+                top = cent.head(3)["node"].astype(str).tolist()
+                dia = metrics.get("diameter_largest", "—")
+                apl = metrics.get("avg_path_len_largest", "—")
+                (d / "network_summary.txt").write_text(
+                    f"网络分析（networkx，{'有向' if directed else '无向'}图）：边 {source}→{target}"
+                    + (f"，权重 {weight}" if weight else "") + "\n"
+                    f"节点 {metrics['n_nodes']}，边 {metrics['n_edges']}，密度 {metrics['density']}，"
+                    f"平均度 {metrics['avg_degree']}，平均聚类系数 {metrics['avg_clustering']}\n"
+                    f"连通分量 {metrics['n_components']}（最大占比 {metrics['largest_component_frac']}），"
+                    f"最大分量 直径={dia}、平均路径长={apl}，度同配性 {metrics.get('degree_assortativity')}\n"
+                    f"社团（Louvain）{metrics['n_communities']} 个，模块度 {metrics['modularity']}\n"
+                    f"度中心性最高节点：{top}\n"
+                    "注：网络指标是结构性/描述性的（非因果）；社团划分依赖算法与分辨率，"
+                    "Louvain 有随机性（已固定 seed）。\n\n"
+                    "节点中心性（前 20）：\n" + cent.head(20).to_string(index=False),
+                    encoding="utf-8",
+                )
+                files.append("network_summary.txt")
+                summary.append(
+                    f"{entry.method} 完成（networkx，{'有向' if directed else '无向'}）：边 {source}→{target}；"
+                    f"{metrics['n_nodes']} 节点、{metrics['n_edges']} 边，密度 {metrics['density']}，"
+                    f"聚类系数 {metrics['avg_clustering']}；{metrics['n_components']} 个连通分量；"
+                    f"Louvain 社团 {metrics['n_communities']} 个（模块度 {metrics['modularity']}）；"
+                    f"度中心性最高 {top}。⚠ 结构性描述（非因果）；社团划分依算法/分辨率。"
+                )
+                code += [
+                    "import networkx as nx  # 网络/图分析",
+                    f"# G=nx.from_pandas_edgelist(df,{source!r},{target!r}); 中心性 + louvain_communities + modularity",
+                ]
+            except Exception as err:
+                summary.append(f"网络分析失败：{err}")
 
     elif entry.id == "causal_forest":
         import importlib.util

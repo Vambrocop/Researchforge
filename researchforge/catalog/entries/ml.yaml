@@ -1,5 +1,24 @@
 # Machine-learning catalog entries — predictive (non-causal) methods.
 
+- id: network_analysis
+  method: Network / graph analysis (networkx)
+  domain: network science
+  family: ml
+  goal: explore
+  description: Build a graph from an edge list (two node-identifier columns, optional edge weight) and analyse its structure — graph-level metrics (density, average degree, clustering, components, diameter / average path length), node centralities (degree, betweenness, closeness, eigenvector), and Louvain community detection (modularity). Renders a community-coloured network plot. Deterministic (seeded community detection).
+  preconditions:
+    requires_edgelist: true
+    min_rows: 3
+  produces:
+    - graph metrics (density / clustering / components / diameter)
+    - node centralities (degree / betweenness / closeness / eigenvector)
+    - communities (Louvain) + modularity + network plot
+  executor_ref: networkx
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - metrics are structural/descriptive, not causal; treats the data as a single static graph
+    - community detection depends on the algorithm and resolution; Louvain is stochastic (seed-pinned here)
+
 - id: random_forest
   method: Random forest (prediction)
   domain: machine learning
