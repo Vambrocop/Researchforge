@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.0"]
 
 [project.scripts]
 rf = "researchforge.cli:main"
@@ -27,3 +27,6 @@ include = ["researchforge*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "slow: heavy / R-backed tests (fit real R or external-lib models); fast loop = -m 'not slow'",
+]

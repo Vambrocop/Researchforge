@@ -8,6 +8,8 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 ## 运行
 - **`py -3`**（不是 `python`，Windows 上裸 `python` 会挂）；UTF-8：`PYTHONUTF8=1`。
 - 测试：`py -3 -m pytest -q`。**查退出码用 `>log 2>&1; echo EXIT=$?`，别用 `| tail` 屏蔽 pytest 的退出码**。
+  - **提速**：全量并行 `py -3 -m pytest -n 2 -q`（~2:49 vs 串行 ~4:29）。**别用 `-n auto`**——R worker 内存重，会 `MemoryError`/报错；`-n 2` 是本机安全档。
+  - **快循环** `py -3 -m pytest -m "not slow" -q`（跳 35 个重模型测试文件，~51s/138 测，验证引擎plumbing 够用）；慢测清单在 `tests/conftest.py` 的 `SLOW_MODULES`（加重方法测试时同步更新，刷新看 `pytest -n 2 --durations=25`）。
 - 跑分析：`py -3 -m researchforge.cli run <data.csv> <analysis_id>`。
 
 ## 加一个分析（标准流程）
