@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from researchforge.executor._branch_api import BRANCH_REGISTRY
 from researchforge.executor.run import _REGRESSION
 
 REPO = Path(__file__).resolve().parents[1]
@@ -25,7 +26,9 @@ def _catalog_ids() -> list[str]:
 
 def test_every_catalog_id_has_executor_branch() -> None:
     src = (REPO / "researchforge" / "executor" / "run.py").read_text(encoding="utf-8")
-    handled = set(_REGRESSION) | set(re.findall(r'entry\.id == "([^"]+)"', src))
+    # a catalog id is "handled" if it has an elif branch in run.py OR a registered
+    # handler in executor/branches/*.py (the monolith is being split into the registry).
+    handled = set(_REGRESSION) | set(BRANCH_REGISTRY) | set(re.findall(r'entry\.id == "([^"]+)"', src))
     missing = sorted(set(_catalog_ids()) - handled)
     assert missing == [], f"catalog entries with no executor branch: {missing}"
 

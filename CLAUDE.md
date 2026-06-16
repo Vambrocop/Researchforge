@@ -11,7 +11,7 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - 跑分析：`py -3 -m researchforge.cli run <data.csv> <analysis_id>`。
 
 ## 加一个分析（标准流程）
-一个分析 = ① `executor/run.py` 里一个 `elif entry.id == "<id>":` 分支 ② `catalog/entries/*.yaml` 一条目（preconditions/produces/biases）③ `tests/test_<id>.py`。然后：测试 → Opus 双审 → 据 CHANGES 修 → 全量测试 → 本地 commit。
+一个分析 = ① `executor/branches/<family>.py` 里一个 `@register("<id>")` 处理器（`def _branch_<id>(ctx): ...`；见下「引擎架构」。**别再往 `run.py` 加 elif**——巨石正在拆）② `catalog/entries/*.yaml` 一条目（preconditions/produces/biases）③ `tests/test_<id>.py`。然后：测试 → Opus 双审 → 据 CHANGES 修 → 全量测试 → 本地 commit。
 **有脚手架别手搓**：用 `/add-analysis` 技能起步（含分支/条目/测试模板 + R 桥降级骨架）；推断双审派 `inference-reviewer` 子代理（审者≠建者，见 `.claude/agents/`）。改 `*.py` 后有 PostToolUse 钩子跑 `py_compile` 即时查语法（不必等 3–5min 全量套件；钩子在 settings.local.json）。
 
 ### 引擎约定（照抄，别重新发明）
@@ -21,6 +21,12 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **产物**：CSV + PNG（matplotlib `Agg`；**图标签用英文**——matplotlib 默认字体无 CJK，中文会变豆腐块）；填 `estimates` dict；写中文 `summary`（含 ⚠ 偏差/假定披露）。best-effort try/except 包图，缺 matplotlib 不中断。
 - **profiler "id" 陷阱**：整数值且全不同的列会被判为 `id` 类（非 count/continuous）。按列名锁定的检测（如 sand/silt/clay、duration）应接受 `id` 类。
 - **survival 等**：时长列可能被 profiler 当 `time_col`——这类分支别排除 time_col。
+
+### 引擎架构 & 读码纪律（怎么避免「prompt too long」）
+- **分发 = 注册表优先**：`run_analysis`（`executor/run.py`）只做 setup（读数据/cfg/输出目录/`summary`…）→ `BRANCH_REGISTRY.get(entry.id)` 命中则 `handler(ctx)`，否则落到**尚未迁出的 elif 尾链** → teardown（写 code/report、返回 `RunResult`）。
+- **分析逻辑住在 `executor/branches/<family>.py`**：每分支是 `@register("<id>") def _branch_<id>(ctx)`，开头 `df, fp, entry, cfg, d = ctx.df, …；files, summary, estimates, code = ctx.files, …` 解包后写逻辑（**mutate** summary/estimates/files/code，别 rebind）。`Ctx`/`register`/`BRANCH_REGISTRY` 在 `executor/_branch_api.py`。helper 仍留 `run.py`，family 模块按需 `from researchforge.executor.run import _xxx`。`branches/__init__.py` import 各 family 触发注册；`run.py` **末尾**才 import branches 包（helper 都定义后，避免循环）。批量迁移工具：`_migrate_branches.py`（一次性脚本）。
+- **历史教训**：run.py 曾 7935 行、`run_analysis` 单函数 ~5500 行 / 66 分支 elif——**整文件读一次就撑爆上下文（VS Code「prompt too long」元凶）**。
+- **读码纪律**：**别整文件读 `run.py` / 大文件**——用 `Grep` 定位 + 带 `offset/limit` 的 `Read` 只读片段；长会话定期 `/compact`；新分支进 `branches/` 让单文件保持小而专。（`/add-analysis` 技能的 run.py-elif 模板待更新为 branches/ 处理器。）
 
 ## 红线 & 工作流（不可逆动作守紧）
 - **push gating**：自由本地 commit，但**只有用户说「今天 ok」才 push**（自动 push 钩子已移除）。用户忘了就查 `git log origin/main..HEAD` 提醒，别擅自推。
@@ -33,6 +39,6 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **留痕**：受硬件/装包/后端限制**绕过或降级**的、以及双审/建造时冒出的**好点子**，都追加到 `docs/deferred-log.md`（未做事项 + 优化灵感日志，供后续回看）。
 
 ## 关键文件
-- `executor/run.py`（分发 + 各分析分支 + helper）、`executor/rbridge.py`（R 桥）、`catalog/entries/*.yaml`（方法库）、`catalog/schema.py`（Precondition/AnalysisEntry）、`catalog/discover.py`（自我进化发现引擎）、`recommender/match.py`（precondition 匹配）、`recommender/scoring.py`（6 维方法学评分卡）、`profiler/`（指纹/类型/质量）、`web/`（FastAPI）。
+- `executor/run.py`（setup + 注册表分发 + teardown + helper；分析分支正迁往 branches/）、`executor/_branch_api.py`（`Ctx`/`register`/`BRANCH_REGISTRY`）、`executor/branches/<family>.py`（各分析 `@register` 处理器）、`executor/rbridge.py`（R 桥）、`catalog/entries/*.yaml`（方法库）、`catalog/schema.py`（Precondition/AnalysisEntry）、`catalog/discover.py`（自我进化发现引擎）、`recommender/match.py`（precondition 匹配）、`recommender/scoring.py`（6 维方法学评分卡）、`profiler/`（指纹/类型/质量）、`web/`（FastAPI）。
 - 本地自动化（`.claude/`，gitignored）：`agents/inference-reviewer.md`（推断双审子代理）、`skills/add-analysis/`（加分析脚手架）、`settings.local.json` 的 PostToolUse py_compile 钩子。
 - 记忆见 `~/.claude/.../memory/MEMORY.md`（项目定位/自主权/路线图/R桥策略/评分feature 等）。
