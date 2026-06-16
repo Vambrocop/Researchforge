@@ -159,6 +159,85 @@ def _cmd_scorecard(save: bool = False) -> int:
     return 0
 
 
+def _cmd_status() -> int:
+    """Live project front-door: health + scale + git + next-up + what-to-improve, all
+    computed from current repo signals so it never goes stale. Run it first thing."""
+    import re
+    import subprocess
+    from pathlib import Path
+
+    from researchforge.quality import compute_scorecard
+
+    repo = Path(__file__).resolve().parent.parent
+    sc = compute_scorecard()
+    m = sc.metrics
+    label = {
+        "completeness": "完整", "correctness": "准确", "rigor": "严谨", "honesty": "诚实",
+        "design": "设计", "novelty": "新颖", "performance": "快速", "usability": "可用",
+    }
+    weak = sorted(sc.dimensions.items(), key=lambda kv: kv[1])
+
+    def _git(*a: str) -> str:
+        try:
+            r = subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True, timeout=10)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    dirty = bool(_git("status", "--porcelain"))
+    unpushed = _git("rev-list", "--count", "@{u}..HEAD") or _git("rev-list", "--count", "origin/main..HEAD")
+
+    canaries = []
+    for p in (repo / "researchforge").rglob("*.py"):
+        if "__pycache__" in str(p):
+            continue
+        try:
+            n = len(p.read_text(encoding="utf-8").splitlines())
+        except Exception:
+            continue
+        if n >= 1000:
+            canaries.append((str(p.relative_to(repo)).replace("\\", "/"), n))
+    canaries.sort(key=lambda t: -t[1])
+
+    nexts: list[str] = []
+    dlog = repo / "docs" / "deferred-log.md"
+    if dlog.exists():
+        seg = dlog.read_text(encoding="utf-8").split("🔜 下一波")
+        if len(seg) > 1:
+            block = seg[1].split("\n## ")[0]
+            nexts = re.findall(r"^\d+\.\s*\*\*(.+?)\*\*", block, re.M)
+
+    print("ResearchForge — 状态速览  (researchforge status)")
+    print("=" * 56)
+    print(f"健康  总分 {sc.overall}/100   最弱: "
+          + " · ".join(f"{label[k]} {v}" for k, v in weak[:3]))
+    print(f"规模  {int(m['n_methods'])} 方法 / {int(m['n_families'])} 族 / "
+          f"{int(m['n_test_files'])} 测试文件 / 最大模块 {int(m.get('max_module_lines', 0))} 行 (护栏 1500)")
+    print(f"Git   分支 {branch} · 未推送 {unpushed or '?'} · 工作树 {'有改动' if dirty else '干净'}")
+
+    print("\n🔜 下一波 (docs/deferred-log.md):")
+    if nexts:
+        for i, t in enumerate(nexts, 1):
+            print(f"  {i}. {t}")
+    else:
+        print("  见 docs/deferred-log.md 顶部「🔜 下一波」/ 记忆 next-batch")
+
+    print("\n需改进 (自动探测):")
+    for k, v in weak[:2]:
+        print(f"  - {label[k]}性 {v} —— {sc.notes[k].split('；')[0].split('（')[0]}")
+    for rel, n in canaries:
+        print(f"  - {'⚠ 逼近' if n >= 1200 else '留意'}护栏: {rel} ({n}/1500 行)")
+    if unpushed and unpushed != "0":
+        print(f"  - {unpushed} 个 commit 未 push（用户说『今天 ok』才推）")
+    if dirty:
+        print("  - 工作树有未提交改动")
+
+    print("\n提速: 全量 `pytest -n 2` · 快循环 `pytest -m \"not slow\"`（别用 -n auto，R worker OOM）")
+    print("加分析: 进 branches/<family>.py 的 @register；真推断派 inference-reviewer 双审；push 等『今天 ok』")
+    return 0
+
+
 def _cmd_candidates() -> int:
     from researchforge.catalog.candidates import load_candidates
 
@@ -219,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     promo.add_argument("candidate_id", help="candidate analysis id")
     web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
     web_p.add_argument("--port", type=int, default=8000, help="port to listen on (default: 8000)")
+    sub.add_parser("status", help="live front-door: health + next-up + what to improve (run first)")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -242,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_promote(args.candidate_id)
     if args.command == "web":
         return _cmd_web(args.port)
+    if args.command == "status":
+        return _cmd_status()
 
     parser.print_help()
     return 0
