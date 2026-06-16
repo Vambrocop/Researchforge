@@ -30,6 +30,7 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **停-条件**：只在 ①踩红线 ②数据不可行 ③门禁挂 才打断用户，其余按推荐自走。
 - **汇报从简**：让产物（表/图/报告/摘要）说话，配简短说明（含 ⚠ 披露），少冗长后记。
 - **诚实**：零结果照报、不编数据、不确定就标 ⚠。
+- **留痕**：受硬件/装包/后端限制**绕过或降级**的、以及双审/建造时冒出的**好点子**，都追加到 `docs/deferred-log.md`（未做事项 + 优化灵感日志，供后续回看）。
 
 ## 关键文件
 - `executor/run.py`（分发 + 各分析分支 + helper）、`executor/rbridge.py`（R 桥）、`catalog/entries/*.yaml`（方法库）、`catalog/schema.py`（Precondition/AnalysisEntry）、`catalog/discover.py`（自我进化发现引擎）、`recommender/match.py`（precondition 匹配）、`recommender/scoring.py`（6 维方法学评分卡）、`profiler/`（指纹/类型/质量）、`web/`（FastAPI）。
