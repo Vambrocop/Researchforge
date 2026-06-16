@@ -166,6 +166,7 @@ def _cmd_status() -> int:
     import subprocess
     from pathlib import Path
 
+    from researchforge import __next_milestone__, __version__
     from researchforge.quality.scorecard import DIM_LABELS, MODULE_LINE_LIMIT, compute_scorecard
 
     repo = Path(__file__).resolve().parent.parent
@@ -195,6 +196,7 @@ def _cmd_status() -> int:
 
     print("ResearchForge — 状态速览  (researchforge status)")
     print("=" * 56)
+    print(f"里程碑 引擎 v{__version__} → 下一站 {__next_milestone__}  (路线图 docs/roadmap.md)")
     print(f"健康  总分 {sc.overall}/100   最弱: "
           + " · ".join(f"{DIM_LABELS[k]} {v}" for k, v in weak[:3]))
     print(f"规模  {int(m['n_methods'])} 方法 / {int(m['n_families'])} 族 / "
