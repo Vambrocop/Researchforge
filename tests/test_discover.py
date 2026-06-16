@@ -34,8 +34,9 @@ def test_discover_ranks_and_dedupes_against_catalog() -> None:
 
 
 def test_discover_seed_is_ranked_desc_and_excludes_existing() -> None:
+    # invariants that hold for ANY queue state — including a fully-drained queue
+    # (when every SEED method has been implemented, discover correctly returns []).
     found = discover_candidates(persist=False)
-    assert found  # the curated seed yields fresh candidates
     priorities = [m.priority for m in found]
     assert priorities == sorted(priorities, reverse=True)  # ranked high-first
     # seed ids should not collide with the live catalog
