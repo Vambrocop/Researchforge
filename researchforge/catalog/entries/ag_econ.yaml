@@ -100,6 +100,26 @@
     - treatment auto-detected as a binary column / set via config treatment; controls default to the other numeric columns
     - ML nuisance fits + cross-fitting add randomness; near-0/1 propensities (poor overlap) make the ATE unstable (flagged)
 
+- id: psm
+  method: Propensity score matching (PSM, ATT)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Estimate the average treatment effect on the treated (ATT) of a binary treatment by matching each treated unit to a control with a similar propensity score — logistic propensity on covariates, greedy 1:1 nearest-neighbor on the logit linear predictor within a 0.2σ caliper. Reports ATT + SE/p, covariate balance (standardized mean differences before/after matching), common-support overlap, and a propensity overlap plot. Set config treatment/outcome/covariates.
+  preconditions:
+    requires_treatment: true
+    min_rows: 30
+  produces:
+    - ATT estimate + SE / p-value
+    - covariate balance table (SMD before vs after matching)
+    - propensity overlap (common support) plot
+  executor_ref: statsmodels
+  biases:
+    - causal ATT only under ignorability / selection-on-observables (no unobserved confounding) — untestable; PSM cannot fix unobserved confounding
+    - estimates ATT (effect on the treated), not the ATE; requires common support + post-matching balance (both reported)
+    - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns
+    - SE is a simple paired-difference estimate (ignores propensity-estimation uncertainty; Abadie-Imbens variance is stricter)
+
 - id: changes_in_changes
   method: Changes-in-changes (distributional DID, qte)
   domain: economics
