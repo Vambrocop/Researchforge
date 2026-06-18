@@ -140,6 +140,28 @@
     - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns
     - HC1 SE ignores propensity-estimation uncertainty (bootstrap / sandwich variance is stricter)
 
+- id: event_study
+  method: Event-study (dynamic difference-in-differences)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Estimate the dynamic treatment effects of a treatment onset in panel data — coefficients on event-time (periods relative to treatment) with unit and time two-way fixed effects, SE clustered by unit, and the period before treatment (k=-1) as the omitted reference. Reports the event-study coefficient plot (leads test pre-trends, lags trace the dynamic effect), the post-treatment average effect, and a pre-trends flag. Set config unit/time/treatment/outcome (+ window).
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 40
+  produces:
+    - event-study coefficients (leads + lags) with 95% CI + plot
+    - pre-trends check (are pre-treatment leads ≈ 0?)
+    - post-treatment average effect
+  executor_ref: statsmodels
+  biases:
+    - identification rests on parallel trends — the pre-treatment lead coefficients are reported as a check, not a proof
+    - with staggered onset, two-way fixed effects can be biased under heterogeneous effects (negative weighting) — use Callaway-Sant'Anna / de Chaisemartin
+    - never-treated / not-yet-treated units are the comparison group; treatment must switch on within units over time
+    - the post-treatment "average effect" is a descriptive mean of lag coefficients, not a formally weighted ATT
+    - SE clustered by unit; the reference period is k=-1 (or the earliest available lead)
+
 - id: changes_in_changes
   method: Changes-in-changes (distributional DID, qte)
   domain: economics
