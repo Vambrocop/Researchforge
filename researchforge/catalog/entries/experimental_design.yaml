@@ -52,3 +52,30 @@
     - when the interaction is significant, main effects are average/marginal effects and must be read in its context
     - residual normality / equal variance assumed
     - factor roles are guessed from columns when config doesn't set factor_a/factor_b — disclosed in the summary
+
+- id: split_plot
+  method: Split-plot ANOVA (two error strata)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Analysis of a split-plot design: a whole-plot factor applied to large plots within
+    blocks, and a sub-plot factor applied to sub-plots inside each whole-plot. Correctly
+    uses TWO error strata — the whole-plot factor is tested against the block×whole-plot
+    error (lower power), while the sub-plot factor and the interaction are tested against
+    the residual (higher power). Requires a complete balanced design. Set config
+    outcome/block/whole_plot/sub_plot.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 8
+  produces:
+    - split-plot ANOVA table with both error strata (whole-plot vs sub-plot)
+    - whole-plot / sub-plot / interaction F-tests against the correct error terms
+    - cell means (whole-plot × sub-plot) + means plot
+  executor_ref: statsmodels
+  biases:
+    - requires a complete balanced design (one obs per block×whole-plot×sub-plot); unbalanced needs a mixed model
+    - two error strata — the whole-plot factor has fewer error df and lower power than the sub-plot factor
+    - whole-plot / sub-plot roles cannot be auto-detected reliably; set them via config
+    - residual normality / equal variance assumed; block treated as fixed in the SS decomposition
