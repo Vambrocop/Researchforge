@@ -21,7 +21,7 @@
 | **bayesian_sem** | 本机无 blavaan、无 RTools 编译器（brms 实测 `make not found`）、无 JAGS；不自动触发重型工具链装 | 诚实降级 → 指向 `sem`（频率派 CB-SEM）/`efa` | 装 `blavaan` + JAGS（或 RTools/Stan）→ 接 `bsem()` 真后验路径（载荷/路径可信区间） |
 | **差异丰度 ANCOM-BC** | 专用桥未接（需 TreeSummarizedExperiment 构造） | ALDEx2 金标准已接（`da_method=aldex2`）；ancombc 诚实降级 | 接 ANCOMBC：构 TSE → ancombc2() → 解析 |
 | **GAMM 非高斯** | 目前仅高斯族（连续结果） | 高斯 GAMM 已上线 | 扩 binomial/poisson GAMM（mgcv family=）+ 双审 |
-| **RDD 模糊断点** | 仅 sharp RDD | sharp 已上线、披露 fuzzy 需另接 | 接 fuzzy RDD（rdrobust fuzzy 参数）+ 双审 |
+| ~~**RDD 模糊断点**~~ ✅ | ~~仅 sharp RDD~~ | **已上线**（2026-06-18）：`fuzzy_rdd`，rdrobust `fuzzy=`，报 LATE + 第一阶段弱工具检测；inference-reviewer 审「correct as-is」 | — |
 | **需用户测量模型的 SEM 族** | sem/pls_sem 的结构引擎不能猜 | sem 支持 `config model_spec`；pls_sem 诚实降级 | 文档+示例引导用户写 lavaan 语法 |
 
 ## 设计驱动（需 config 指定，非自动）
@@ -38,6 +38,8 @@ RDD（running/cutoff）、synthetic_control（treated_unit/treatment_time）、c
 | BART 样本内 R²（无 CV） | 已披露"偏乐观" | 可加 holdout/CV R² |
 | ~~**`run.py` 巨石**：7935 行 / `run_analysis` ~5500 行 / 67 分支 elif~~ | ✅ **已解决（2026-06-16）** | 拆成 15 个 `executor/branches/*.py`（注册表分发，`_branch_api.py`）+ helper 迁 `_helpers/{core,backends}.py`（run.py re-export）。`run_analysis` 只剩 setup+dispatch+teardown。**run.py 7935→148 行、最大模块 1436<1500**；70/70 id 注册、0 缺失、无循环；全量 227 绿 + `test_module_size` 护栏锁定 ≤1500。「prompt too long」元凶根除 |
 | 48 处静默 `except Exception: pass` | 多为绘图 best-effort（合规，CLAUDE.md 允许）；0 处裸 `except:`（好） | 抽查**非绘图**的静默吞错（包住 CSV/文件写/估计计算的），至少 `summary.append("…失败")` 或记日志，别静默丢 |
+| sharp `rdd` 的 outcome 解析未排除 running 列 | `_branch_rdd`(causal.py:574)：若用户把 `config["outcome"]` 设成 running 列会接受 → 自回归无意义（fuzzy_rdd 已加守卫排除 running/treatment） | 同样守卫 sharp rdd：`outcome = cfg["outcome"] if cfg.get("outcome") in cont and cfg.get("outcome") != running else next(...)`（inference-reviewer 标 nice-to-have，非回归） |
+| `causal.py` 逼近软上限（1234 行 > ~1200 提包约定，仍 <1500 硬限） | 单文件 11 个 causal 分支 | 逼近 1500 前提升为包 `branches/causal/`（每分支一模块 + `pkgutil` 自动发现，CLAUDE.md 扩展约定）；当前不阻塞 |
 
 ## 环境/装包（本机已装，便于复现）
 Py：rdrobust, doubleml, econml, networkx, dbarts(R), pysyncon, factor_analyzer, lifelines, linearmodels, semopy。

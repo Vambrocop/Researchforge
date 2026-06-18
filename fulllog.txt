@@ -1,0 +1,34 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [ 27%]
+........................................................................ [ 55%]
+........................................................................ [ 82%]
+.............................................                            [100%]
+============================== warnings summary ===============================
+tests/test_clustering.py::test_executor_degenerate_no_crash
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\sklearn\base.py:1389: ConvergenceWarning: Number of distinct clusters (1) found smaller than n_clusters (2). Possibly due to duplicate points in X.
+    return fit_method(estimator, *args, **kwargs)
+
+tests/test_clustering.py::test_executor_degenerate_no_crash
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\sklearn\base.py:1389: ConvergenceWarning: Number of distinct clusters (1) found smaller than n_clusters (3). Possibly due to duplicate points in X.
+    return fit_method(estimator, *args, **kwargs)
+
+tests/test_clustering.py::test_executor_degenerate_no_crash
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\sklearn\base.py:1389: ConvergenceWarning: Number of distinct clusters (1) found smaller than n_clusters (4). Possibly due to duplicate points in X.
+    return fit_method(estimator, *args, **kwargs)
+
+tests/test_negbin.py::test_negbin_multi_count_ambiguity_note
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\statsmodels\base\model.py:595: HessianInversionWarning: Inverting hessian failed, no bse or cov_params available
+    warnings.warn('Inverting hessian failed, no bse or cov_params '
+
+tests/test_negbin.py::test_negbin_multi_count_ambiguity_note
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\statsmodels\discrete\discrete_model.py:3739: RuntimeWarning: invalid value encountered in log
+    start_params[-1] = np.log(start_params[-1])
+
+tests/test_quantile_regression.py::test_quantile_regression_executor
+  C:\Users\Vambr\AppData\Local\Programs\Python\Python312\Lib\site-packages\statsmodels\regression\quantile_regression.py:191: IterationLimitWarning: Maximum number of iterations (1000) reached.
+    warnings.warn("Maximum number of iterations (" + str(max_iter) +
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+261 passed, 6 warnings in 73.07s (0:01:13)

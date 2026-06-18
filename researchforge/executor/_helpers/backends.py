@@ -906,21 +906,30 @@ def _cic_via_r(csv_path, outcome, treat, time, t_post, t_pre, probs, qte_png):
     return meta, qte
 
 
-def _rdd_via_rdrobust(df, outcome, running, cutoff, plot_path):
-    """Sharp regression discontinuity (Calonico–Cattaneo–Titiunik) via rdrobust:
+def _rdd_via_rdrobust(df, outcome, running, cutoff, plot_path, fuzzy=None):
+    """Regression discontinuity (Calonico–Cattaneo–Titiunik) via rdrobust:
     local-linear estimate of the outcome jump at the cutoff, MSE-optimal bandwidth,
     robust bias-corrected inference. Returns a dict; writes a binned RD plot.
+    If ``fuzzy`` (a column of actually-received treatment) is given, estimates the
+    *fuzzy* RDD LATE = (outcome jump) / (treatment-probability jump) at the cutoff.
     Raises so the caller can degrade honestly."""
     import numpy as np
     from rdrobust import rdrobust
 
-    sub = df[[outcome, running]].copy()
+    cols = [outcome, running] + ([fuzzy] if fuzzy else [])
+    sub = df[cols].copy()
     sub[outcome] = sub[outcome].astype(float)
     sub[running] = sub[running].astype(float)
+    if fuzzy:
+        sub[fuzzy] = sub[fuzzy].astype(float)
     sub = sub.dropna()
     y, x = sub[outcome], sub[running]
-    r = rdrobust(y=y, x=x, c=float(cutoff))
+    if fuzzy:
+        r = rdrobust(y=y, x=x, c=float(cutoff), fuzzy=sub[fuzzy])
+    else:
+        r = rdrobust(y=y, x=x, c=float(cutoff))
     out = {
+        "fuzzy": bool(fuzzy),
         "rd_robust": float(r.coef.loc["Robust", "Coeff"]),
         "rd_conventional": float(r.coef.loc["Conventional", "Coeff"]),
         "ci_lb": float(r.ci.loc["Robust", "CI Lower"]),
@@ -931,6 +940,19 @@ def _rdd_via_rdrobust(df, outcome, running, cutoff, plot_path):
         "n_right": int(r.N_h[1]),
         "bwselect": str(r.bwselect),
     }
+    if fuzzy:
+        # First stage = jump in treatment probability at the cutoff (weak -> LATE unreliable).
+        # This is a STRENGTH DIAGNOSTIC only, run at its own MSE-optimal bandwidth (for T), so it is
+        # NOT exactly the LATE denominator (rdrobust uses the y-optimal bandwidth internally); don't
+        # reconstruct LATE = reduced_form / first_stage_jump by hand. Conventional point (stable
+        # magnitude) + robust p (inference), mirroring how the LATE reports a robust p.
+        try:
+            rfs = rdrobust(y=sub[fuzzy], x=x, c=float(cutoff))
+            out["first_stage_jump"] = float(rfs.coef.loc["Conventional", "Coeff"])
+            out["first_stage_p"] = float(rfs.pv.loc["Robust", "P>|z|"])
+        except Exception:
+            out["first_stage_jump"] = float("nan")
+            out["first_stage_p"] = float("nan")
     try:
         import matplotlib
 

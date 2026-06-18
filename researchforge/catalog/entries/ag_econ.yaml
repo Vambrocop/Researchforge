@@ -202,6 +202,26 @@
     - identifies only a LOCAL effect at the cutoff (limited external validity away from it)
     - assumes potential-outcome means are continuous at the cutoff (no other policy/confounder jumps there) and the running variable cannot be precisely manipulated (run a McCrary density / sorting test)
 
+- id: fuzzy_rdd
+  method: Fuzzy regression discontinuity design (fuzzy RDD, rdrobust)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Fuzzy regression discontinuity — when crossing the cutoff of a continuous running variable only CHANGES THE PROBABILITY of treatment (take-up < 100%, e.g. an eligibility threshold that nudges but does not force enrollment), estimates the local average treatment effect (LATE) for compliers as (outcome jump) / (treatment-probability jump) at the cutoff. Uses rdrobust local-linear estimation with MSE-optimal bandwidth and robust bias-corrected inference, reports the first-stage treatment-probability jump (a weak first stage makes the LATE unreliable), and writes a binned RD plot. Running variable, cutoff, and the actually-received treatment column are design-specific and supplied via config.
+  preconditions:
+    min_continuous: 2
+    min_rows: 100
+  produces:
+    - fuzzy LATE (complier local treatment effect) + robust 95% CI
+    - first-stage treatment-probability jump at the cutoff (weak-instrument check)
+    - MSE-optimal bandwidth + effective sample size + binned RD plot
+  executor_ref: rdrobust
+  biases:
+    - requires config running (assignment variable) + cutoff + treatment (the actually-received 0/1 treatment) — the engine cannot infer the design
+    - LATE identifies the effect ONLY for compliers local to the cutoff (limited external validity)
+    - relies on a real first-stage jump in treatment probability at the cutoff — a weak first stage makes the LATE severely unstable (the engine flags this)
+    - assumes potential outcomes AND the first stage are continuous at the cutoff (no other policy/confounder jumps there) and the running variable cannot be precisely manipulated (run a McCrary density / sorting test)
+
 - id: gsynth
   method: Generalized synthetic control (interactive fixed effects)
   domain: economics
