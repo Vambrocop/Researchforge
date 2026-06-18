@@ -42,3 +42,22 @@ def recommend(
     # rank by feasibility/rigor first (unchanged); the score card is informational
     recs.sort(key=lambda r: (_ORDER[r.rigor.light], -r.rigor.score))
     return recs
+
+
+def select_top(
+    fp: DataFingerprint,
+    goal: Optional[str] = None,
+    top: int = 6,
+    catalog: Optional[Catalog] = None,
+) -> list[Recommendation]:
+    """Fast picker: the top feasible analyses, optionally narrowed to a research goal.
+    Layered on recommend() so with 75+ methods the user gets a handful, not the menu."""
+    from researchforge.recommender.goals import entry_matches_goal, resolve_goal
+
+    recs = recommend(fp, catalog=catalog, include_infeasible=True)
+    gk = resolve_goal(goal)
+    if gk:
+        recs = [r for r in recs if entry_matches_goal(r.entry, gk)]
+    feasible = [r for r in recs if r.feasible]
+    pool = feasible or recs  # nothing feasible -> show the closest (red, needs informed override)
+    return pool[:top]

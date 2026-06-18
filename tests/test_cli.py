@@ -20,4 +20,5 @@ def test_cli_recommend_runs(tmp_path, capsys):
     make_panel(seed=2).to_csv(csv, index=False)
 
     assert main(["recommend", str(csv)]) == 0
-    assert "可做的分析" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "推荐 top" in out  # focused, goal-aware menu (was the full "可做的分析" list)

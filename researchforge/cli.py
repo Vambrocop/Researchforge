@@ -24,9 +24,10 @@ def _markers() -> dict[str, str]:
     return _EMOJI if "utf" in enc else _ASCII
 
 
-def _cmd_recommend(path: str) -> int:
+def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     from researchforge.profiler import profile_dataset
-    from researchforge.recommender import recommend
+    from researchforge.recommender import GOALS, select_top
+    from researchforge.recommender.goals import resolve_goal
 
     fp = profile_dataset(path)
     print(
@@ -36,15 +37,24 @@ def _cmd_recommend(path: str) -> int:
     )
     if fp.issues:
         print(f"质量问题：{len(fp.issues)} 项（运行清洗可处理）")
-    print("\n可做的分析（按严谨度排序，红灯需知情覆盖）：")
+
+    gk = resolve_goal(goal)
+    if goal and not gk:
+        print(f"\n未知目标 '{goal}'。可选：" + " / ".join(GOALS))
+    picks = select_top(fp, goal=gk, top=top)
+    head = f"目标「{GOALS[gk]['label']}」" if gk else "全部目标（用 --goal 聚焦）"
+    print(f"\n推荐 top {len(picks)} —— {head}（🟢🟡🔴 严谨度，红灯需知情覆盖）：")
     mark = _markers()
-    for r in recommend(fp):
+    for r in picks:
         s = r.score
         print(f"  {mark[r.rigor.light]} [{r.rigor.score:3d}] {r.entry.method} — {r.rigor.note}")
         print(
             f"        方法学评分 总{s.overall} | 契合{s.fit} 流行{s.popularity} "
             f"可发表{s.publishability} 美观{s.aesthetics} 新颖{s.novelty} 难度{s.difficulty}"
         )
+    if not gk:
+        print("\n聚焦目标：" + " / ".join(GOALS)
+              + "\n  例：py -3 -m researchforge.cli recommend <data> --goal causal")
     return 0
 
 
@@ -299,8 +309,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="researchforge")
     parser.add_argument("--version", action="store_true", help="print version and exit")
     sub = parser.add_subparsers(dest="command")
-    rec = sub.add_parser("recommend", help="profile data and list feasible analyses")
+    rec = sub.add_parser("recommend", help="profile data and recommend the top analyses (goal-aware)")
     rec.add_argument("path", help="path to a CSV/Excel file")
+    rec.add_argument("--goal", default=None,
+                     help="research goal to focus on (compare/relate/causal/predict/design/spatial/…)")
+    rec.add_argument("--top", type=int, default=6, help="how many to show (default 6)")
     run_p = sub.add_parser("run", help="run a chosen analysis and save outputs")
     run_p.add_argument("path", help="path to a CSV/Excel file")
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
@@ -336,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"researchforge {__version__}")
         return 0
     if args.command == "recommend":
-        return _cmd_recommend(args.path)
+        return _cmd_recommend(args.path, args.goal, args.top)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis, args.config)
     if args.command == "ingest":
