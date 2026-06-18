@@ -260,6 +260,40 @@ def _cmd_promote(candidate_id: str) -> int:
         return 1
 
 
+def _cmd_design(args) -> int:
+    """DoE advisory: generate a randomized experimental layout from factors (no data)."""
+    import csv as _csv
+
+    from researchforge.design import generate_design
+
+    treatments = [s.strip() for s in args.treatments.split(",")] if args.treatments else None
+    fa = [s.strip() for s in args.factor_a.split(",")] if args.factor_a else None
+    fb = [s.strip() for s in args.factor_b.split(",")] if args.factor_b else None
+    try:
+        res = generate_design(args.type, treatments=treatments, n_blocks=args.blocks,
+                              factor_a=fa, factor_b=fb, n_reps=args.reps, seed=args.seed)
+    except ValueError as err:
+        print(f"设计生成失败：{err}")
+        return 1
+
+    plan = res["plan"]
+    cols = list(plan[0].keys())
+    print(f"实验设计：{res['design']}（{res['n_plots']} 个小区，seed={res['seed']}）")
+    print(f"采集数据后用：py -3 -m researchforge.cli run <data.csv> {res['analysis']}")
+    print("  " + " | ".join(cols))
+    for row in plan[:12]:
+        print("  " + " | ".join(str(row[c]) for c in cols))
+    if len(plan) > 12:
+        print(f"  …（共 {len(plan)} 行）")
+    if args.out:
+        with open(args.out, "w", newline="", encoding="utf-8") as f:
+            w = _csv.DictWriter(f, fieldnames=cols)
+            w.writeheader()
+            w.writerows(plan)
+        print(f"已写入布局：{args.out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     _ensure_utf8()
     parser = argparse.ArgumentParser(prog="researchforge")
@@ -287,6 +321,15 @@ def main(argv: list[str] | None = None) -> int:
     web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
     web_p.add_argument("--port", type=int, default=8000, help="port to listen on (default: 8000)")
     sub.add_parser("status", help="live front-door: health + next-up + what to improve (run first)")
+    des = sub.add_parser("design", help="DoE advisory: generate a randomized experimental layout (no data needed)")
+    des.add_argument("type", choices=["rcbd", "factorial", "latin_square"], help="design type")
+    des.add_argument("--treatments", help="comma-separated treatment levels (rcbd / latin_square)")
+    des.add_argument("--blocks", type=int, default=3, help="number of blocks (rcbd, default 3)")
+    des.add_argument("--factor-a", dest="factor_a", help="comma-separated levels of factor A (factorial)")
+    des.add_argument("--factor-b", dest="factor_b", help="comma-separated levels of factor B (factorial)")
+    des.add_argument("--reps", type=int, default=3, help="replicates (factorial, default 3)")
+    des.add_argument("--seed", type=int, default=0, help="randomization seed (default 0)")
+    des.add_argument("--out", help="write the layout to this CSV path")
     args = parser.parse_args(argv)
 
     if args.version:
@@ -312,6 +355,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_web(args.port)
     if args.command == "status":
         return _cmd_status()
+    if args.command == "design":
+        return _cmd_design(args)
 
     parser.print_help()
     return 0

@@ -32,7 +32,9 @@
 高需求方法族,多为纯 Python(`/add-analysis` + 双审):
 - [ ] **实验设计/经典统计**:ANOVA(单/双/重复测量)、ANCOVA、MANOVA、功效/样本量、Tukey、卡方/Fisher、非参(KW/Friedman)
 - [ ] **设计感知田间试验**(农学高频、误分析风险高,Codex 审提):RCBD、split-plot/split-split、nested、repeated —— 做成**强制声明 block/plot/subplot/repeated 角色的 mixed-model wrapper**,而非裸 ANOVA
-- [ ] **★ 新能力·北极星:实验设计顾问 / DoE**(用户 2026-06-16 提):**数据前** —— 给因子/水平/约束 → 推荐设计(RCBD/split-plot/Latin/factorial)+ 算所需重复数/功效 + 出**随机化田间布局** + 配套分析模板。**新模式(问题→设计,非数据→分析)**,把引擎从"自动选分析"升级到"自动建议设计";较大,可作 **v1.x 旗舰**(先出 sample-size/power + RCBD 布局生成的最小切片)
+- **★ 新能力·北极星:实验设计顾问 / DoE**(用户 2026-06-16 提):**数据前** —— 给因子/水平/约束 → 推荐设计 + 算重复数/功效 + 出随机化布局 + 配套分析模板。新模式(问题→设计)。
+  - [x] **首切片已上线(2026-06-16)**:`power_analysis`(所需样本量,避事后功效坑)+ `researchforge.design` 模块 + **`cli design` 命令**(rcbd/factorial/latin_square 随机化布局,确定性可复现,指向对应分析)。
+  - [ ] 续:从数据画像**自动推荐**设计、analysis-template 串联、Web 表单入口、更多设计(split-plot 布局/不完全区组/响应面)。
 - [ ] **测量/信度**:Cronbach α、ICC、Cohen's κ、Bland-Altman、IRT/Rasch
 - [ ] **因果扩张**:模糊 RDD、事件研究、交错 DiD(Callaway-Sant'Anna)、合成 DiD、2SLS/IV(现占位)、PSM/IPW/AIPW
 - [ ] **ML/预测**:lasso/ridge/elasticnet、SVM、梯度提升、SHAP、Prophet/ETS、GARCH、changepoint、UMAP/t-SNE
