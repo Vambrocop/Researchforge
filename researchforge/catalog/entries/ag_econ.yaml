@@ -120,6 +120,26 @@
     - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns
     - SE is a simple paired-difference estimate (ignores propensity-estimation uncertainty; Abadie-Imbens variance is stricter)
 
+- id: ipw
+  method: Inverse-probability weighting (IPW, ATE)
+  domain: economics
+  family: causal
+  goal: explain
+  description: Estimate the average treatment effect (ATE) of a binary treatment by reweighting units by the inverse of their treatment propensity (stabilized weights), then fitting a marginal structural model (WLS of outcome on treatment, HC1 robust SE). Reports ATE + SE/p, effective sample size and max weight (positivity diagnostics), extreme-propensity fraction, and a propensity overlap plot. Set config treatment/outcome/covariates.
+  preconditions:
+    requires_treatment: true
+    min_rows: 30
+  produces:
+    - ATE estimate + HC1 robust SE / p-value
+    - positivity diagnostics (effective sample size, max weight, extreme-propensity fraction)
+    - propensity overlap plot
+  executor_ref: statsmodels
+  biases:
+    - causal ATE only under ignorability (no unobserved confounding) AND positivity/overlap (propensities away from 0/1) — both untestable / flagged
+    - extreme weights from poor overlap inflate variance and bias; effective sample size + extreme-propensity fraction are reported
+    - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns
+    - HC1 SE ignores propensity-estimation uncertainty (bootstrap / sandwich variance is stricter)
+
 - id: changes_in_changes
   method: Changes-in-changes (distributional DID, qte)
   domain: economics
