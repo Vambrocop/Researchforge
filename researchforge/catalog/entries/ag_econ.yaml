@@ -162,6 +162,27 @@
     - the post-treatment "average effect" is a descriptive mean of lag coefficients, not a formally weighted ATT
     - SE clustered by unit; the reference period is k=-1 (or the earliest available lead)
 
+- id: staggered_did
+  method: Staggered DiD — Sun-Abraham interaction-weighted estimator
+  domain: economics
+  family: causal
+  goal: explain
+  description: Heterogeneity-robust difference-in-differences for STAGGERED treatment adoption (units treated at different times). The pooled two-way-fixed-effects event study is biased when treatment effects vary across cohorts or over time (already-treated units act as "bad" controls, producing negative weights). The Sun & Abraham (2021) interaction-weighted estimator fixes this by fitting cohort-specific event-study coefficients CATT(g,e) via a saturated cohort x relative-time interaction (period k=-1 omitted, never-treated units as the clean control), then aggregates ATT(e) = Σ_g (cohort share) x CATT(g,e). Reports the event-study IW-ATT path + plot, an overall post-treatment ATT with delta-method SE, and a pre-trends check. Pure Python (statsmodels); no R needed. Set config unit/time/treatment/outcome (+ window).
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 60
+  produces:
+    - interaction-weighted event-study ATT(e) (leads + lags) with 95% CI + plot
+    - overall post-treatment ATT + delta-method SE (cluster-robust)
+    - pre-trends check + cohort / treated / never-treated counts
+  executor_ref: statsmodels
+  biases:
+    - requires a never-treated control group — if every unit is eventually treated the engine fails honestly and points to R did (Callaway-Sant'Anna, which can use not-yet-treated controls)
+    - identification still rests on parallel trends — the pre-treatment lead ATTs are reported as a check, not a proof; assumes no anticipation
+    - the overall ATT is a simple average of post-period event-study ATTs (not observation-weighted); endpoints (±window) are binned cumulative periods
+    - SE via delta method on the unit-clustered covariance; few cohorts or small cohorts make CATT(g,e) and the aggregate noisy
+
 - id: changes_in_changes
   method: Changes-in-changes (distributional DID, qte)
   domain: economics
