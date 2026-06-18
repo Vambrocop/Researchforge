@@ -80,7 +80,7 @@ def _measure(catalog) -> tuple[dict, list[tuple[str, int]]]:
         max_mod = max(max_mod, lines)
         if lines >= 1000:
             large.append((str(p.relative_to(_REPO)).replace("\\", "/"), lines))
-        if p == run_py or p.parent == branches_dir:
+        if p == run_py or branches_dir in p.parents:  # run.py + branches/** (incl future packages)
             n_warn += txt.count("⚠")
             n_degrade += txt.count("诚实降级") + txt.count("失败：")
     large.sort(key=lambda t: -t[1])

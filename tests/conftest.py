@@ -25,7 +25,7 @@ SLOW_MODULES = {
     "test_bart", "test_benchmark", "test_causal_forest", "test_changes_in_changes",
     "test_clustering", "test_cna", "test_conformal_prediction", "test_config",
     "test_csqca", "test_double_ml", "test_dynamic_panel_gmm", "test_fsqca", "test_gam",
-    "test_gamm", "test_getis_ord_gi", "test_glmm", "test_gsynth", "test_idw_interpolation",
+    "test_gamm", "test_getis_ord", "test_glmm", "test_gsynth", "test_idw",
     "test_joint_longitudinal_survival", "test_kriging", "test_local_moran",
     "test_mediation", "test_meta_analysis", "test_meta_regression", "test_moran_i",
     "test_negbin", "test_network_analysis", "test_panel_qca", "test_qca_necessity",

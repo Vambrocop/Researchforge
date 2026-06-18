@@ -28,7 +28,7 @@
     min_continuous: 2
     min_rows: 40
   produces:
-    - prediction intervals with coverage guarantee (>= 1-alpha)
+    - prediction intervals with coverage guarantee (>= 1-alpha) when the calibration set is large enough; otherwise a max-residual fallback bound (flagged at run time)
     - target vs empirical coverage + mean interval width
     - coverage plot
   executor_ref: scikit-learn

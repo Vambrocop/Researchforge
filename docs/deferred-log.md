@@ -75,5 +75,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **静默吞错抽查**（见上工程表）：48 处 `except Exception: pass`，多数是绘图 best-effort（合规），但需抽查包住文件/估计的少数。
 - **正向确认**：0 处裸 `except:`；83 个测试文件；自评分卡（86 分）已诚实指出最弱两维 = **可用性 58（无 web 前端，阶段3）** 与 **快速性 62（R 测试慢，pytest-xdist/分层）**——与本审核独立结论一致，二者是当前最高优先优化项。
 
+**Codex 跨族审查补充（2026-06-16，nice-to-have；结构性的已写进 roadmap）：**
+- **config schema 前移为 v0.9 门槛**（非横切）：每 analysis entry 一份机器可读参数规格,Web UI/推荐解释/运行错误共消费,别各自猜。
+- **discover 趋势分 ≠ 包热度**:加 领域归一化 / 维护状态 / 最近发布 / 引用·教程信号 / license·安装可行性,保留人工 gate。
+- **Web MVP 要薄**:上传→推荐→config→运行→报告即可;把 schema/错误提示/产物浏览做扎实 > 追 UI 完整度。
+- **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
+- Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

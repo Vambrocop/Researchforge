@@ -26,10 +26,13 @@
 - [ ] 用户 **README + pip 打包**
 - [ ] **discover 真抓取**(阶段2):`fetch_fn` 接 CRAN/PyPI/GitHub,带降级
 - [ ] **推断 backlog**:DML/causal_forest CV R² + 多重比较校正、BART holdout R²、GAMM 非高斯
+- [ ] **config schema(机器可读,每 analysis entry)** —— **厚 1.0 加到 100+ 方法前的门槛**(Codex 审建议前移到 v0.9):Web UI / 推荐解释 / 运行错误都消费同一份参数规格,别各自猜参数
 
 ### 阶段 ③ 方法熔炉扩张（折入 1.0,使其"厚"）
 高需求方法族,多为纯 Python(`/add-analysis` + 双审):
 - [ ] **实验设计/经典统计**:ANOVA(单/双/重复测量)、ANCOVA、MANOVA、功效/样本量、Tukey、卡方/Fisher、非参(KW/Friedman)
+- [ ] **设计感知田间试验**(农学高频、误分析风险高,Codex 审提):RCBD、split-plot/split-split、nested、repeated —— 做成**强制声明 block/plot/subplot/repeated 角色的 mixed-model wrapper**,而非裸 ANOVA
+- [ ] **★ 新能力·北极星:实验设计顾问 / DoE**(用户 2026-06-16 提):**数据前** —— 给因子/水平/约束 → 推荐设计(RCBD/split-plot/Latin/factorial)+ 算所需重复数/功效 + 出**随机化田间布局** + 配套分析模板。**新模式(问题→设计,非数据→分析)**,把引擎从"自动选分析"升级到"自动建议设计";较大,可作 **v1.x 旗舰**(先出 sample-size/power + RCBD 布局生成的最小切片)
 - [ ] **测量/信度**:Cronbach α、ICC、Cohen's κ、Bland-Altman、IRT/Rasch
 - [ ] **因果扩张**:模糊 RDD、事件研究、交错 DiD(Callaway-Sant'Anna)、合成 DiD、2SLS/IV(现占位)、PSM/IPW/AIPW
 - [ ] **ML/预测**:lasso/ridge/elasticnet、SVM、梯度提升、SHAP、Prophet/ETS、GARCH、changepoint、UMAP/t-SNE
@@ -41,6 +44,7 @@
 
 ### v1.1 → v1.5 — 余下方法波 + 选模变聪明
 - [ ] **贝叶斯/生存/缺失**:贝叶斯回归·分层(待 Stan/JAGS)、竞争风险、时变协变量、MICE 多重插补
+  - ⚠ **若把生物医学/临床当主战场**(Codex 审提):MICE / 竞争风险 / 生存缺失 应**前移到 1.0**,优先级高于 ML 波的 UMAP/t-SNE/GARCH 这类专项/展示/金融项
 - [ ] **文本/网络/空间**:LDA 主题、情感、ERGM、空间面板、GWR、网络 meta
 - [ ] **自动选模更聪明**:precondition/严谨度规则细化,看数据选得更准
 
