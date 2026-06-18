@@ -1211,8 +1211,16 @@ def _bart_via_r(csv_path, outcome: str, predictors: list[str], ntree: int, seed:
         f"fit <- bart(x.train=X, y.train=y, ntree={int(ntree)}, keeptrees=FALSE, verbose=FALSE)\n"
         "yhat <- fit$yhat.train.mean\n"
         "r2 <- 1 - sum((y-yhat)^2)/sum((y-mean(y))^2); rmse <- sqrt(mean((y-yhat)^2))\n"
+        # honest out-of-sample R²: a single 80/20 holdout (dbarts x.test gives test predictions).
+        # set.seed right before the split so it is reproducible regardless of prior RNG use.
+        "hold_r2 <- NA; n_test <- 0L; n_all <- length(y)\n"
+        f"if (n_all >= 25) {{ set.seed({int(seed)}); idx <- sample(n_all, floor(0.8*n_all));\n"
+        f"  fit2 <- bart(x.train=X[idx,,drop=FALSE], y.train=y[idx], x.test=X[-idx,,drop=FALSE], ntree={int(ntree)}, keeptrees=FALSE, verbose=FALSE);\n"
+        "  yte <- y[-idx]; sst <- sum((yte-mean(yte))^2);\n"
+        "  if (sst > 0) { hold_r2 <- 1 - sum((yte-fit2$yhat.test.mean)^2)/sst; n_test <- length(yte) } }\n"
         'cat("##M\\n")\n'
         'cat(sprintf("r2|%.6f\\nrmse|%.6f\\nsigma|%.6f\\nn|%d\\n", r2, rmse, mean(fit$sigma), length(y)))\n'
+        'if (!is.na(hold_r2)) cat(sprintf("holdout_r2|%.6f\\nn_test|%d\\n", hold_r2, n_test))\n'
         # label from the columns dbarts ACTUALLY used (it drops constant cols / expands
         # factors), NOT the input preds vector — else labels misalign (Opus catch).
         "vc <- colMeans(fit$varcount); vc <- vc/sum(vc); nm <- colnames(fit$varcount)\n"

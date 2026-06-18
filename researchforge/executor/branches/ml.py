@@ -62,17 +62,30 @@ def _branch_bart(ctx: Ctx) -> None:
             if (d / "bart_varimp.png").exists():
                 files.append("bart_varimp.png")
             r2, rmse, sigma, n = meta["r2"], meta["rmse"], meta["sigma"], int(meta["n"])
+            hold_r2 = meta.get("holdout_r2")
+            n_test = int(meta["n_test"]) if "n_test" in meta else 0
             estimates["r_squared_insample"] = round(r2, 4)
             estimates["rmse"] = round(rmse, 4)
             estimates["sigma"] = round(sigma, 4)
             estimates["n"] = float(n)
+            if hold_r2 is not None:
+                estimates["r_squared_holdout"] = round(hold_r2, 4)
+            hold_txt = (
+                f"留出 R²（80/20 holdout，n_test={n_test}）= {hold_r2:.4f}（更诚实的样本外预测力）\n"
+                if hold_r2 is not None else "留出 R²：样本太小（n<25），未做 holdout\n"
+            )
+            hold_sum = (
+                f"留出 R²={hold_r2:.3f}（80/20，n_test={n_test}，样本外）；"
+                if hold_r2 is not None else "样本太小未做 holdout；"
+            )
             top = varimp.head(3)["predictor"].tolist()
             (d / "bart_summary.txt").write_text(
                 f"BART 贝叶斯加性回归树（dbarts，{ntree} 树，seed={seed}）：{y} ~ {len(preds)} 个预测变量\n"
                 f"样本内 R² = {r2:.4f}，RMSE = {rmse:.4f}，残差 σ = {sigma:.4f}，n={n}\n"
-                f"变量重要性（分裂占比）前 3：{top}\n"
+                + hold_txt
+                + f"变量重要性（分裂占比）前 3：{top}\n"
                 "BART = 正则化先验下的树之和，自动建非线性 + 交互，给后验不确定性。\n"
-                "注：R² 为样本内（偏乐观，无交叉验证）；分裂占比是粗略的重要性度量"
+                "注：样本内 R² 偏乐观，以留出 R² 为准评估预测力；分裂占比是粗略的重要性度量"
                 "（相关变量间会摊分）；BART 是预测性的，非因果。\n\n"
                 + varimp.to_string(index=False),
                 encoding="utf-8",
@@ -80,8 +93,8 @@ def _branch_bart(ctx: Ctx) -> None:
             files.append("bart_summary.txt")
             summary.append(
                 f"{entry.method} 完成（R/dbarts，{ntree} 树）：{y} ~ {len(preds)} 个预测变量；"
-                f"样本内 R²={r2:.3f}，RMSE={rmse:.3f}，残差 σ={sigma:.3f}（n={n}）；"
-                f"最重要预测变量 {top}。⚠ 样本内 R² 偏乐观（无 CV）；分裂占比为粗略重要性；预测性非因果。"
+                f"样本内 R²={r2:.3f}（偏乐观）；{hold_sum}RMSE={rmse:.3f}，残差 σ={sigma:.3f}（n={n}）；"
+                f"最重要预测变量 {top}。⚠ 以留出 R² 评估预测力（样本内偏乐观）；分裂占比为粗略重要性；预测性非因果。"
             )
             code += [
                 "library(dbarts)  # 贝叶斯加性回归树 BART",

@@ -4,13 +4,16 @@
 > 每条：**项** · **为何没做/降级** · **当前可用替代/现状** · **如何补全/优化**。
 > 由 AI 自走时持续追加（受 CPU/GPU/装包/后端限制时尤其要写在这）。
 
-## 🔜 下一波（优先级，2026-06-16 更新）
+## 🔜 下一波（优先级，2026-06-18 更新）
 
-> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆（branches/ + _helpers/ + 注册表 + 自动发现 + ≤1500 护栏）、测试提速（`pytest -n 2` 全量 4:29→2:49 + `pytest -m "not slow"` 快循环；别用 `-n auto` 会 OOM）、conformal_prediction。评分卡 总分 89（设计 90 / 快速 70）。
+> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆（branches/ + _helpers/ + 注册表 + 自动发现 + ≤1500 护栏）、测试提速（`pytest -n 2` 全量 4:29→2:49 + `pytest -m "not slow"` 快循环；别用 `-n auto` 会 OOM）、conformal_prediction、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did 全双审）、**推断 backlog #4a causal_forest BH/FDR + #4b BART holdout R²**（见下）。评分卡 总分 89（设计 90 / 快速 70）。全量 265 绿。
 
-1. **Web 前端**（可用性 58，最大短板）：已有 FastAPI `researchforge/web/`，缺前端——上传→推荐（🟢🟡🔴 严谨度灯 + 6 维评分卡）→跑→报告/图。**动手前问用户**敲定栈（原生 HTML+模板 vs 框架）/样式/页面范围。
-2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级（抓不到回退 SEED）；流行度/更新喂回 `recommender/scoring.py`。
-3. **推断 backlog（可分批，每个 inference-reviewer 双审）**：DML/causal_forest 的 CV R²、causal_forest frac_significant 多重比较校正（BH/同时置信带）、BART holdout/CV R²、GAMM 非高斯族（binomial/poisson）。细节见下方「好点子」。
+1. **推断 backlog 续做（明天从这接）—— 还剩 2 项**：
+   - **#4c DML CV R²**（`double_ml`）：现 econml LinearDML 无拟合质量指标；加 nuisance（model_y/model_t）的**交叉验证 R²**报出，让用户判 DML 残差化是否到位。**纯 Python**（econml/sklearn），本机可验。
+   - **#4d GAMM 非高斯族**（`gamm`，R mgcv）：现仅高斯（连续结果）；扩 `family=binomial/poisson`（按结果列类型自动选或 config）。**R 侧**改 `_gam_via_r`/对应桥，本机 R 可验。
+   - 〔已做：#4a causal_forest 逐行显著占比 BH/FDR 校正 + fdr_by 切换；#4b BART 80/20 holdout R²。两者均 inference-reviewer 双审「correct as-is」。〕
+2. **Web 前端**（可用性 58，最大短板）：已有 FastAPI `researchforge/web/`，缺前端——上传→推荐（🟢🟡🔴 严谨度灯 + 6 维评分卡）→跑→报告/图。**动手前问用户**敲定栈（原生 HTML+模板 vs 框架）/样式/页面范围。
+3. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级（抓不到回退 SEED）；流行度/更新喂回 `recommender/scoring.py`。
 
 ---
 
@@ -51,9 +54,9 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 > 审核/建造时冒出的、值得以后做的点子。不一定现在做，但记下来别丢。
 
 **来自 inference-reviewer 双审的建议（已记、择机做）：**
-- **DML / causal_forest**：交叉拟合用 `n_rep>1` 多次切分取平均，更稳；ATE 旁可加 **holdout/CV R²**（样本内偏乐观）。
-- **causal_forest**：`frac_significant`（逐行 95% CI）应做**多重比较校正**（已加披露，未做校正）；可上 BH/同时置信带。
-- **BART**：加 **holdout/CV R²**（现仅样本内）；split-share 重要性可换 SHAP/permutation。
+- **DML / causal_forest**：交叉拟合用 `n_rep>1` 多次切分取平均，更稳；**DML 旁加 CV R²**（#4c，明天做）。〔causal_forest 的 holdout/CV R² 仍可加。〕
+- ~~**causal_forest**：`frac_significant` 多重比较校正~~ ✅ **已做（#4a，2026-06-18）**：BH/FDR 校正 + `fdr_method=fdr_by` 切换 + 双份披露；SE 从 CI 反推（与 econml.stderr 机器精度一致）。
+- ~~**BART**：holdout/CV R²~~ ✅ **已做（#4b，2026-06-18）**：80/20 holdout R²（dbarts x.test），样本内仍报但以 holdout 为准。〔split-share 重要性换 SHAP/permutation 仍可做。〕
 - **GAMM**：扩 **非高斯族**（binomial/poisson）；RE 的 p 是近似自由度检验，可注明。
 - **meta_regression**：加**亚组分析 / trim-and-fill** 补缺、**多层 meta**（3 层）。
 - **joint model**：基线风险可选 **spline-PH**（更灵活）；`event_time` 自动检测可优先**按列名**（time/surv/fu/followup）而非"首个常量连续"。

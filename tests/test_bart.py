@@ -37,6 +37,10 @@ def test_bart_fits_and_ranks_predictors(tmp_path: Path) -> None:
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
     assert "dbarts" in res.summary
     assert res.estimates["r_squared_insample"] > 0.7  # captures the nonlinear signal
+    # honest out-of-sample R²: still captures the signal on the 80/20 holdout, and is not
+    # optimistically above the in-sample fit
+    assert res.estimates["r_squared_holdout"] > 0.4
+    assert res.estimates["r_squared_holdout"] <= res.estimates["r_squared_insample"] + 0.05
     assert res.estimates["sigma"] > 0
     # the irrelevant x3 should not be the most-used split variable
     vi = pd.read_csv(Path(res.output_dir) / "bart_variable_importance.csv")
