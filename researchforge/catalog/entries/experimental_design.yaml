@@ -1,0 +1,27 @@
+- id: rcbd
+  method: Randomized complete block design (RCBD ANOVA)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Design-aware analysis of a randomized complete block design: one treatment factor
+    with a blocking factor that controls a nuisance gradient (field / site / batch).
+    Fits outcome ~ C(treatment) + C(block) (Type II ANOVA), tests the treatment effect
+    controlling for block variation, reports per-treatment means, Tukey HSD pairwise
+    comparisons, and a means±95%CI plot. Forces explicit treatment/block roles — set
+    config outcome/treatment/block.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - ANOVA table (treatment F-test controlling for block)
+    - per-treatment means + Tukey HSD pairwise comparisons
+    - treatment means with 95% CI plot
+  executor_ref: statsmodels
+  biases:
+    - assumes a complete balanced block design (each treatment once per block); imbalance is flagged
+    - block is a nuisance factor controlling field/site variation, not of scientific interest
+    - additive treatment + block — a single rep per cell cannot estimate the treatment x block interaction
+    - residual normality / equal variance assumed; block may instead be modeled as a random effect (mixed model)
+    - when roles are not set via config they are guessed from column names — disclosed in the run summary
