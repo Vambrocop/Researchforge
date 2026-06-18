@@ -79,3 +79,30 @@
     - two error strata — the whole-plot factor has fewer error df and lower power than the sub-plot factor
     - whole-plot / sub-plot roles cannot be auto-detected reliably; set them via config
     - residual normality / equal variance assumed; block treated as fixed in the SS decomposition
+
+- id: latin_square
+  method: Latin square design ANOVA
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Analysis of a Latin square design: one treatment factor with TWO orthogonal blocking
+    directions (rows and columns), each treatment appearing exactly once per row and once
+    per column. Fits outcome ~ C(treatment) + C(row) + C(col) (Type II ANOVA), tests the
+    treatment effect controlling both gradients, reports per-treatment means + Tukey HSD +
+    a means plot. Requires a valid t×t Latin square. Set config outcome/treatment/row/col.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 9
+  produces:
+    - ANOVA table (treatment F-test controlling row + column)
+    - per-treatment means + Tukey HSD
+    - treatment means plot
+  executor_ref: statsmodels
+  biases:
+    - requires a valid t×t Latin square (treatments=rows=cols; each treatment once per row and per column)
+    - rows and columns are nuisance blocking factors, not of scientific interest
+    - residual df is only (t-1)(t-2) — small squares have low power; assumes no treatment×row/column interaction
+    - residual normality / equal variance assumed; Tukey/CI are not adjusted for row/column
+    - roles guessed from column names when config doesn't set treatment/row/col — disclosed in the summary
