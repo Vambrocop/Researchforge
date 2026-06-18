@@ -25,3 +25,30 @@
     - additive treatment + block — a single rep per cell cannot estimate the treatment x block interaction
     - residual normality / equal variance assumed; block may instead be modeled as a random effect (mixed model)
     - when roles are not set via config they are guessed from column names — disclosed in the run summary
+
+- id: factorial_anova
+  method: Two-way factorial ANOVA (main effects + interaction)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Two crossed treatment factors analyzed together: outcome ~ C(A) * C(B), testing both
+    main effects AND their interaction (Type II ANOVA). Reports A / B / A×B F-tests, cell
+    means, an interaction plot, and flags whether the interaction is significant (so main
+    effects are read conditionally). Needs replication (>1 obs per A×B cell). Set config
+    outcome/factor_a/factor_b.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 8
+  produces:
+    - ANOVA table (A, B, and A×B interaction F-tests)
+    - cell means (A × B) + interaction plot
+    - interaction-significance flag (conditional vs independent main effects)
+  executor_ref: statsmodels
+  biases:
+    - needs replication within each A×B cell; a single rep per cell cannot estimate the interaction error
+    - Type II SS — for unbalanced designs with a real interaction, Type III (sum contrasts) is an alternative convention
+    - when the interaction is significant, main effects are average/marginal effects and must be read in its context
+    - residual normality / equal variance assumed
+    - factor roles are guessed from columns when config doesn't set factor_a/factor_b — disclosed in the summary
