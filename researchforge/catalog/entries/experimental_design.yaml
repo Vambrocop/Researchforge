@@ -106,3 +106,29 @@
     - residual df is only (t-1)(t-2) — small squares have low power; assumes no treatment×row/column interaction
     - residual normality / equal variance assumed; Tukey/CI are not adjusted for row/column
     - roles guessed from column names when config doesn't set treatment/row/col — disclosed in the summary
+
+- id: power_analysis
+  method: Power / sample-size for group comparison (DoE advisory)
+  domain: experimental design
+  family: experimental_design
+  goal: plan
+  description: >-
+    Design advisory: required replications / sample size for a one-way (k-group)
+    comparison. Reports required n per group for conventional Cohen's f effect sizes
+    (small 0.10 / medium 0.25 / large 0.40) at 80% and 90% power — the sound planning
+    output — plus the pilot data's observed effect as context (not "observed power").
+    Set config outcome/group/alpha.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - required n per group table (small/medium/large effect × 80%/90% power)
+    - sample size vs effect-size curve
+    - pilot observed Cohen's f (context only)
+  executor_ref: statsmodels
+  biases:
+    - planning should use a meaningful TARGET effect size, not the observed pilot effect
+    - post-hoc / observed power is a deterministic function of the p-value, so it is NOT reported as a planning tool
+    - assumes a balanced one-way ANOVA design with normal, equal-variance groups
+    - sample sizes are for the overall F-test, not pairwise comparisons
