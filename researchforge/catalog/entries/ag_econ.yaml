@@ -79,6 +79,7 @@
   biases:
     - same causal assumptions as DML — unconfoundedness + overlap; not auto-satisfied
     - CATE is exploratory — subgroup / effect-modifier findings risk false positives and need pre-registration or external validation
+    - the per-individual significant share is reported both uncorrected AND BH/FDR-corrected; the corrected share assumes positive/independent dependence among the CATE tests (use config fdr_method=fdr_by for an arbitrary-dependence, more conservative guarantee)
     - ML forest + cross-fitting add randomness (seed-pinned); needs a fairly large sample for stable heterogeneity
 
 - id: double_ml

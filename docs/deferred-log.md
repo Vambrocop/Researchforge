@@ -58,6 +58,7 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **meta_regression**：加**亚组分析 / trim-and-fill** 补缺、**多层 meta**（3 层）。
 - **joint model**：基线风险可选 **spline-PH**（更灵活）；`event_time` 自动检测可优先**按列名**（time/surv/fu/followup）而非"首个常量连续"。
 - **meta / CiC**：小 k（<10）偏倚检验功效不足（已披露）；FE 下 I²/τ² 无意义（已改）。
+- **staggered_did（Sun-Abraham，2026-06-18 审）**：① 预趋势可加**联合 Wald 检验**(所有 lead=0，`model.f_test`)作为单一原则性统计量(现为逐 lead p<0.05 标记，无多重校正，已披露功效有限)；② 总体 ATT 现为处理后事件期**简单平均**，可加**按格元样本量加权**(对齐 Callaway-Sant'Anna `aggte(simple)`)作为可选聚合(已披露二者略异)。〔should-fix 的 per-(g,e) 观测加权 + pname 精确匹配已当场应用〕
 
 **方法可运行性验证（用户点子 2026-06-16）：**
 - 原则：每个方法都用**真实示例数据**跑通 + 出图，**留代码**作为"可运行"凭证。

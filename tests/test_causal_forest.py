@@ -49,6 +49,33 @@ def test_causal_forest_detects_heterogeneity(tmp_path: Path) -> None:
     # x0 is the true effect-modifier -> top heterogeneity driver
     drivers = pd.read_csv(Path(res.output_dir) / "heterogeneity_drivers.csv")
     assert drivers.iloc[0]["modifier"] == "x0"
+    # BH/FDR-corrected significant share is reported and never exceeds the uncorrected share
+    assert 0.0 <= res.estimates["frac_significant_bh"] <= res.estimates["frac_significant"]
+    # with strong real heterogeneity, FDR control still flags a non-trivial share
+    assert res.estimates["frac_significant_bh"] > 0.0
+
+
+@pytest.mark.skipif(not _HAS_ECONML, reason="econml not available")
+def test_causal_forest_fdr_crushes_null_false_positives(tmp_path: Path) -> None:
+    # treatment has ZERO effect -> uncorrected share inflates (~baseline), FDR correction collapses it to ~0
+    rng = np.random.default_rng(3)
+    n = 900
+    x0, x1, x2 = rng.normal(0, 1, n), rng.normal(0, 1, n), rng.normal(0, 1, n)
+    d = (x0 + rng.normal(0, 1, n) > 0).astype(int)
+    y = x0 + 0.5 * x1 + rng.normal(0, 1, n)  # no treatment effect at all
+    df = pd.DataFrame({"x0": x0, "x1": x1, "x2": x2, "treat": d, "y": y})
+    csv = tmp_path / "null.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"treatment": "treat", "outcome": "y"})
+    # under the null, BH/FDR control drives the significant share toward ~0 (and below uncorrected)
+    assert res.estimates["frac_significant_bh"] <= res.estimates["frac_significant"]
+    assert res.estimates["frac_significant_bh"] < 0.05
+    # fdr_by (arbitrary-dependence, more conservative) is wired and never exceeds fdr_bh
+    res_by = run_analysis(fp, _entry(), output_root=str(tmp_path / "oby"),
+                          config={"treatment": "treat", "outcome": "y", "fdr_method": "fdr_by"})
+    assert res_by.estimates["frac_significant_bh"] <= res.estimates["frac_significant_bh"] + 1e-9
 
 
 def test_causal_forest_no_treatment_degrades(tmp_path: Path) -> None:

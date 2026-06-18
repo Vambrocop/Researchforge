@@ -769,7 +769,8 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
     return out
 
 
-def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discrete, seed, hist_png, scatter_png):
+def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discrete, seed,
+                              hist_png, scatter_png, fdr_method="fdr_bh"):
     """Heterogeneous treatment effects (CATE) via econml CausalForestDML — a
     causal-forest DML estimator: residualize Y and T on the covariates (ML), then
     grow a causal forest over the effect-modifiers X to estimate effect(x). Reports
@@ -808,7 +809,27 @@ def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discre
     a_lb, a_ub = (float(v) for v in est.ate_interval(X, alpha=0.05))
     lb, ub = est.effect_interval(X, alpha=0.05)  # per-row CI
     lb, ub = np.asarray(lb, dtype=float), np.asarray(ub, dtype=float)
-    frac_sig = float(np.mean((lb > 0) | (ub < 0)))  # share with a significant individual effect
+    frac_sig = float(np.mean((lb > 0) | (ub < 0)))  # uncorrected share with a significant individual effect
+    # multiple-comparison correction: with n per-individual tests, the uncorrected share inflates
+    # false positives (~5% baseline under the null). Derive per-row SE from the (normal, symmetric)
+    # 95% CI — verified to match econml's own stderr to machine precision — get two-sided p-values,
+    # and control the false-discovery rate. Default fdr_bh (FDR<=5% under independence/positive
+    # dependence); fdr_by is valid under ARBITRARY dependence (more conservative).
+    from scipy.stats import norm
+    from statsmodels.stats.multitest import multipletests
+
+    fdr_method = fdr_method if fdr_method in {"fdr_bh", "fdr_by"} else "fdr_bh"
+    se_pt = (ub - lb) / (2.0 * 1.959963984540054)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = np.where(se_pt > 0, cate / se_pt, 0.0)
+    pvals = 2.0 * norm.sf(np.abs(z))
+    valid = np.isfinite(pvals)
+    if valid.sum() > 0:
+        rej = np.zeros(pvals.shape, dtype=bool)
+        rej[valid] = multipletests(pvals[valid], alpha=0.05, method=fdr_method)[0]
+        frac_sig_bh = float(np.mean(rej))
+    else:
+        frac_sig_bh = float("nan")
     imp = np.asarray(est.feature_importances_, dtype=float)
     order = np.argsort(imp)[::-1]
     drivers = [(modifiers[i], round(float(imp[i]), 3)) for i in order]
@@ -816,7 +837,8 @@ def _causal_forest_via_econml(df, outcome, treatment, modifiers, n_folds, discre
         "ate": ate, "ate_lb": a_lb, "ate_ub": a_ub,
         "cate_mean": float(cate.mean()), "cate_sd": float(cate.std()),
         "cate_p10": float(np.percentile(cate, 10)), "cate_p90": float(np.percentile(cate, 90)),
-        "frac_significant": frac_sig, "drivers": drivers, "n": int(sub.shape[0]),
+        "frac_significant": frac_sig, "frac_significant_bh": frac_sig_bh,
+        "fdr_method": fdr_method, "drivers": drivers, "n": int(sub.shape[0]),
         "treat_map": treat_map,
     }
     try:

@@ -61,9 +61,10 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             import pandas as pd
 
             disc = df[treatment].dropna().nunique() == 2
+            fdr_method = cfg.get("fdr_method") if cfg.get("fdr_method") in {"fdr_bh", "fdr_by"} else "fdr_bh"
             res = _causal_forest_via_econml(
                 df, outcome, treatment, modifiers, n_folds, disc, seed,
-                d / "cate_hist.png", d / "cate_vs_modifier.png",
+                d / "cate_hist.png", d / "cate_vs_modifier.png", fdr_method=fdr_method,
             )
             for png in ("cate_hist.png", "cate_vs_modifier.png"):
                 if (d / png).exists():
@@ -71,6 +72,8 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             ate, alb, aub = res["ate"], res["ate_lb"], res["ate_ub"]
             csd, p10, p90 = res["cate_sd"], res["cate_p10"], res["cate_p90"]
             frac = res["frac_significant"]
+            frac_bh = res.get("frac_significant_bh", float("nan"))
+            fdr_lab = "BY-FDR(任意相关下有效)" if res.get("fdr_method") == "fdr_by" else "BH-FDR"
             drivers = res["drivers"]
             pd.DataFrame(drivers, columns=["modifier", "importance"]).to_csv(
                 d / "heterogeneity_drivers.csv", index=False, encoding="utf-8"
@@ -81,6 +84,7 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             estimates["ate_ub"] = round(aub, 4)
             estimates["cate_sd"] = round(csd, 4)
             estimates["frac_significant"] = round(frac, 3)
+            estimates["frac_significant_bh"] = round(frac_bh, 3) if frac_bh == frac_bh else float("nan")
             top = drivers[0]
             # heterogeneity heuristic: CATE spread large relative to |ATE|
             het = "明显" if csd > 0.25 * (abs(ate) + 1e-9) else "较弱"
@@ -94,8 +98,9 @@ def _branch_causal_forest(ctx: Ctx) -> None:
                 f"处理 {treatment} → 结果 {outcome}，效应修饰因子 {len(modifiers)} 个{enc_txt}\n"
                 f"总体 ATE = {ate:.4f}，95% CI [{alb:.4f}, {aub:.4f}]\n"
                 f"CATE 分布：均值 {res['cate_mean']:.4f}，SD {csd:.4f}，[P10,P90]=[{p10:.4f},{p90:.4f}]\n"
-                f"个体效应显著（逐行 95% CI 不含 0）占比 {frac:.0%}"
-                "（未校正多重比较，零效应下基线约 5%）；"
+                f"个体效应显著（逐行 95% CI 不含 0）占比 {frac:.0%}（未校正，零效应下基线约 5%）；"
+                f"{fdr_lab} 多重比较校正后占比 {frac_bh:.0%}（FDR≈5%；BH 在独立/正相关下成立，"
+                "森林 CATE 近似满足、未严格证；如需任意相关下的保守保证用 config['fdr_method']='fdr_by'）；"
                 f"异质性{het}\n"
                 f"异质性主要驱动（特征重要性）：{drivers[:3]}\n"
                 "CATE 用 ML 估计异质效应；因果解释同样依赖无未观测混杂 + 重叠假定；"
@@ -107,7 +112,8 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             summary.append(
                 f"{entry.method} 完成（econml，RF×{n_folds}折，seed={seed}）：处理 {treatment} → {outcome}；"
                 f"ATE={ate:.4f}（95% CI [{alb:.4f}, {aub:.4f}]）；CATE 异质性{het}"
-                f"（SD={csd:.3f}，P10–P90=[{p10:.3f},{p90:.3f}]，{frac:.0%} 个体效应显著）；"
+                f"（SD={csd:.3f}，P10–P90=[{p10:.3f},{p90:.3f}]，个体效应显著 {frac:.0%} 未校正"
+                f"/ {frac_bh:.0%} {fdr_lab} 校正）；"
                 f"主要驱动 {top[0]}（重要性 {top[1]}）。"
                 "⚠ 因果解释依赖无未观测混杂 + 重叠；CATE 偏探索、子组结论需外部验证。" + enc_txt
             )

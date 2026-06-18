@@ -15,7 +15,7 @@
 > - 差异丰度(#9)：`da_method`(clr_mw / clr_welch / aldex2[R 金标准已接]；ancombc 降级)
 > - RDD 断点回归：`running`(驱动变量,必填)、`cutoff`(断点,必填)、`outcome`
 > - 双重机器学习 DML：`treatment`(处理列)、`controls`(混杂列表)、`outcome`、`n_folds`(默认5)、`seed`(默认0,固定交叉拟合切分)
-> - 因果森林 causal_forest：`treatment`、`effect_modifiers`(异质特征列表)、`outcome`、`n_folds`、`seed`
+> - 因果森林 causal_forest：`treatment`、`effect_modifiers`(异质特征列表)、`outcome`、`n_folds`、`seed`、`fdr_method`(`fdr_bh` 默认 / `fdr_by` 任意相关下保守)
 > - Meta 回归 meta_regression：`moderators`(调节变量列表)、`measure`、`method`(同 meta_analysis)
 > - GAMM：`outcome`、`predictors`、`group`(随机截距分组列)
 > - changes-in-changes：`outcome`、`treatment`、`time`、`treated_group`(=1 的处理组值,定方向)、`periods`[前,后]、`probs`
