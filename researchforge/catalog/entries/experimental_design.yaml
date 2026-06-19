@@ -132,3 +132,83 @@
     - post-hoc / observed power is a deterministic function of the p-value, so it is NOT reported as a planning tool
     - assumes a balanced one-way ANOVA design with normal, equal-variance groups
     - sample sizes are for the overall F-test, not pairwise comparisons
+
+- id: ammi
+  method: AMMI (Additive Main effects + Multiplicative Interaction)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Genotype × environment (G×E) analysis for multi-environment trials. Fits the
+    additive two-way model (grand + genotype + environment main effects), then runs an
+    SVD on the G×E interaction residual matrix to extract IPCA axes ranked by the
+    percentage of interaction sum-of-squares they explain. Produces an AMMI-2 biplot
+    (IPCA1 vs IPCA2 for genotypes and environments) and a per-genotype stability readout
+    (AMMI stability value / interaction-residual norm). Set config outcome/genotype/environment.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 9
+  produces:
+    - IPCA variance table (% of G×E interaction SS per axis)
+    - genotype stability table (IPCA1/IPCA2 scores, AMMI stability value)
+    - AMMI-2 biplot (genotypes + environments)
+  executor_ref: numpy
+  biases:
+    - descriptive multiplicative decomposition of the G×E interaction, not an inferential test
+    - AMMI stability value / IPCA scores have several conventions; axis-retention (Gauch F) is not done — only % explained is reported
+    - biplot interpretation is approximate (points far from the origin = large interaction / less stable)
+    - needs a replicated multi-environment trial with a complete genotype×environment cell-mean table; missing cells drop whole rows/columns
+    - genotype/environment roles are guessed from column names when config doesn't set them — disclosed in the summary
+
+- id: gge_biplot
+  method: GGE biplot (Genotype + Genotype×Environment)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    GGE biplot for multi-environment trials. Environment-centers the genotype×environment
+    mean matrix (removing the environment main effect but KEEPING the genotype main effect
+    plus G×E), then runs an SVD to build a genotype + G×E biplot. Reports the variance
+    explained by PC1/PC2 and a which-won-where readout (the winning genotype per
+    environment from the rank-2 biplot approximation). Set config outcome/genotype/environment.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 9
+  produces:
+    - PC variance table (% explained by each principal component)
+    - which-won-where table (winning genotype per environment)
+    - GGE biplot (genotypes as points, environments as vectors)
+  executor_ref: numpy
+  biases:
+    - descriptive biplot of genotype + G×E, not an inferential test
+    - centering / scaling choices (environment-centering, symmetric scaling) change the figure and its interpretation
+    - the biplot is a low-rank approximation; which-won-where is an approximate projection, not a significance test
+    - needs a replicated multi-environment trial with a complete genotype×environment cell-mean table; missing cells drop whole rows/columns
+    - genotype/environment roles are guessed from column names when config doesn't set them — disclosed in the summary
+
+- id: response_surface
+  method: Response surface methodology (RSM, second-order)
+  domain: experimental design
+  family: experimental_design
+  goal: explain
+  description: >-
+    Response Surface Methodology over 2+ continuous factors. Fits a second-order
+    polynomial (response ~ linear + quadratic + cross terms), locates the stationary
+    point by setting the gradient to zero (canonical analysis), and classifies it as a
+    maximum / minimum / saddle from the Hessian eigenvalues. Draws a contour plot over
+    the first two factors. Set config outcome + factors (list of >=2 continuous columns).
+  preconditions:
+    min_continuous: 3
+    min_rows: 9
+  produces:
+    - second-order coefficient table + stationary point table
+    - stationary-point classification (max / min / saddle) via Hessian eigenvalues
+    - response-surface contour plot
+  executor_ref: statsmodels
+  biases:
+    - local quadratic approximation — valid only within the explored design region
+    - the stationary point is meaningful only if it falls inside the factor box; outside it is extrapolation and is flagged
+    - needs DESIGNED factor levels (e.g. central composite / Box-Behnken); observational factors are often collinear, giving an unestimable surface or a ridge
+    - residual normality / equal variance assumed; the contour holds non-plotted factors fixed at the stationary/center value
