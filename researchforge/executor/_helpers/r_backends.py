@@ -820,17 +820,19 @@ def _glmm_via_r(csv_path, outcome: str, predictors: list[str], group: str, famil
     return fixed, re_d
 
 
-def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path):
+def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path, family="gaussian"):
     """Generalized additive mixed model via R mgcv: GAM smooth (penalised-spline)
     terms s(x) for continuous predictors + a random intercept for `group` via the
-    "re" smooth basis s(group, bs="re") (Wood's single-object GAMM, REML). Returns
-    (smooth_df[term,edf,F,p] for covariate smooths, param_df, re dict{edf,p,sd},
-    fit{dev_expl,r_sq,n}). Writes partial-effect plots for the covariate smooths.
-    Raises so the caller can degrade honestly."""
+    "re" smooth basis s(group, bs="re") (Wood's single-object GAMM, REML). `family`
+    selects the response distribution/link: gaussian (identity), binomial (logit),
+    or poisson (log). Returns (smooth_df[term,edf,stat,p] (stat=F gaussian / Chi.sq otherwise),
+    param_df, re dict{edf,p,sd}, fit{dev_expl,r_sq,n}). Writes partial-effect plots
+    for the covariate smooths. Raises so the caller can degrade honestly."""
     import pandas as pd
 
     from researchforge.executor import rbridge
 
+    family = family if family in {"gaussian", "binomial", "poisson"} else "gaussian"
     csv_r = str(csv_path).replace("\\", "/")
     png_r = str(png_path).replace("\\", "/")
     re_term = f's({group}, bs="re")'
@@ -840,14 +842,15 @@ def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path):
         "suppressMessages(library(mgcv))\n"
         f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
         f'd[["{group}"]] <- as.factor(d[["{group}"]])\n'
-        f'm <- gam({outcome} ~ {rhs}, data=d, method="REML")\n'
+        f'm <- gam({outcome} ~ {rhs}, data=d, family={family}, method="REML")\n'
         "s <- summary(m)\n"
         f're_row <- "s({group})"\n'
         'cat("##S\\n")\n'
         "if (!is.null(s$s.table)) for (i in seq_len(nrow(s$s.table))) "
         "if (rownames(s$s.table)[i] != re_row) "
+        # col 3 = test stat: F (gaussian, estimated scale) or Chi.sq (binomial/poisson, fixed scale)
         'cat(sprintf("%s|%.4f|%.4f|%.6g\\n", rownames(s$s.table)[i], '
-        's$s.table[i,"edf"], s$s.table[i,"F"], s$s.table[i,"p-value"]))\n'
+        's$s.table[i,"edf"], s$s.table[i,3], s$s.table[i,"p-value"]))\n'
         'cat("##P\\n")\n'
         "if (!is.null(s$p.table)) for (i in seq_len(nrow(s$p.table))) "
         'cat(sprintf("%s|%.6f|%.6f|%.6g\\n", rownames(s$p.table)[i], '
@@ -884,9 +887,9 @@ def _gamm_via_r(csv_path, outcome, smooth_terms, linear_terms, group, png_path):
             fit[k] = float(v)
     if "dev_expl" not in fit:
         raise RuntimeError("mgcv GAMM 未返回结果")
-    smooth_df = pd.DataFrame(srows, columns=["term", "edf", "F", "p_value"]) if srows else pd.DataFrame(columns=["term", "edf", "F", "p_value"])
+    smooth_df = pd.DataFrame(srows, columns=["term", "edf", "stat", "p_value"]) if srows else pd.DataFrame(columns=["term", "edf", "stat", "p_value"])
     param_df = pd.DataFrame(prows, columns=["term", "estimate", "std_err", "p_value"]) if prows else pd.DataFrame(columns=["term", "estimate", "std_err", "p_value"])
-    for col in ("edf", "F", "p_value"):
+    for col in ("edf", "stat", "p_value"):
         if len(smooth_df):
             smooth_df[col] = pd.to_numeric(smooth_df[col], errors="coerce")
     for col in ("estimate", "std_err", "p_value"):

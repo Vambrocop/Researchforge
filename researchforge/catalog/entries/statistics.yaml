@@ -216,7 +216,7 @@
   executor_ref: mgcv
   biases:
     - grouping variable for the random intercept is auto-picked (panel unit / repeated category) — set config group if wrong
-    - assumes a Gaussian / identity-link continuous outcome and normally-distributed random intercepts
+    - outcome may be Gaussian (identity), binary (logit) or count (log) — family auto-detected from the outcome type, override via config family; random intercepts assumed normal on the link scale; non-Gaussian smooth effects are on the link scale (deviance explained is the primary fit metric)
     - smooth basis (k=10) caps wiggliness; boundary extrapolation unreliable; needs enough groups (>=5) for a stable variance
 
 - id: gam

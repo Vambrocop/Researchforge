@@ -17,7 +17,7 @@
 > - 双重机器学习 DML：`treatment`(处理列)、`controls`(混杂列表)、`outcome`、`n_folds`(默认5)、`seed`(默认0,固定交叉拟合切分)
 > - 因果森林 causal_forest：`treatment`、`effect_modifiers`(异质特征列表)、`outcome`、`n_folds`、`seed`、`fdr_method`(`fdr_bh` 默认 / `fdr_by` 任意相关下保守)
 > - Meta 回归 meta_regression：`moderators`(调节变量列表)、`measure`、`method`(同 meta_analysis)
-> - GAMM：`outcome`、`predictors`、`group`(随机截距分组列)
+> - GAMM：`outcome`、`predictors`、`group`(随机截距分组列)、`family`(`gaussian` 默认/`binomial`/`poisson`；缺省按结果列类型自动:二值→binomial、计数→poisson)
 > - changes-in-changes：`outcome`、`treatment`、`time`、`treated_group`(=1 的处理组值,定方向)、`periods`[前,后]、`probs`
 > - 网络分析 network_analysis：`source`、`target`(边两端节点列)、`weight`(可选边权)、`directed`(默认 False)
 > - 保形预测 conformal_prediction：`outcome`(结果,默认首个连续列)、`predictors`(预测变量列表)、`alpha`(误覆盖率,默认0.1→90%区间)、`seed`(默认0,固定切分+RF)

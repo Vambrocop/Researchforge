@@ -268,7 +268,13 @@ def _branch_gamm(ctx: Ctx) -> None:
         )
     _excl = {fp.unit_col, fp.time_col, group}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # outcome may be continuous (gaussian), binary (binomial), or count (poisson). Default picks a
+    # continuous outcome (gaussian); a non-Gaussian response is opt-in via config outcome/family.
+    ykind = {c.name: c.kind for c in fp.columns if c.name not in _excl and c.kind in {"continuous", "count", "binary"}}
+    y = cfg["outcome"] if cfg.get("outcome") in ykind else (cont[0] if cont else None)
+    fam = cfg.get("family")
+    if fam not in {"gaussian", "binomial", "poisson"}:
+        fam = {"binary": "binomial", "count": "poisson"}.get(ykind.get(y), "gaussian")
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c not in {y, group}]
     if forced:
         preds = forced[:8]
@@ -283,7 +289,7 @@ def _branch_gamm(ctx: Ctx) -> None:
         re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [y, group, *preds]
     )
     if y is None or not preds:
-        summary.append("GAMM 失败：需要 1 个连续结果变量 + ≥1 个预测变量。")
+        summary.append("GAMM 失败：需要 1 个结果变量（连续/二值/计数）+ ≥1 个预测变量。")
     elif group is None:
         summary.append("GAMM 失败：需要一个分组变量做随机截距（面板单位列或重复出现的类别列，≥5 组）。")
     elif not smooth:
@@ -302,7 +308,7 @@ def _branch_gamm(ctx: Ctx) -> None:
         csv = d / "_gamm_input.csv"
         sub.to_csv(csv, index=False)
         try:
-            smooth_df, param_df, re_d, fit = _gamm_via_r(csv, y, smooth, linear, group, d / "gamm_smooths.png")
+            smooth_df, param_df, re_d, fit = _gamm_via_r(csv, y, smooth, linear, group, d / "gamm_smooths.png", family=fam)
             if len(smooth_df):
                 smooth_df.to_csv(d / "smooth_terms.csv", index=False, encoding="utf-8")
                 files.append("smooth_terms.csv")
@@ -317,6 +323,10 @@ def _branch_gamm(ctx: Ctx) -> None:
             dev, r2, n = fit["dev_expl"], fit["r_sq"], int(fit["n"])
             re_sd = re_d.get("re_sd", float("nan"))
             re_p = re_d.get("re_p", float("nan"))
+            fam_label = {"gaussian": "高斯族 + identity link（连续结果）",
+                         "binomial": "二项族 + logit link（0/1 结果，逻辑可加模型）",
+                         "poisson": "泊松族 + log link（计数结果）"}[fam]
+            fam_short = {"gaussian": "高斯族", "binomial": "二项族/logit", "poisson": "泊松族/log"}[fam]
             estimates["deviance_explained"] = round(dev, 4)
             estimates["adj_r_squared"] = round(r2, 4)
             estimates["random_intercept_sd"] = round(re_sd, 4) if re_sd == re_sd else float("nan")
@@ -338,19 +348,23 @@ def _branch_gamm(ctx: Ctx) -> None:
                 f"{nl_txt}{fewg_txt}\n"
                 "edf=有效自由度（1=直线）；随机截距吸收组间基线差异。平滑项 p 检验项≠0"
                 "（edf>1.5 仅为非线性的描述性标记，非正式检验）；RE 的 p/edf 为近似自由度检验。\n"
-                "默认高斯族+identity link（连续结果）。\n\n"
-                "平滑项：\n" + (smooth_df.to_string(index=False) if len(smooth_df) else "（无）"),
+                + f"分布族：{fam_label}"
+                + ("。\n\n" if fam == "gaussian"
+                   else "；非高斯族下偏差解释为主、调整 R² 仅供参考，平滑项效应在 link 尺度上。\n\n")
+                + "平滑项：\n" + (smooth_df.to_string(index=False) if len(smooth_df) else "（无）"),
                 encoding="utf-8",
             )
             files.append("gamm_summary.txt")
             summary.append(
                 f"{entry.method} 完成（R/mgcv，REML）：{y} ~ {len(smooth)} 个平滑项 + {len(linear)} 个线性项"
-                f" + (1|{group})；偏差解释 {dev:.1%}，调整 R²={r2:.3f}（n={n}）；{re_txt}；{nl_txt}。"
-                "⚠ 高斯族；平滑项默认薄板样条 k=10，边界外推不可靠；随机截距假定组效应~正态。" + fewg_txt
+                f" + (1|{group})；{fam_short}；偏差解释 {dev:.1%}，调整 R²={r2:.3f}（n={n}）；{re_txt}；{nl_txt}。"
+                f"⚠ {fam_short}"
+                + ("（连续结果）" if fam == "gaussian" else "（平滑项在 link 尺度，偏差解释为主）")
+                + "；平滑项默认薄板样条 k=10，边界外推不可靠；随机截距假定组效应~正态。" + fewg_txt
             )
             code += [
                 "library(mgcv)  # 广义可加混合模型 GAMM",
-                f"# gam({y} ~ " + " + ".join([f's({t})' for t in smooth] + linear) + f" + s({group}, bs='re'), method='REML')",
+                f"# gam({y} ~ " + " + ".join([f's({t})' for t in smooth] + linear) + f" + s({group}, bs='re'), family={fam}, method='REML')",
             ]
         except Exception as err:
             summary.append(f"GAMM 拟合失败：{err}")

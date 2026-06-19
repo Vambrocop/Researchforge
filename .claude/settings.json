@@ -185,7 +185,9 @@
       "Bash(PYTHONUTF8=1 py -3 -c \"import statsmodels, scipy, numpy, pandas; print\\('sm', statsmodels.__version__\\); print\\('scipy', scipy.__version__\\)\")",
       "Bash(PYTHONUTF8=1 py -3 -)",
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli status)",
-      "Bash(PYTHONUTF8=1 py -3 -c \"import doubleml; print\\('doubleml', doubleml.__version__\\)\")"
+      "Bash(PYTHONUTF8=1 py -3 -c \"import doubleml; print\\('doubleml', doubleml.__version__\\)\")",
+      "Bash(Rscript -e 'cat\\(R.version.string, \"\\\\n\"\\); cat\\(\"mgcv:\", as.character\\(packageVersion\\(\"mgcv\"\\)\\), \"\\\\n\"\\)')",
+      "Bash(PYTHONUTF8=1 py -3 -c \"from researchforge.executor import rbridge; print\\('r_available', rbridge.r_available\\(\\)\\); print\\('mgcv', rbridge.r_package_available\\('mgcv'\\)\\)\")"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

@@ -8,10 +8,8 @@
 
 > 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆（branches/ + _helpers/ + 注册表 + 自动发现 + ≤1500 护栏）、测试提速（`pytest -n 2` 全量 4:29→2:49 + `pytest -m "not slow"` 快循环；别用 `-n auto` 会 OOM）、conformal_prediction、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did 全双审）、**推断 backlog #4a causal_forest BH/FDR + #4b BART holdout R²**（见下）。评分卡 总分 89（设计 90 / 快速 70）。全量 265 绿。
 
-1. **推断 backlog 续做 —— 还剩 1 项**：
-   - **#4d GAMM 非高斯族**（`gamm`，R mgcv）：现仅高斯（连续结果）；扩 `family=binomial/poisson`（按结果列类型自动选或 config）。**R 侧**改 `_gamm_via_r`（在 r_backends.py），本机 R 可验。
-   - 〔已做：#4a causal_forest BH/FDR + fdr_by；#4b BART 80/20 holdout R²；#4c DML nuisance 交叉拟合 R²。三者均 inference-reviewer 双审「correct as-is」。〕
-   - 做完 #4d 推断 backlog 这一摊清完（用户：审查/降级发现都要做、无优先级，见 review-findings-are-backlog 记忆）。
+1. ✅ **推断 backlog —— 全清完（2026-06-19）**：#4a causal_forest BH/FDR + fdr_by；#4b BART 80/20 holdout R²；#4c DML nuisance 交叉拟合 R²；#4d GAMM 非高斯族(binomial/poisson, 自动+config family)。四者均 inference-reviewer 双审「correct as-is」。下一摊见下方 Web 前端 / discover。
+   - 〔GAMM nice-to-have：无 config 时若结果意图是二值/计数但默认取了首个连续列做高斯，可加一行 summary 提示「检测到二值/计数列 X，如需非高斯设 config outcome/family」。非 bug（默认高斯已披露），UX 优化。〕
 2. **Web 前端**（可用性 58，最大短板）：已有 FastAPI `researchforge/web/`，缺前端——上传→推荐（🟢🟡🔴 严谨度灯 + 6 维评分卡）→跑→报告/图。**动手前问用户**敲定栈（原生 HTML+模板 vs 框架）/样式/页面范围。
 3. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级（抓不到回退 SEED）；流行度/更新喂回 `recommender/scoring.py`。
 

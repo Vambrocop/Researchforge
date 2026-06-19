@@ -57,6 +57,57 @@ def test_gamm_config_group_and_outcome(tmp_path: Path) -> None:
     assert "mgcv" in res.summary and "edf_s(x1)" in res.estimates
 
 
+@pytest.mark.skipif(not _HAS_MGCV, reason="R mgcv not available")
+def test_gamm_binomial_family_binary_outcome(tmp_path: Path) -> None:
+    # binary outcome with a nonlinear driver + site random intercept -> logistic GAMM (family=binomial)
+    rng = np.random.default_rng(5)
+    ng, per = 25, 40
+    grp = np.repeat(np.arange(ng), per)
+    re = rng.normal(0, 0.8, ng)
+    n = ng * per
+    x1 = rng.uniform(0, 10, n)
+    x2 = rng.uniform(-3, 3, n)
+    eta = np.sin(x1) + 0.3 * x2 + re[grp]            # nonlinear on the logit scale
+    p = 1.0 / (1.0 + np.exp(-eta))
+    yb = (rng.uniform(size=n) < p).astype(int)        # 0/1 outcome
+    df = pd.DataFrame({"site": [f"s{g}" for g in grp], "hit": yb, "x1": x1, "x2": x2})
+    csv = tmp_path / "gb.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"group": "site", "outcome": "hit", "predictors": ["x1", "x2"], "family": "binomial"})
+    assert "mgcv" in res.summary
+    assert "二项族" in res.summary                     # family routed to binomial (logit)
+    assert res.estimates["edf_s(x1)"] > 1.5           # recovers the nonlinear logit signal
+    assert res.estimates["deviance_explained"] > 0.0
+    assert res.estimates["n"] == float(n)
+
+
+@pytest.mark.skipif(not _HAS_MGCV, reason="R mgcv not available")
+def test_gamm_poisson_auto_family_count_outcome(tmp_path: Path) -> None:
+    # count outcome -> family auto-detected as poisson (no explicit config family)
+    rng = np.random.default_rng(8)
+    ng, per = 25, 40
+    grp = np.repeat(np.arange(ng), per)
+    re = rng.normal(0, 0.5, ng)
+    n = ng * per
+    x1 = rng.uniform(0, 10, n)
+    x2 = rng.uniform(-3, 3, n)
+    lam = np.exp(0.3 * np.sin(x1) + 0.1 * x2 + re[grp])   # nonlinear on the log scale
+    cnt = rng.poisson(lam)
+    df = pd.DataFrame({"site": [f"s{g}" for g in grp], "cnt": cnt, "x1": x1, "x2": x2})
+    csv = tmp_path / "gp.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    # NO explicit family -> the count outcome should auto-route to poisson
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"group": "site", "outcome": "cnt", "predictors": ["x1", "x2"]})
+    assert "mgcv" in res.summary
+    assert "泊松族" in res.summary                     # count outcome auto-detected -> poisson (log)
+    assert res.estimates["deviance_explained"] > 0.0
+    assert res.estimates["n"] == float(n)
+
+
 def test_gamm_no_group_degrades(tmp_path: Path) -> None:
     # only continuous columns, no grouping variable -> honest failure (no R needed)
     rng = np.random.default_rng(2)
