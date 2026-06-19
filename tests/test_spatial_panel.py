@@ -78,6 +78,59 @@ def _make_spatial_panel(rho: float = 0.5, n_units: int = 30, n_time: int = 6, se
     return pd.DataFrame(rows)
 
 
+def _make_sem_panel(lam: float = 0.5, n_units: int = 30, n_time: int = 6, seed: int = 2):
+    """SEM reduced form: y = X b + mu + u, with spatially-correlated error
+    u = (I - lam W)^{-1} eps (the error process, NOT the outcome, carries the
+    spatial dependence). Used to check the SEM (model='error') lambda path."""
+    rng = np.random.default_rng(seed)
+    coords = rng.uniform(0, 10, size=(n_units, 2))
+    W = _knn_W(coords, 4)
+    B_inv = np.linalg.inv(np.eye(n_units) - lam * W)  # (I - lam W)^{-1}
+    mu = rng.normal(0, 1.0, size=n_units)
+    b = 0.8
+    rows = []
+    for t in range(n_time):
+        x = rng.normal(0, 1, size=n_units)
+        eps = rng.normal(0, 0.3, size=n_units)
+        u = B_inv @ eps  # spatially-correlated disturbance
+        y = b * x + mu + u
+        for i in range(n_units):
+            rows.append(
+                {
+                    "region": f"u{i:02d}", "year": 2010 + t,
+                    "lon": round(float(coords[i, 0]), 5), "lat": round(float(coords[i, 1]), 5),
+                    "y": round(float(y[i]), 5), "x": round(float(x[i]), 5),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_spatial_panel_sem_recovers_lambda(tmp_path: Path) -> None:
+    """SEM (model='error') must recover a POSITIVE spatial error lambda. Regression
+    guard for the inference-reviewer must-fix: under model='within' splm's errcomp
+    is NULL and the error param 'rho' lives in coefficients, so the old extraction
+    reported lambda=0.0000 for every dataset."""
+    if not (rbridge.r_available() and rbridge.r_package_available("splm")):
+        pytest.skip("R splm package not available")
+
+    df = _make_sem_panel(lam=0.5)
+    csv = tmp_path / "sem.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"), config={"model": "error"})
+    out = Path(res.output_dir)
+
+    assert (out / "spatial_panel_coefficients.csv").exists()
+    lam_hat = res.estimates.get("spatial_coef")
+    assert lam_hat is not None
+    assert lam_hat > 0.15, f"SEM lambda silently lost (must-fix regression): got {lam_hat}"
+    assert lam_hat < 0.85, f"lambda implausibly large: {lam_hat}"
+    assert "lambda" in res.estimates
+    # SEM coefficients ARE the marginal effects -> no spillover-impacts decomposition
+    assert not (out / "spatial_panel_impacts.csv").exists()
+
+
 def test_spatial_panel_recovers_positive_rho(tmp_path: Path) -> None:
     if not (rbridge.r_available() and rbridge.r_package_available("splm")):
         pytest.skip("R splm package not available")

@@ -330,16 +330,23 @@ def _spatial_panel_via_r(
         "ct <- s$CoefTable\n"
         'for (nm in rownames(ct)) cat(sprintf("%s|%.6f|%.6f|%.6g\\n", nm, ct[nm,1], ct[nm,2], ct[nm,4]))\n'
         'cat("##DIAG\\n")\n'
-        # splm naming is version-dependent: the SAR lag parameter is reported as
-        # "lambda" in m$coefficients, the SEM error parameter as "rho" in m$errcomp.
-        # Grab both robustly and tag by the model the caller requested.
+        # splm naming is version-dependent AND differs by effects type. Under model="within"
+        # (individual FE) errcomp is NULL: the SAR lag param is "lambda" in m$coefficients, and
+        # the SEM error param is "rho" — ALSO in m$coefficients (NOT errcomp, which only fills for
+        # random-effects models). Key the extraction on the requested model so the SEM λ isn't
+        # read from a NULL errcomp and silently reported as 0 (inference-reviewer must-fix). The
+        # RE-style errcomp path is kept as a first fallback for non-within fits.
         'getp <- function(v, nms) { for (n in nms) if (!is.null(v) && n %in% names(v)) '
         'return(as.numeric(v[n])); NA }\n'
         'sp <- m$coefficients; spe <- m$errcomp\n'
-        'lagp <- getp(sp, c("lambda","rho","psi"))\n'
-        'errp <- getp(spe, c("rho","lambda","phi"))\n'
-        'if (is.na(errp)) errp <- getp(sp, c("rho_err","lambda_err"))\n'
-        'cat(sprintf("lag_param|%.6f\\n", ifelse(is.na(lagp), 0, lagp)))\n'
+        + (
+            'lagp <- getp(sp, c("lambda","rho","psi")); errp <- NA\n'
+            if is_lag else
+            'errp <- getp(spe, c("rho","lambda","phi"))\n'
+            'if (is.na(errp)) errp <- getp(sp, c("rho","lambda","psi"))\n'
+            'lagp <- NA\n'
+        )
+        + 'cat(sprintf("lag_param|%.6f\\n", ifelse(is.na(lagp), 0, lagp)))\n'
         'cat(sprintf("err_param|%.6f\\n", ifelse(is.na(errp), 0, errp)))\n'
         # LM tests on the pooled (OLS) model to advise lag vs error
         f'fb <- as.formula("{outcome} ~ {" + ".join(predictors)}")\n'
