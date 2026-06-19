@@ -6,7 +6,7 @@
 
 ## 🔜 下一波（优先级，2026-06-19 更新）
 
-> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆、测试提速（`pytest -n 2`；别用 `-n auto` OOM）、conformal、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did）、**推断 backlog #4a-#4d**（causal_forest BH/FDR、BART holdout R²、DML nuisance CV R²、GAMM 非高斯族）、**A 风格 web 前端**（接引擎 + goals 后端供给）、**时间序列波**（协整+VECM/GARCH/结构突变/STL/ARDL）。全部 inference-reviewer 双审或确定性实测。全量 283 绿。
+> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆、测试提速（`pytest -n 2`；别用 `-n auto` OOM）、conformal、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did）、**推断 backlog #4a-#4d**（causal_forest BH/FDR、BART holdout R²、DML nuisance CV R²、GAMM 非高斯族）、**A 风格 web 前端**（接引擎 + goals 后端供给）、**时间序列波**（协整+VECM/GARCH/结构突变/STL/ARDL）、**并行波1**（农学 AMMI/GGE/RSM + 空间面板 SAR/SEM/SDM + 生态 Mantel/IndVal/RDA）、**DesignSync**（组件库推 claude.ai/design "ResearchForge UI"）、**并行波2**（生存 competing_risks/parametric_survival/rmst + MCDA entropy_weight/vikor/promethee/ahp + 多元 manova/discriminant/canonical_correlation/hotelling_t2）。全部 inference-reviewer 双审或确定性实测。**全量 349 绿**（~90 方法）。
 
 1. 🔄 **并行 subagent 集成队列（2026-06-19，compact 后用 `git worktree list` 找回）**：
    - ✅ **设计流（组件库）**：已审+合并+推送（main 6b267b8，web/static/components/ 8 文件）。**待办：DesignSync 推到 claude.ai/design**（需用户登录）。
@@ -15,6 +15,10 @@
    - ✅ **生态波（已审+整合 6/19）**：`mantel_test`/`indicator_species`（纯 Python）+ `rda`（R vegan）。inference-reviewer **APPROVE**——Mantel r 匹配 scipy 到浮点精度 + 联合行列置换是正确 Mantel 零分布且校准良好；IndVal A×B×100 完美匹配 Dufrene-Legendre(1997)（完美指示种=100、均匀=低）；RDA 端到端匹配直跑 R（total/constrained/F=274/p=.001 完全一致）。已合并 main，全量 307 绿。**已应用 3 个 nice-to-have**：(a) RDA 真给调整 R²(RsquareAdj，原只提示)；(b) Mantel summary 补空间自相关告警；(c) IndVal summary 补稀有类不稳告警。剩：无（#2/#5 经核为非问题）。
    - **整合顺序（全部完成 ✅ 6/19）**：✅① 农学 a4079af → ✅② 空间面板 a0ee0a3 → ✅③ 生态 a5c9ed1。三波 inference-reviewer 双审（空间面板抓 1 个 SEM λ MUST-FIX 已修+回归测试，农学/生态 APPROVE），逐个 merge + 全量绿 + push。全量 283 → **307 绿**（+9 农学 +6 空间 +9 生态）。**剩唯一待办：DesignSync 推组件库到 claude.ai/design（需用户登录）。**
    - 编排约定见记忆 [[design-tooling-and-orchestration]]：worktree 隔离、不相交文件、主脑双审、push 等用户。**红线：未经 inference-reviewer 审的真推断方法不合并/不推。**
+1b. ✅ **并行 subagent 集成队列 — 第二批（2026-06-19，全部完成）**：DesignSync（组件库 8 文件推 claude.ai/design 项目 "ResearchForge UI" 41510f35，卡片由 @dsCard 标记自动建）+ 3 方法波。**本批环境注意**：建造 subagent 的沙箱**禁止跑 Python/git**（与第一批不同），故 3 个 subagent 都没自验测试也没提交——主脑兜底跑测试 + 提交 + 修 bug（见 [[design-tooling-and-orchestration]]）。
+   - ✅ **生存波**：`competing_risks`（lifelines AalenJohansen CIF + 可选 R cmprsk Gray 检验）/`parametric_survival`（Weibull/LogNormal/LogLogistic AFT，AIC 选优）/`rmst`（受限平均生存时间 + 组间 z 检验）。inference-reviewer **APPROVE**。**主脑修 1 个真 MUST-FIX**：RMST 组间 SE 误用 lifelines `restricted_mean_survival_time(return_variance=True)`（那是受限寿命**分布**方差 ~θ²，不随 n 收缩），致 SE 大 ~11×、p=0.607 掩盖真实差异（真 p≈6e-9）；改用 Klein-Moeschberger/survRM2 估计量方差（新 helper `_rmst_with_se`），经 R `survival::survfit` 核验到 6 位小数。**剩 nice-to-have**：competing_risks 头条 CIF 是 pooled（summary 可注明）；AFT 可改用 lifelines 原生 `exp(coef)` CI 列（数值同）。
+   - ✅ **MCDA 波**：`entropy_weight`（Shannon 熵客观赋权）/`vikor`（折衷排序 + C1/C2 接受条件）/`promethee`（PROMETHEE II 净流，V 型偏好）/`ahp`（层次分析特征向量权重 + 一致性比 CR；config pairwise 专家判断，缺则数据代理并披露）。确定性纯 numpy，18 测断言手算值绿；AHP CR 对数核验正确（测试不一致矩阵原 CR=0.056 太一致、已修为 CR=0.117）。
+   - ✅ **多元波**：`manova`（四统计量 Wilks/Pillai/HL/Roy）/`discriminant_analysis`（LDA/QDA + 分层 CV 准确率）/`canonical_correlation`（白化 SVD 典型相关 + Bartlett/Wilks 序贯）/`hotelling_t2`（两样本 T²→F）。inference-reviewer **APPROVE**——Hotelling T²→F + CCA Wilks 序贯经数值核验正确（对比 sklearn CCA / 特征分解）。**已应用披露润色**：CCA 小样本上偏入 summary、MANOVA "Box's M" 措辞不暗示已检验。
 2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级；流行度/更新喂回 `recommender/scoring.py`。
 3. **更多方法波**（域聚焦 生态/农学/经济/环境/社科）：农学实验设计(AMMI/GGE/RSM)、生态(RDA/CCA/SDM)、MCDA(AHP/熵权/VIKOR)、合成DiD/de Chaisemartin、贝叶斯状态空间…（见 method-melting-pot-roadmap 记忆）。
    - 〔GAMM nice-to-have：无 config 时结果意图是二值/计数却默认高斯，可加 summary 提示。UX 优化、非 bug。〕

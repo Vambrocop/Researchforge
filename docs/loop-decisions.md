@@ -37,6 +37,9 @@
 | 8 | **Malmquist** | 取首末两期 | 逐期链式 / 指定基期 | 待批 |
 | 9 | **差异丰度** | CLR + Mann-Whitney + BH-FDR（纯 Py 筛查法） | 上 R 金标准 ALDEx2 / ANCOM-BC（组成性更严谨） | ✅ 可配 `da_method`：clr_mw(默认)/clr_welch/**aldex2(R 金标准已接, MC-CLR+Welch)**；ancombc 桥待接(需 TreeSummarizedExperiment)→诚实降级 |
 | 10 | **空间面板 (SAR/SEM/SDM, splm)** | 模型=lag(SAR)；W=k-NN k=6 行标准化；个体FE(within)；LM检验仅建议不自动切换 | 选 model(lag/error/sdm)、改 k、指定 unit/time/outcome/predictors/lon/lat | ✅ 可配 `unit`/`time`/`outcome`/`predictors`/`lon`/`lat`/`model`(lag/error/sdm)/`knn_k`；impacts 用 LeSage-Pace 解析式(direct/indirect/total)，绕过 splm 自带 impacts() 跨版本易碎(trW/as_dgRMatrix_listw 移位) |
+| 11 | **生存扩展 (competing_risks/parametric_survival/rmst)** | duration/event/group 按列名+profiler 自动；RMST 的 **tau 默认=各组最大【事件】时间的最小值**（保证共同支撑，比 survRM2 的"最大观测时间"更稳，避免末端外推）；竞争事件 0=删失/1=兴趣/≥2=竞争 | 指定列角色；设 tau；event_of_interest | ✅ 可配 `duration`/`event`/`group`/`tau`/`event_of_interest`；用户 tau 超组随访自动夹到共同支撑并披露 |
+| 12 | **MCDA 新增 (entropy_weight/vikor/promethee/ahp)** | 指标=连续列、权重缺则等权或客观导出、全效益型；VIKOR v=0.5；PROMETHEE V型偏好(p=各指标极差)；AHP 缺 pairwise 则数据代理(均值比)并披露非真 AHP | 标成本型；给 weights；VIKOR 调 v；AHP 给 `pairwise` 专家判断矩阵 | ✅ 可配 `weights`/`cost_criteria`/`v`(VIKOR)/`q`/`p`(PROMETHEE)/`pairwise`(AHP) |
+| 13 | **多元 (manova/discriminant/canonical_correlation/hotelling_t2)** | 结果变量=全部连续列、分组=最低基数分类列；**CCA 默认把连续列对半切 set_x/set_y（任意，强烈建议 config 指定两个概念变量集）** | 指定 outcomes/group；CCA 指定 set_x/set_y | ✅ 可配 `outcomes`/`group`/`factors`(MANOVA)/`predictors`(判别)/`set_x`/`set_y`(CCA) |
 
 ---
 
