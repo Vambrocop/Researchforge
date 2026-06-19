@@ -1,0 +1,61 @@
+# State-space / regime time-series catalog entries (statsmodels state-space + regime-switching).
+
+- id: unobserved_components
+  method: Unobserved components (structural time series)
+  domain: time series
+  family: time-series
+  goal: explain
+  description: Decompose a single time series into unobserved STOCHASTIC components — level, trend (slope), seasonal — plus an irregular term via a Gaussian state-space model (statsmodels UnobservedComponents). A model-based STL alternative WITH inference. Default spec level='local linear trend' (stochastic level + stochastic slope); a seasonal component is added when a period is supplied (config seasonal_period) or auto-detected from the periodogram. Reports the estimated component variances (level/trend/seasonal/irregular sigma^2 — which tells you which components are genuinely stochastic vs effectively deterministic when sigma^2~=0), the model AIC/BIC/loglik, and a plot of the smoothed level/trend (and seasonal) components vs the data. For understanding the latent structure of a series with uncertainty quantification. Set config column / level / seasonal_period.
+  preconditions:
+    is_timeseries: true
+    min_rows: 30
+  produces:
+    - estimated component variances (level / trend / seasonal / irregular sigma^2)
+    - model AIC / BIC / loglik
+    - smoothed level / trend (and seasonal) component plot + CSV
+  executor_ref: statsmodels
+  biases:
+    - UC decomposes the series into unobserved stochastic components (a model-based STL alternative WITH inference) — the chosen spec (which components are stochastic) matters and is reported via the variances; a component variance ~= 0 means that component is effectively deterministic
+    - needs a reasonably long series to identify the components
+    - assumes a Gaussian linear state space (normal innovations, linear dynamics)
+    - the seasonal period (config seasonal_period or periodogram auto-detect) must be correct for the seasonal component to be meaningful
+
+- id: markov_switching
+  method: Markov-switching regime model
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Fit a Markov-switching model (statsmodels MarkovRegression, or MarkovAutoregression when config order>0) in which the series mean — and, by default, variance — switches between k latent regimes governed by a hidden Markov chain. Reports the per-regime means and variances, the estimated transition-probability matrix, the expected regime durations (1/(1-p_ii)), the smoothed probability of each regime over time, and a plot of the series shaded by the most-likely regime. Regimes are ordered by their mean (ascending) to resolve label-switching. For detecting latent states / regimes (e.g. calm vs turbulent, expansion vs recession). Set config k_regimes / switching_variance / order.
+  preconditions:
+    is_timeseries: true
+    min_rows: 40
+  produces:
+    - per-regime means and variances
+    - transition-probability matrix + expected regime durations
+    - smoothed regime probabilities + series shaded by most-likely regime
+  executor_ref: statsmodels
+  biases:
+    - regimes are a LATENT-STATE interpretation, NOT externally validated states — corroborate with known events before naming them
+    - label-switching — regime identity is arbitrary; the engine orders regimes by mean (ascending) and fixes the numbering, but the labels themselves carry no inherent meaning
+    - needs enough observations assigned to each regime for stable per-regime parameters (the engine flags thinly-populated regimes)
+    - local optima — EM / numerical optimization is start-sensitive; the engine uses multiple starts (search_reps) but results can still vary with the seed/starting values
+
+- id: dynamic_factor
+  method: Dynamic factor model (DFM)
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Extract a small number of common dynamic factor(s) (config k_factors, default 1, each an AR(factor_order) process) driving the comovement of several STANDARDIZED continuous series, plus idiosyncratic noise (statsmodels DynamicFactor). A dynamic PCA WITH inference. Reports the factor loadings per series, the fraction of each series' variance explained by the common factor, the model loglik/AIC, and a plot of the extracted common factor vs the standardized series. The factor sign is fixed by a convention (first-factor loadings sum non-negative) since it is only identified up to a rotation. For summarising the shared driver behind a panel of co-moving indicators (macro indices, multi-station environmental series). Set config columns / k_factors / factor_order.
+  preconditions:
+    min_continuous: 3
+    min_rows: 40
+  produces:
+    - factor loadings per series + fraction of variance explained by the common factor
+    - model loglik / AIC
+    - extracted common factor plot + CSV (sign fixed by convention)
+  executor_ref: statsmodels
+  biases:
+    - DFM assumes the comovement is driven by a few common factors + idiosyncratic noise (a dynamic PCA WITH inference) — if the series do not actually co-move, the common factor explains little (the engine flags low mean variance-explained)
+    - inputs are standardized before fitting (reported) so loadings/variance-explained are comparable across series
+    - the number of factors is a modelling choice (config k_factors), not estimated automatically
+    - the factor sign and scale are only identified up to a rotation — the engine fixes the sign by a convention (first-factor loadings sum non-negative) and discloses it
