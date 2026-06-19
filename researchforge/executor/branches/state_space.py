@@ -290,8 +290,9 @@ def _branch_markov_switching(ctx: Ctx) -> None:
                         maxiter=int(cfg.get("maxiter", 100)), disp=False)
 
         # --- per-regime means: the intercept 'const[i]' (mean regime i). switching variance ->
-        # 'sigma2[i]'. Pull by name. ----------------------------------------------------------
-        pnames = list(res.param_names)
+        # 'sigma2[i]'. Pull by name. MarkovRegressionResults has no `param_names` attr (unlike the
+        # statespace results) — the canonical names live on the MODEL. -------------------------
+        pnames = list(res.model.param_names)
         pvals = np.asarray(res.params, dtype=float)
         def _by_prefix(prefix):
             out = {}
@@ -486,7 +487,10 @@ def _branch_dynamic_factor(ctx: Ctx) -> None:
         sd = data.std(ddof=0).replace(0, 1.0)
         Z = (data - mu) / sd
 
-        model = DynamicFactor(Z.to_numpy(), k_factors=k_factors, factor_order=factor_order,
+        # pass the DataFrame (NOT .to_numpy()) so statsmodels keeps the real column names —
+        # otherwise loadings are named loading.f1.y1/y2/... and the by-name parse below misses
+        # every series (loadings all NaN -> variance-explained collapses to 0).
+        model = DynamicFactor(Z, k_factors=k_factors, factor_order=factor_order,
                               error_order=0)
         res = model.fit(disp=False, maxiter=int(cfg.get("maxiter", 200)))
 
