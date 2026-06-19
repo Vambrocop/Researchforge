@@ -47,7 +47,7 @@ def test_omega_tau_equivalent_close_to_alpha(tmp_path: Path) -> None:
     res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
 
     omega = res.estimates["mcdonald_omega"]
-    alpha = res.estimates["cronbach_alpha"]
+    alpha = res.estimates["cronbach_alpha_standardized"]
     assert omega > 0.8
     assert alpha > 0.8
     # tau-equivalent => omega and alpha coincide closely
@@ -77,7 +77,7 @@ def test_omega_congeneric_unequal_loadings(tmp_path: Path) -> None:
     res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
 
     omega = res.estimates["mcdonald_omega"]
-    alpha = res.estimates["cronbach_alpha"]
+    alpha = res.estimates["cronbach_alpha_standardized"]
     assert omega > 0.6
     # omega >= alpha (allow a small numeric slack)
     assert omega >= alpha - 0.02

@@ -14,8 +14,30 @@ import numpy as np
 import pandas as pd
 
 from researchforge.catalog import AnalysisEntry
+from researchforge.catalog.schema import Precondition
 from researchforge.executor import run_analysis
 from researchforge.profiler import profile_dataset
+from researchforge.recommender.match import check_preconditions
+
+
+def test_likert_count_items_pass_min_numeric_precondition(tmp_path: Path) -> None:
+    # Regression for the inference-reviewer SHOULD-FIX: integer Likert items profile as
+    # `count` (not `continuous`), so gating on min_continuous hid these analyses from their
+    # canonical data. min_numeric_cols counts continuous OR count, so a Likert scale passes.
+    rng = np.random.default_rng(0)
+    theta = rng.normal(0, 1, 40)
+    df = pd.DataFrame(
+        {f"q{j}": np.clip(np.round(2.5 + theta + rng.normal(0, 0.5, 40)), 1, 5).astype(int)
+         for j in range(4)}
+    )
+    csv = tmp_path / "likert.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    # the Likert columns are NOT continuous (so min_continuous would have failed)...
+    assert sum(1 for c in fp.columns if c.kind == "continuous") < 3
+    # ...but min_numeric_cols (continuous OR count) is satisfied -> recommendable
+    ok, unmet = check_preconditions(fp, Precondition(min_numeric_cols=3, min_rows=10))
+    assert ok, f"Likert scale should meet min_numeric_cols: {unmet}"
 
 _ENTRY = AnalysisEntry(
     id="cronbach_alpha",

@@ -13,7 +13,7 @@
     item-total correlations (item vs sum-of-the-rest) and alpha-if-item-dropped
     per item (flagging items whose removal RAISES alpha).
   preconditions:
-    min_continuous: 3
+    min_numeric_cols: 3
     min_rows: 10
   produces:
     - Cronbach's alpha with Feldt (1965) 95% CI
@@ -40,7 +40,7 @@
     Reports omega, the per-item loadings/communalities, and a contrast with
     Cronbach's alpha on the same items.
   preconditions:
-    min_continuous: 3
+    min_numeric_cols: 3
     min_rows: 10
   produces:
     - McDonald's omega_total from a 1-factor solution
@@ -66,7 +66,7 @@
     reports ICC(1,1), ICC(2,1) (absolute agreement), ICC(3,1) (consistency) plus
     their average-of-k forms (1,k)/(2,k)/(3,k) and the F-test that ICC > 0.
   preconditions:
-    min_continuous: 2
+    min_numeric_cols: 2
     min_rows: 5
   produces:
     - ICC(1,1)/(2,1)/(3,1) and average forms (1,k)/(2,k)/(3,k)

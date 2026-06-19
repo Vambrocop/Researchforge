@@ -282,7 +282,9 @@ def _branch_mcdonald_omega(ctx: Ctx) -> None:
             pass
 
         estimates["mcdonald_omega"] = round(float(omega), 4)
-        estimates["cronbach_alpha"] = round(float(alpha), 4) if alpha == alpha else -1.0
+        # standardized (correlation-matrix) alpha — distinct from the cronbach_alpha branch's
+        # RAW-variance alpha; keep a separate key so the two are not silently conflated.
+        estimates["cronbach_alpha_standardized"] = round(float(alpha), 4) if alpha == alpha else -1.0
         estimates["sum_loadings"] = round(sum_load, 4)
         estimates["n_items"] = float(k)
 
@@ -295,7 +297,8 @@ def _branch_mcdonald_omega(ctx: Ctx) -> None:
         )
         msg = (
             f"{entry.method} 完成：{k} 个题项的单因子(同源 congeneric)解，"
-            f"ω_total={omega:.3f}（{grade}）；同题项 Cronbach α={alpha:.3f}（ω 通常 ≥ α）。"
+            f"ω_total={omega:.3f}（{grade}）；同题项标准化 Cronbach α={alpha:.3f}（ω 通常 ≥ α；"
+            f"此 α 为相关矩阵口径，与 cronbach_alpha 分析的原始方差 α 略有差异）。"
         )
         if neg:
             msg += f" ⚠ 题项 {', '.join(neg)} 载荷为负——可能反向计分未重编码或非单维。"
