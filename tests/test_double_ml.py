@@ -48,6 +48,9 @@ def test_dml_binary_recovers_ate(tmp_path: Path) -> None:
     assert abs(res.estimates["ate"] - 2.0) < 0.6
     assert res.estimates["ci_lb"] <= 2.0 <= res.estimates["ci_ub"]
     assert res.estimates["p_value"] < 0.05
+    # IRM: outcome nuisance g(D,X) R² reported; propensity is a classifier -> no R²
+    assert res.estimates["nuisance_r2_y"] > 0.3
+    assert "nuisance_r2_d" not in res.estimates
 
 
 @pytest.mark.skipif(not _HAS_DML, reason="doubleml not available")
@@ -71,6 +74,11 @@ def test_dml_continuous_treatment_plr(tmp_path: Path) -> None:
     # rather than exact 95% CI coverage (a stochastic property).
     assert abs(res.estimates["ate"] - 1.5) < 0.5
     assert res.estimates["p_value"] < 0.05
+    # PLR: both nuisance R² reported (E[Y|X] and E[D|X], out-of-fold diagnostic). The treatment
+    # nuisance R² can legitimately be ~0 for a weak/near-noise target (RF out-of-fold) — assert it
+    # is reported and finite/sane, not that it's strongly positive.
+    assert res.estimates["nuisance_r2_y"] > 0.2
+    assert "nuisance_r2_d" in res.estimates and res.estimates["nuisance_r2_d"] > -0.5
 
 
 def test_dml_no_treatment_degrades(tmp_path: Path) -> None:

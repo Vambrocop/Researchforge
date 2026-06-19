@@ -184,7 +184,8 @@
       "Bash(git rm *)",
       "Bash(PYTHONUTF8=1 py -3 -c \"import statsmodels, scipy, numpy, pandas; print\\('sm', statsmodels.__version__\\); print\\('scipy', scipy.__version__\\)\")",
       "Bash(PYTHONUTF8=1 py -3 -)",
-      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli status)"
+      "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli status)",
+      "Bash(PYTHONUTF8=1 py -3 -c \"import doubleml; print\\('doubleml', doubleml.__version__\\)\")"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

@@ -79,9 +79,34 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
     overlap_warn = False
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        model.fit()
+        model.fit(store_predictions=True)
         overlap_warn = any("close to zero or one" in str(w.message) for w in caught)
     ci = model.confint(level=0.95)
+    # nuisance cross-fit quality (out-of-fold R²): how much the controls explain Y and D.
+    # DML is Neyman-orthogonal -> first-order ROBUST to moderate nuisance error, so this is a
+    # DIAGNOSTIC, not a validity gate; but R²≈0 on Y means the controls capture little signal
+    # (the adjusted effect rests on weak confounding control / may be imprecise).
+    r2_y = r2_d = float("nan")
+    try:
+        preds = model.predictions
+
+        def _flat(a):
+            return np.asarray(a, dtype=float).reshape(-1)
+
+        def _r2(actual, pred):
+            ss = float(np.sum((actual - actual.mean()) ** 2))
+            return float(1.0 - np.sum((actual - pred) ** 2) / ss) if ss > 0 else float("nan")
+
+        yv = sub[outcome].astype(float).to_numpy()
+        dv = sub[treatment].astype(float).to_numpy()
+        if kind == "PLR":
+            r2_y = _r2(yv, _flat(preds["ml_l"]))
+            r2_d = _r2(dv, _flat(preds["ml_m"]))  # continuous-treatment nuisance E[D|X]
+        else:  # IRM: outcome model g(D,X)=D*g1+(1-D)*g0; propensity is a classifier (R² not apt)
+            g0, g1 = _flat(preds["ml_g0"]), _flat(preds["ml_g1"])
+            r2_y = _r2(yv, np.where(dv == 1, g1, g0))
+    except Exception:
+        pass
     out = {
         "ate": float(model.coef[0]),
         "se": float(model.se[0]),
@@ -93,6 +118,8 @@ def _dml_via_doubleml(df, outcome, treatment, controls, n_folds, discrete, plot_
         "overlap_warn": overlap_warn,
         "treat_map": treat_map,
         "estimand": "ATE" if discrete else "PLR_coefficient",
+        "nuisance_r2_y": r2_y,
+        "nuisance_r2_d": r2_d,
     }
     try:
         import matplotlib
