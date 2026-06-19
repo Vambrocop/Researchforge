@@ -533,20 +533,22 @@ def _branch_dynamic_factor(ctx: Ctx) -> None:
             col0 = loadings[:, 0]
 
         # --- fraction of each series' variance explained by the COMMON factor(s) -------------
-        # Model on standardized data: z_i = sum_j loading_ij * f_j + eps_i, so the fraction of
-        # series i's (unit) variance explained by the common factors ~= sum_j loading_ij^2 * Var(f_j)
-        # (factors approx uncorrelated). We use the SMOOTHED factor variances (honest about scale)
-        # rather than assuming Var(f)=1. Factors are the LEADING k_factors state rows (factor_order
-        # only adds lag rows after them), so factor j's level series is factor_states[j].
+        # On the STANDARDIZED data each series has total variance 1, so the common-factor
+        # share is the COMMUNALITY = 1 - idiosyncratic variance = 1 - sigma2.<var> (the
+        # model-implied estimate, pulled by name like the loadings). This is preferred to
+        # sum_j loading_ij^2 * Var(smoothed_factor_j): smoothed states are shrunk toward 0
+        # so their sample variance UNDER-estimates Var(f), badly in the weak-signal regime
+        # (inference-reviewer S1, verified to under-report by ~30-60% at low signal).
+        idio = {}
+        for nm, v in zip(pnames, pvals):
+            if nm.startswith("sigma2."):
+                var = nm.split(".", 1)[1]
+                if var in series:
+                    idio[series.index(var)] = float(v)
         var_explained = np.full(len(series), np.nan)
         for i in range(len(series)):
-            ve = 0.0
-            for j in range(k_factors):
-                lij = loadings[i, j]
-                if lij == lij:  # not NaN
-                    fvar = float(np.var(factor_states[j])) if factor_states.shape[0] > j else 1.0
-                    ve += (lij ** 2) * fvar
-            var_explained[i] = min(max(ve, 0.0), 1.0)  # standardized series have unit variance
+            if i in idio:
+                var_explained[i] = min(max(1.0 - idio[i], 0.0), 1.0)
 
         # correlation of each standardized series with the extracted factor (diagnostic + plot)
         corr_with_factor = np.array([
@@ -612,7 +614,7 @@ def _branch_dynamic_factor(ctx: Ctx) -> None:
         summary.append(
             f"{entry.method} 完成：{len(series)} 个标准化序列 × {n} 期，提取 {k_factors} 个共同因子"
             f"（factor_order={factor_order}）；因子载荷（第一因子）{load_txt}；"
-            f"各序列被共同因子解释的方差比例 {ve_txt}（均值={np.nanmean(var_explained):.2f}）；"
+            f"各序列被共同因子解释的方差比例 {ve_txt}（共同度=1−特异方差σ²，模型隐含；均值={np.nanmean(var_explained):.2f}）；"
             f"AIC={res.aic:.1f}、loglik={res.llf:.1f}；载荷见 factor_loadings.csv、因子序列见图。{weak_note}"
             " ⚠ DFM 假定共动由少数共同因子 + 各自特异噪声驱动（带推断的动态 PCA）；输入已标准化（已报告）；"
             "因子个数是一种选择；因子的符号/尺度仅在旋转意义下可识别（本结果按「第一因子载荷之和≥0」固定符号并披露）。"
