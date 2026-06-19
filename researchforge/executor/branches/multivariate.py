@@ -184,7 +184,7 @@ def _branch_manova(ctx: Ctx) -> None:
             f"（{sub[first_factor].nunique()} 组，n={len(sub)}）。"
             f"四个多元检验统计量见 manova_tests.csv：Wilks' Λ p={wilks_p:.3g}、"
             f"Pillai's trace p={pillai_p:.3g}（Pillai 最稳健，{sig}）。"
-            f"⚠ 假定多元正态 + 协方差齐性（Box's M）；不平衡/奇异协方差会失真；"
+            f"⚠ 假定多元正态 + 协方差齐性（Box's M 检验此处未计算，按齐性假定处理）；不平衡/奇异协方差会失真；"
             f"Pillai 对违背假定最稳健，建议以它判读；多元显著后应跟进单变量 ANOVA / 判别分析定位是哪些 DV。"
         )
         code += [
@@ -492,9 +492,11 @@ def _branch_canonical_correlation(ctx: Ctx) -> None:
         summary.append(
             f"{entry.method} 完成：X 组 {p} 变量 vs Y 组 {q} 变量（n={n}，{m} 对典型变量）。"
             f"第一典型相关 r={rho[0]:.3f}（p={seq_rows[0]['p_value']:.3g}，Bartlett/Wilks 序贯检验）；"
-            f"序贯检验判定 {n_sig} 对显著（详见 cca_sequential_test.csv）。"
+            f"序贯检验（step-down：自第一对起逐对检验，遇 p≥0.05 即停）判定 {n_sig} 对显著"
+            f"（详见 cca_sequential_test.csv）。"
             f"{split_note}"
             f"⚠ CCA 找两组的线性组合使其相关最大；通常只有前几对可解释；"
+            f"典型相关是样本拟合最大化的结果，**小样本下系统性偏高**（首对相关最乐观）；"
             f"序贯检验依赖多元正态假定。"
         )
         code += [
