@@ -1,0 +1,53 @@
+/* @dsCard group="Tokens" */
+/* ============================================================================
+   ResearchForge — "clean-minimal" (A) design tokens
+   Lifted verbatim from researchforge/web/static/index.html :root.
+   Every component imports THIS file so the system stays in sync (no drift).
+   ============================================================================ */
+:root{
+  /* ---- color ---- */
+  --bg:#fbfbfa;          /* off-white page background           */
+  --panel:#fff;          /* card / panel surface                */
+  --ink:#1c1c1a;         /* primary text                        */
+  --muted:#6b6b66;       /* secondary text                      */
+  --line:#e7e7e2;        /* hairline borders / dividers         */
+  --accent:#2f6f4f;      /* warm green — primary action / brand */
+  --accent-soft:#e8f1ec; /* tinted accent fill (pills, chips)   */
+  --green:#2f8f5b;       /* rigor light — green feasible        */
+  --yellow:#c9952b;      /* rigor light / COST — yellow caution */
+  --red:#c0492f;         /* rigor light — red mismatch          */
+
+  /* ---- elevation ---- */
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+
+  /* ---- radius ---- */
+  --radius-card:14px;    /* cards / rec rows                    */
+  --radius-pill:20px;    /* pills, goal chips                   */
+  --radius-btn:8px;      /* buttons, file links, code           */
+  --radius-bar:4px;      /* scorecard bars                      */
+
+  /* ---- type ---- */
+  --font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --fs-body:15px;
+  --fs-meta:13.5px;
+  --fs-small:13px;
+  --fs-pill:12px;
+  --fs-h2:13px;          /* uppercase section label             */
+
+  /* ---- spacing (derived from index.html paddings) ---- */
+  --space-card:18px 20px;  /* card padding                      */
+  --space-rec:16px 18px;   /* rec card padding                  */
+  --gap-sm:8px;
+  --gap-md:12px;
+  --gap-lg:22px;
+
+  /* ---- semantic: bias / warning callout (from .bias) ---- */
+  --bias-ink:#7a5a2a;
+  --bias-bg:#fdf7ea;
+  --bias-line:#f0e2bf;
+
+  /* ---- semantic: error banner (from #error) ---- */
+  --err-ink:#9a2b1a;
+  --err-bg:#fdecea;
+  --err-line:#f3c0b8;
+}

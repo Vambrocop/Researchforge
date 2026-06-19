@@ -1,0 +1,82 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>scorecard-bars · ResearchForge A</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ---- standalone wrapper (preview-only) ---- */
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font);padding:32px}
+  .preview{max-width:560px;margin:0 auto}
+  .preview h1{font-size:18px;font-weight:650;letter-spacing:.2px;margin:0 0 4px}
+  .preview .sub{color:var(--muted);font-size:var(--fs-meta);margin-bottom:22px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-card);padding:var(--space-card);box-shadow:var(--shadow);margin-bottom:16px}
+  .panel-cap{font-size:var(--fs-small);color:var(--muted);margin-bottom:12px}
+
+  /* ======================================================================
+     COMPONENT: scorecard-bars
+     6-dimension methodology scorecard (each 0-100), 3-column grid.
+     Dims: 流(popularity) 发(publishability) 美(aesthetics)
+           难(difficulty=COST, amber) 合(fit) 新(novelty)
+     NOTE: difficulty is a COST not a benefit → its bar is amber (.bar.cost),
+           everyone else uses the accent green. Higher amber = more costly.
+     ====================================================================== */
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px}
+  .sc .d{font-size:var(--fs-pill);color:var(--muted);display:flex;align-items:center;gap:8px}
+  .sc .d .lab{width:30px;flex:none}
+  .bar{flex:1;height:6px;background:#eee;border-radius:var(--radius-bar);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .bar.cost i{background:var(--yellow)}
+  .sc .d .v{width:22px;text-align:right;color:#a4a49c}
+</style>
+</head>
+<body>
+<div class="preview">
+  <h1>scorecard-bars</h1>
+  <div class="sub">6 维方法学评分卡 · 难(difficulty) 为成本项 → 琥珀色</div>
+
+  <div class="panel">
+    <div class="panel-cap">高契合方法 (well-suited)</div>
+    <!-- component instance -->
+    <div class="sc">
+      <div class="d"><span class="lab">流</span><span class="bar"><i style="width:82%"></i></span><span class="v">82</span></div>
+      <div class="d"><span class="lab">发</span><span class="bar"><i style="width:71%"></i></span><span class="v">71</span></div>
+      <div class="d"><span class="lab">美</span><span class="bar"><i style="width:64%"></i></span><span class="v">64</span></div>
+      <div class="d"><span class="lab">难</span><span class="bar cost"><i style="width:38%"></i></span><span class="v">38</span></div>
+      <div class="d"><span class="lab">合</span><span class="bar"><i style="width:90%"></i></span><span class="v">90</span></div>
+      <div class="d"><span class="lab">新</span><span class="bar"><i style="width:55%"></i></span><span class="v">55</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-cap">高难度方法 (costly — note amber 难 bar)</div>
+    <div class="sc">
+      <div class="d"><span class="lab">流</span><span class="bar"><i style="width:48%"></i></span><span class="v">48</span></div>
+      <div class="d"><span class="lab">发</span><span class="bar"><i style="width:88%"></i></span><span class="v">88</span></div>
+      <div class="d"><span class="lab">美</span><span class="bar"><i style="width:42%"></i></span><span class="v">42</span></div>
+      <div class="d"><span class="lab">难</span><span class="bar cost"><i style="width:92%"></i></span><span class="v">92</span></div>
+      <div class="d"><span class="lab">合</span><span class="bar"><i style="width:60%"></i></span><span class="v">60</span></div>
+      <div class="d"><span class="lab">新</span><span class="bar"><i style="width:84%"></i></span><span class="v">84</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Render from data (mirrors index.html SC_DIMS ordering). Optional: the markup
+     above is fully static, but this shows the data→DOM contract for reuse. -->
+<script>
+  const SC_DIMS=[['popularity','流'],['publishability','发'],['aesthetics','美'],
+                 ['difficulty','难'],['fit','合'],['novelty','新']];
+  // Example consumer (no-op here; instances above are pre-rendered):
+  window.renderScorecard=function(ms){
+    return '<div class="sc">'+SC_DIMS.map(([k,lab])=>{
+      const v=ms[k]||0, cost=k==='difficulty'?' cost':'';
+      return `<div class="d"><span class="lab">${lab}</span>`+
+             `<span class="bar${cost}"><i style="width:${v}%"></i></span>`+
+             `<span class="v">${v}</span></div>`;
+    }).join('')+'</div>';
+  };
+</script>
+</body>
+</html>

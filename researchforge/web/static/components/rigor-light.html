@@ -1,0 +1,43 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rigor-light · ResearchForge A</title>
+<!-- shared design tokens (single source of truth) -->
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ---- standalone wrapper (preview-only, not part of the component) ---- */
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font);padding:32px}
+  .preview{max-width:560px;margin:0 auto}
+  .preview h1{font-size:18px;font-weight:650;letter-spacing:.2px;margin:0 0 4px}
+  .preview .sub{color:var(--muted);font-size:var(--fs-meta);margin-bottom:22px}
+  .demo-row{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px dashed var(--line);font-size:var(--fs-small);color:var(--muted)}
+  .demo-row:last-child{border-bottom:none}
+  .demo-row .lbl{width:120px;flex:none}
+
+  /* ======================================================================
+     COMPONENT: rigor-light
+     A single 11px traffic-light dot encoding analysis rigor / feasibility.
+     green = 🟢 feasible · yellow = 🟡 caution · red = 🔴 mismatch
+     Markup:  <span class="light green|yellow|red"></span>
+     ====================================================================== */
+  .light{width:11px;height:11px;border-radius:50%;flex:none;display:inline-block;vertical-align:middle}
+  .light.green{background:var(--green)}
+  .light.yellow{background:var(--yellow)}
+  .light.red{background:var(--red)}
+</style>
+</head>
+<body>
+<div class="preview">
+  <h1>rigor-light</h1>
+  <div class="sub">严谨度信号灯 · maps recommendation.light → traffic-light dot</div>
+
+  <!-- component instances -->
+  <div class="demo-row"><span class="lbl">green / 可行</span><span class="light green"></span></div>
+  <div class="demo-row"><span class="lbl">yellow / 需注意</span><span class="light yellow"></span></div>
+  <div class="demo-row"><span class="lbl">red / 不匹配</span><span class="light red"></span></div>
+</div>
+</body>
+</html>
