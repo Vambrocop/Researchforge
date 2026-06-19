@@ -1,0 +1,82 @@
+# Survival catalog entries — competing risks, parametric AFT, RMST.
+# (survival_analysis + joint_longitudinal_survival live in statistics.yaml.)
+
+- id: competing_risks
+  method: Competing risks (Cumulative Incidence Functions, Aalen-Johansen)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Cumulative Incidence Functions (CIF) for competing events via the Aalen-Johansen
+    estimator. The event column is multi-state (0=censored, 1=event of interest,
+    >=2=competing events); AJ gives the proper CIF for the event of interest in the
+    presence of competing risks — unlike 1-KM, which censors competing events naively
+    and over-estimates incidence. Reports the CIF for each event type at several time
+    points, the stepped CIF plot (per group + per event type), and — if R cmprsk is
+    available — Gray's test for between-group CIF equality.
+  preconditions:
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - cumulative incidence functions (CIF) per event type + time point
+    - CIF plot (Aalen-Johansen, per group + per event type)
+    - Gray's test p-value for between-group CIF equality (if R cmprsk)
+  executor_ref: lifelines
+  biases:
+    - CIF is NOT 1-KM — treating competing events as censoring biases incidence upward
+    - the competing event must be explicitly coded (>=2); a binary event is not competing risks
+    - Gray's test (compares CIFs / marginal incidence) and cause-specific Cox (compares hazards) answer different questions
+    - duration and event columns are auto-detected by name — verify them
+
+- id: parametric_survival
+  method: Parametric survival (AFT — Weibull / LogNormal / LogLogistic)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Parametric accelerated failure time (AFT) survival models via lifelines. Fits the
+    Weibull, LogNormal, and LogLogistic families, picks the best by AIC, and reports
+    acceleration factors (exp(coef)) with 95% CIs + p-values for the chosen model, the
+    AIC comparison table, and a fitted-survival-curve plot. AFT models the event time
+    directly (acceleration-factor interpretation), unlike the hazard-ratio Cox model.
+  preconditions:
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - best AFT distribution by AIC + AIC comparison table
+    - acceleration factors (exp(coef)) with 95% CI and p-values
+    - fitted survival-curve plot
+  executor_ref: lifelines
+  biases:
+    - AFT reports acceleration factors (time-scale), not hazard ratios — AF>1 = longer survival
+    - distribution choice matters — the AIC comparison is reported, but all are parametric assumptions
+    - a parametric baseline is assumed (semiparametric Cox does not require one)
+    - censoring is assumed random and non-informative
+
+- id: rmst
+  method: Restricted Mean Survival Time (RMST)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Restricted Mean Survival Time — the area under the Kaplan-Meier curve up to a
+    horizon tau, i.e. the mean event-free time within [0, tau]. An assumption-light
+    alternative to the hazard ratio that needs no proportional-hazards assumption. With
+    a 2-level group it reports the between-group RMST difference with a 95% CI and a
+    z-test p-value, an RMST table, and the KM curves with the restricted area shaded
+    up to tau. tau defaults to the largest horizon common to all groups and is reported.
+  preconditions:
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - RMST per group (with SE) + the between-group difference (95% CI, z-test p)
+    - RMST table
+    - KM curves with the restricted [0, tau] area shaded
+  executor_ref: lifelines
+  biases:
+    - RMST = mean event-free time within [0, tau]; not extrapolated beyond tau
+    - tau must be common to all groups (reported) — different tau gives different conclusions
+    - assumption-light vs the hazard ratio (no proportional-hazards needed) but tau-dependent
+    - censoring is assumed random and non-informative
