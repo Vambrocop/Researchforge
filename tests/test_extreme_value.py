@@ -17,7 +17,23 @@ from scipy import stats
 
 from researchforge.catalog.schema import AnalysisEntry, Precondition
 from researchforge.executor import run_analysis
+from researchforge.executor.branches.finance import _gpd_tail_var
 from researchforge.profiler import profile_dataset
+
+
+def test_gpd_tail_var_xi_to_zero_branch_matches_limit() -> None:
+    # Regression for the xi->0 branch (inference-reviewer must-fix): the closed limit
+    # must equal the general formula as xi->0. Earlier the branch had the ratio
+    # inverted (used n/Nu instead of Nu/n), overstating the xi~=0 VaR by ~166%.
+    u, sigma, n, Nu, p = 0.02, 0.01, 10000.0, 500.0, 0.99
+    ratio = n / Nu
+    v0 = _gpd_tail_var(u, sigma, 0.0, ratio, p)            # exact xi->0 branch
+    v_eps = _gpd_tail_var(u, sigma, 1e-7, ratio, p)        # general formula, xi tiny
+    assert abs(v0 - v_eps) < 1e-4                          # continuous at xi=0
+    # closed form: u - sigma*ln(ratio*(1-p))
+    assert abs(v0 - (u - sigma * np.log(ratio * (1.0 - p)))) < 1e-12
+    # and it must NOT equal the old (wrong) u + sigma*ln(ratio/(1-p))
+    assert abs(v0 - (u + sigma * np.log(ratio / (1.0 - p)))) > 0.05
 
 
 def _entry() -> AnalysisEntry:

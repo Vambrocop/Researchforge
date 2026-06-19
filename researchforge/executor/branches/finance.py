@@ -116,6 +116,18 @@ def _save_fig(d, fname, files, build):
         pass
 
 
+def _gpd_tail_var(u: float, sigma: float, xi: float, ratio: float, p: float) -> float:
+    """GPD peaks-over-threshold tail VaR at level p (McNeil-Frey-Embrechts QRM 7.18).
+    ``ratio = n / Nu``. The xi->0 branch is the EXACT limit of the general formula
+    (since (a^(-xi)-1)/xi -> -ln a with a = ratio*(1-p)); a regression test pins it.
+    """
+    import numpy as np
+
+    if abs(xi) < 1e-8:
+        return u - sigma * np.log(ratio * (1.0 - p))
+    return u + (sigma / xi) * (((ratio * (1.0 - p)) ** (-xi)) - 1.0)
+
+
 # ===========================================================================
 # 1) value_at_risk — VaR + Expected Shortfall (CVaR)
 #    Refs: Jorion (2007) "Value at Risk"; Cornish & Fisher (1938) expansion;
@@ -310,7 +322,8 @@ def _branch_extreme_value(ctx: Ctx) -> None:
 
         # EVT tail VaR / return levels at extreme alphas via the GPD tail formula
         #   VaR_p = u + (sigma/xi) * [ ((n / Nu) * (1 - p))^(-xi) - 1 ]    (xi != 0)
-        #   VaR_p = u + sigma * ln( (n / Nu) / (1 - p) )                   (xi -> 0)
+        #   VaR_p = u - sigma * ln( (n / Nu) * (1 - p) )                   (xi -> 0 limit:
+        #     since (a^(-xi)-1)/xi -> -ln a with a=(n/Nu)(1-p); == u + sigma*ln((Nu/n)/(1-p)))
         ratio = n / Nu
         evt_alphas = ctx.cfg.get("evt_alpha", [0.99, 0.999])
         if isinstance(evt_alphas, (int, float)):
@@ -321,10 +334,7 @@ def _branch_extreme_value(ctx: Ctx) -> None:
 
         rows = []
         for p in evt_alphas:
-            if abs(xi) < 1e-8:
-                var_p = u + sigma * np.log(ratio / (1.0 - p))
-            else:
-                var_p = u + (sigma / xi) * (((ratio * (1.0 - p)) ** (-xi)) - 1.0)
+            var_p = _gpd_tail_var(u, sigma, xi, ratio, p)
             # GPD-based ES (xi<1): ES_p = VaR_p/(1-xi) + (sigma - xi*u)/(1-xi)
             es_p = (var_p / (1.0 - xi) + (sigma - xi * u) / (1.0 - xi)) if xi < 1.0 else float("nan")
             rows.append({"alpha": p, "evt_var": round(float(var_p), 6),
