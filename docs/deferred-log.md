@@ -11,7 +11,7 @@
 1. 🔄 **并行 subagent 集成队列（2026-06-19，compact 后用 `git worktree list` 找回）**：
    - ✅ **设计流（组件库）**：已审+合并+推送（main 6b267b8，web/static/components/ 8 文件）。**待办：DesignSync 推到 claude.ai/design**（需用户登录）。
    - 🔍 **农学设计波（待审+整合）**：worktree 分支 `worktree-agent-a4079af329142421f`——`ammi`/`gge_biplot`/`response_surface`（纯 Python，experimental_design.py 1228 行，13 测过+12 无回归）。**待办：inference-reviewer 审（AMMI SVD/稳定性、GGE 中心化、RSM 典范分析）→ 合并 → 全量 → push。**
-   - 🔄 **空间面板（运行中）**：worktree `worktree-agent-a0ee0a3a38f2b817e`——spatial_panel SAR/SEM/SDM（R splm）。完成后审+整合。
+   - 🔍 **空间面板（待审+整合）**：worktree `worktree-agent-a0ee0a3a38f2b817e`（commit fef8de9）——`spatial_panel` SAR/SEM/SDM（R splm，econometrics.py 608 行，9 测过；rho 0.5→0.51 回收，impacts=b/(1-rho) 对得上）。**待办：inference-reviewer 审（rho/impacts 解析式 LeSage-Pace、W 选择、FE）→ 合并 → 全量 → push。** 注：worktree 里有未跟踪 scratch `tests/test_spatial_panel_debug.py`（已排除提交，整合时删）。impacts 仅点估计无模拟 SE（splm impacts() 版本碎，已 deferred-log delta/bootstrap 补全）。
    - 🔄 **生态波（运行中）**：worktree `worktree-agent-a5c9ed115ed07182a`——Mantel/IndVal/RDA。完成后审+整合。
    - 编排约定见记忆 [[design-tooling-and-orchestration]]：worktree 隔离、不相交文件、主脑双审、push 等用户。**红线：未经 inference-reviewer 审的真推断方法不合并/不推。**
 2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级；流行度/更新喂回 `recommender/scoring.py`。
