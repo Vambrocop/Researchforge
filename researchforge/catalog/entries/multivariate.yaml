@@ -1,0 +1,84 @@
+# Classical multivariate-statistics catalog entries (pure Python: statsmodels / scikit-learn / scipy).
+
+- id: manova
+  method: Multivariate analysis of variance (MANOVA)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Tests whether the mean VECTOR of two or more continuous dependent variables differs across the levels of a categorical factor (statsmodels MANOVA). Reports all four multivariate test statistics — Wilks' Lambda, Pillai's trace, Hotelling-Lawley trace, Roy's greatest root — each with its F-approximation, degrees of freedom, and p-value, plus per-group DV means and a discriminant-style scatter of the first two DVs. Pillai's trace is recommended as most robust to assumption violations.
+  preconditions:
+    requires_group: true
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - four multivariate tests (Wilks / Pillai / Hotelling-Lawley / Roy) with F, df, p
+    - per-group DV means table
+    - discriminant-style scatter of the first two DVs by group
+  executor_ref: statsmodels
+  biases:
+    - all continuous columns are the dependent variables and the lowest-cardinality categorical is the factor by default — set config outcomes/group/factors
+    - assumes multivariate normality + homogeneity of covariance matrices (Box's M); Pillai's trace is the most robust to violations
+    - a significant MANOVA only says "some DV mean differs" — follow with univariate ANOVAs / discriminant analysis to localise which DVs
+    - unbalanced designs or a singular within-group covariance (n too small relative to the DV count) destabilise the tests
+
+- id: discriminant_analysis
+  method: Discriminant analysis (LDA & QDA)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Linear and quadratic discriminant analysis of a categorical group on continuous predictors (scikit-learn). Reports honest classification accuracy via STRATIFIED k-fold cross-validation (not optimistic resubstitution), the confusion matrix, the explained-discriminant ratio per LD axis, an LDA-vs-QDA CV-accuracy comparison, and an LD1xLD2 projection scatter.
+  preconditions:
+    requires_group: true
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - LDA & QDA cross-validated accuracy (stratified k-fold) + chance baseline
+    - confusion matrix (from CV predictions) + explained-discriminant ratio per LD axis
+    - LD1 x LD2 projection scatter
+  executor_ref: scikit-learn
+  biases:
+    - all continuous columns are predictors and the lowest-cardinality categorical is the group by default — set config predictors/group
+    - LDA assumes equal class covariances; QDA relaxes this (both are reported and compared)
+    - cross-validated accuracy is the honest performance estimate — resubstitution accuracy overstates it (so it is not used)
+    - needs n > number-of-predictors per class for a stable within-class covariance
+
+- id: canonical_correlation
+  method: Canonical correlation analysis (CCA)
+  domain: statistics
+  family: statistics
+  goal: explore
+  description: Finds pairs of linear combinations of two sets of continuous variables (set X, set Y) that are maximally correlated. Reports the canonical correlation for each pair, a Bartlett/Wilks sequential chi-square test of how many successive canonical correlations are significant, and a scatter of the first canonical variate pair (U1 vs V1).
+  preconditions:
+    min_continuous: 3
+    min_rows: 20
+  produces:
+    - canonical correlations for each pair
+    - Bartlett/Wilks sequential test (how many pairs are significant)
+    - first canonical variate pair scatter (U1 vs V1)
+  executor_ref: scikit-learn / numpy
+  biases:
+    - the default split of the continuous columns into two halves (set_x / set_y) is ARBITRARY — set config set_x/set_y to your two conceptual variable sets
+    - CCA finds linear combinations maximising correlation; usually only the FIRST few canonical correlations are interpretable
+    - the sequential significance test relies on multivariate normality
+    - canonical correlations are sample-fit-maximised — they are upward biased in small samples
+
+- id: hotelling_t2
+  method: Hotelling's T-squared (two-sample mean-vector test)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: The multivariate generalisation of the two-sample t-test — tests whether the mean VECTORS of two groups across multiple continuous outcomes are equal. Computes T-squared from the pooled within-group covariance, converts it to an exact F statistic (df = p, n1+n2-p-1), and reports T-squared, F, df, p plus the per-variable mean differences.
+  preconditions:
+    requires_group: true
+    min_continuous: 2
+    min_rows: 10
+  produces:
+    - Hotelling's T-squared, F, df, p-value
+    - per-variable mean differences between the two groups
+    - scatter of the first two outcomes by group with group means
+  executor_ref: scipy / numpy
+  biases:
+    - all continuous columns are the outcomes and the lowest-cardinality 2-level categorical is the group by default — set config outcomes/group
+    - assumes multivariate normality + equal covariance matrices in the two groups
+    - for more than two groups use MANOVA instead
+    - needs n1+n2-2 >= p (number of outcomes) for an invertible pooled covariance
