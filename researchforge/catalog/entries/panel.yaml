@@ -38,3 +38,26 @@
     - instrument proliferation overfits and can INFLATE (weaken) the Sargan test — instruments are capped at lags 2-4 to mitigate; reported overid test is Sargan (not heteroskedasticity-robust Hansen J)
     - needs enough time periods (T >= 3) and units; small-T dynamics are fragile
     - validity hinges on no second-order serial correlation — the AR(2) test must NOT reject; covariates are treated as strictly exogenous
+
+- id: spatial_panel
+  method: Spatial panel econometrics (SAR / SEM / SDM, fixed effects)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: Panel regression that accounts for cross-sectional spatial dependence among units (e.g. neighbouring regions/firms co-move). Builds a row-standardised k-nearest-neighbour spatial weights matrix W from each unit's coordinates, then fits an individual fixed-effects spatial panel via R splm (Millo-Piras, the gold standard) — a spatial-lag model (SAR, default), a spatial-error model (SEM), or a spatial-Durbin model (SDM). Reports the spatial autoregressive coefficient (rho for lag / lambda for error) and, for SAR/SDM, the direct vs indirect (spillover) vs total impacts (the lag/Durbin coefficients are NOT marginal effects, so impacts() is reported instead). LM tests (slmtest) advise the lag-vs-error choice. Complements the non-spatial panel_fixed_effects and the cross-sectional spatial_regression.
+  preconditions:
+    is_panel: true
+    requires_geo: true
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - SAR/SEM/SDM panel coefficients (individual fixed effects)
+    - spatial autoregressive coefficient (rho lag / lambda error)
+    - direct / indirect (spillover) / total impacts (SAR/SDM) + LM lag-vs-error tests
+  executor_ref: splm (R)
+  biases:
+    - assumes spatial dependence exists (contemporaneous correlation among neighbouring units); if W is mis-specified the spatial term is meaningless
+    - the spatial weights matrix W (here k-nearest-neighbour, k≈6, row-standardised) is a MODELLING CHOICE that drives results — changing k / the distance metric / the neighbour definition can change rho/lambda and the spillovers; confirm against theory
+    - indirect (spillover) effects are feedback through W under this specification, NOT structural causal channels — interpret as association-style spillovers under the chosen W + FE design
+    - individual fixed effects absorb time-invariant unit heterogeneity but do NOT control time-varying confounders; assumes W is exogenous and the spatial process is stationary
+    - this is a statistical (model-specification) estimate, not structural causation; lag-vs-error is data-driven (LM tests / config) — default is SAR if undecided

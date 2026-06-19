@@ -21,6 +21,7 @@
 > - changes-in-changes：`outcome`、`treatment`、`time`、`treated_group`(=1 的处理组值,定方向)、`periods`[前,后]、`probs`
 > - 网络分析 network_analysis：`source`、`target`(边两端节点列)、`weight`(可选边权)、`directed`(默认 False)
 > - 保形预测 conformal_prediction：`outcome`(结果,默认首个连续列)、`predictors`(预测变量列表)、`alpha`(误覆盖率,默认0.1→90%区间)、`seed`(默认0,固定切分+RF)
+> - 空间面板 spatial_panel(SAR/SEM/SDM, R splm)：`unit`/`time`(面板索引)、`outcome`、`predictors`、`lon`/`lat`(每单位坐标,建 W)、`model`(`lag`=SAR 默认 / `error`=SEM / `sdm`=空间杜宾)、`knn_k`(空间权重近邻数,默认6,行标准化)；LM 检验(slmtest)仅给 lag-vs-error 建议、不自动切换；impacts(direct/indirect/total)用 LeSage-Pace 解析式
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 
@@ -35,6 +36,7 @@
 | 7 | **动态面板 GMM** | 协变量设为严格外生；工具滞后 2-4 | 标出内生/前定变量；调工具滞后深度 | ✅ 可配 `endogenous`(内生协变量)/`gmm_lags`[lo,hi]；滞后DV强制 lag≥2 |
 | 8 | **Malmquist** | 取首末两期 | 逐期链式 / 指定基期 | 待批 |
 | 9 | **差异丰度** | CLR + Mann-Whitney + BH-FDR（纯 Py 筛查法） | 上 R 金标准 ALDEx2 / ANCOM-BC（组成性更严谨） | ✅ 可配 `da_method`：clr_mw(默认)/clr_welch/**aldex2(R 金标准已接, MC-CLR+Welch)**；ancombc 桥待接(需 TreeSummarizedExperiment)→诚实降级 |
+| 10 | **空间面板 (SAR/SEM/SDM, splm)** | 模型=lag(SAR)；W=k-NN k=6 行标准化；个体FE(within)；LM检验仅建议不自动切换 | 选 model(lag/error/sdm)、改 k、指定 unit/time/outcome/predictors/lon/lat | ✅ 可配 `unit`/`time`/`outcome`/`predictors`/`lon`/`lat`/`model`(lag/error/sdm)/`knn_k`；impacts 用 LeSage-Pace 解析式(direct/indirect/total)，绕过 splm 自带 impacts() 跨版本易碎(trW/as_dgRMatrix_listw 移位) |
 
 ---
 
