@@ -1,0 +1,64 @@
+# Finance / risk catalog entries (single-series risk methods, pure Python).
+
+- id: value_at_risk
+  method: Value at Risk + Expected Shortfall (VaR / CVaR)
+  domain: finance
+  family: finance
+  goal: describe
+  description: Estimate downside risk of a single returns (or price) series at one or more confidence levels (config alpha, default 0.95 & 0.99) with THREE methods reported side by side — (a) HISTORICAL (empirical loss quantile), (b) PARAMETRIC GAUSSIAN (mu + z*sigma with the closed-form Gaussian ES), and (c) CORNISH-FISHER modified VaR (adjusts the normal z-quantile for sample skewness and excess kurtosis). For each method and level it reports VaR and Expected Shortfall (ES / CVaR = the mean loss beyond VaR, a coherent risk measure), plus a return-distribution plot with the VaR thresholds. Loss-sign convention = losses positive. Prices (all-positive, trending) are auto-converted to log-returns; config is_returns forces it. Set config column / alpha / is_returns.
+  preconditions:
+    is_timeseries: true
+    min_rows: 30
+    min_continuous: 1
+  produces:
+    - VaR + Expected Shortfall (CVaR) at each alpha — historical / Gaussian / Cornish-Fisher
+    - sample skewness & excess kurtosis (drives the Cornish-Fisher correction)
+    - return-distribution plot with VaR threshold lines
+  executor_ref: scipy
+  biases:
+    - VaR is a quantile, NOT a coherent risk measure (it can violate sub-additivity / diversification); ES (CVaR) is coherent and is also reported
+    - parametric Gaussian VaR underestimates tail risk for fat-tailed returns; Cornish-Fisher only PARTIALLY corrects this via skewness/kurtosis
+    - historical VaR is limited by the sample's worst observations — it cannot extrapolate beyond the data
+    - sign convention is losses-positive; a returns-vs-prices misread (forced via config is_returns) changes everything
+
+- id: extreme_value
+  method: Extreme Value Theory — Peaks Over Threshold (GPD)
+  domain: finance
+  family: finance
+  goal: describe
+  description: Estimate deep-tail risk of a single returns (or price) series via Extreme Value Theory, Peaks-Over-Threshold (POT). Picks a high threshold u (config threshold or the 95th percentile of losses), fits a Generalized Pareto Distribution to the threshold exceedances (scipy.stats.genpareto, loc fixed at u), and reports the shape parameter xi (tail index: xi>0 heavy/Frechet, xi=0 light/Gumbel, xi<0 bounded), the scale sigma, a Kolmogorov-Smirnov goodness-of-fit on the exceedances, and EVT-based VaR / return levels at extreme alphas (config evt_alpha, default 0.99 & 0.999) using the GPD tail estimator. Plots a mean-excess diagram (guides threshold choice) and the GPD fit to the exceedances. For sizing rare, catastrophic losses beyond the empirical range. Set config column / threshold / threshold_quantile / evt_alpha.
+  preconditions:
+    is_timeseries: true
+    min_rows: 50
+    min_continuous: 1
+  produces:
+    - GPD tail-shape xi (tail index) + scale sigma + threshold u + KS goodness-of-fit
+    - EVT-based VaR / return levels at extreme alphas (e.g. 99%, 99.9%)
+    - mean-excess plot + GPD-fit-to-exceedances plot
+  executor_ref: scipy
+  biases:
+    - threshold choice is the key sensitivity — too low biases the GPD fit, too high inflates its variance; the mean-excess plot's linear segment guides selection
+    - needs enough exceedances (>=~30) above the threshold for a stable GPD fit (the engine fails honestly otherwise)
+    - EVT extrapolates INTO the tail beyond the observed data — estimation uncertainty grows the deeper the quantile
+    - assumes exceedances are iid — serial/clustered extremes (volatility clustering) are NOT declustered here, which understates tail dependence
+
+- id: risk_adjusted_return
+  method: Risk-adjusted performance (Sharpe / Sortino / Calmar / max drawdown)
+  domain: finance
+  family: finance
+  goal: describe
+  description: Compute standard risk-adjusted performance metrics for a single returns series — annualized return & volatility (config periods_per_year, default 252), Sharpe ratio ((mean - rf)/sigma, config rf risk-free per period), Sortino ratio (downside-deviation denominator), maximum drawdown (peak-to-trough on the compounded cumulative-return curve), and the Calmar ratio (annualized return / |max drawdown|). Produces a cumulative-wealth & drawdown plot and a per-period metrics table. Prices are auto-converted to log-returns (config is_returns forces it). Set config column / periods_per_year / rf / is_returns.
+  preconditions:
+    is_timeseries: true
+    min_rows: 20
+    min_continuous: 1
+  produces:
+    - annualized return & volatility, Sharpe & Sortino ratios
+    - maximum drawdown + Calmar ratio + total/cumulative return
+    - cumulative-wealth & drawdown plot + per-period metrics table
+  executor_ref: numpy
+  biases:
+    - the Sharpe ratio assumes approximately normal returns; Sortino (downside) and Calmar (drawdown) address downside / drawdown risk that Sharpe ignores
+    - annualization assumes iid returns — the sqrt(T) volatility scaling breaks down under serial autocorrelation
+    - the risk-free rate and periods_per_year are user assumptions that materially shift Sharpe/Calmar
+    - in-sample metrics are optimistic — no Deflated-Sharpe / multiple-testing correction is applied here (a strategy selected after many trials inflates Sharpe)
