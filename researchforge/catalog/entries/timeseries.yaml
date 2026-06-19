@@ -115,3 +115,23 @@
     - STL is a DESCRIPTIVE decomposition, not a forecast or a statistical test
     - assumes a single dominant seasonal period; multiple/changing seasonality is not captured
     - robust fitting reduces but does not remove the influence of outliers / level shifts
+
+- id: ardl_bounds
+  method: ARDL bounds test (Pesaran-Shin-Smith) + error-correction
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Test for a long-run (level) relationship between a dependent series and one or more regressors using the ARDL bounds-testing approach (Pesaran-Shin-Smith), which — unlike Johansen cointegration — is valid when the variables are a MIX of I(0) and I(1). Auto-selects the ARDL lag orders by AIC, fits the unrestricted error-correction (UECM) form, runs the F bounds test against the I(0)/I(1) critical bounds, and reports the error-correction speed of adjustment and the implied long-run coefficients. For small-sample macro / eco-environmental relationships where you are unsure of the integration orders. Set config outcome / predictors.
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - bounds-test F statistic vs the I(0)/I(1) critical bounds + verdict
+    - error-correction speed of adjustment + long-run coefficients
+    - UECM model summary
+  executor_ref: statsmodels
+  biases:
+    - valid for a mix of I(0)/I(1) variables, but breaks down if ANY series is I(2) — difference or check first
+    - the bounds test can be INCONCLUSIVE when F falls between the lower (I(0)) and upper (I(1)) bounds — reported honestly, not forced to a verdict
+    - sensitive to the chosen lag orders (AIC here) and the deterministic case (case 3 = unrestricted constant)
+    - the long-run relationship is a statistical equilibrium, not structural causality; assumes a single dependent variable (regressors weakly exogenous)
