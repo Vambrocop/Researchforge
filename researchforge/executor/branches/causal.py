@@ -393,7 +393,7 @@ def _branch_gsynth(ctx: Ctx) -> None:
     try:
         gs_seed = int(cfg.get("seed", 2024))
     except (TypeError, ValueError):
-        gs_seed = 20260616
+        gs_seed = 2024  # malformed cfg["seed"] -> same reproducible default (audit: was 20260616)
     names_safe = all(
         x and re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(x)) for x in [outcome, treat, unit, time]
     )
