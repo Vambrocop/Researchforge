@@ -5,114 +5,156 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ResearchForge</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 1.5rem; background: #f8f9fa; color: #212529; }
-  h1 { font-size: 1.6rem; margin-bottom: 1rem; }
-  h2 { font-size: 1.1rem; margin: 1.2rem 0 0.5rem; border-bottom: 1px solid #dee2e6; padding-bottom: 0.3rem; }
-  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-  input[type=file] { flex: 1; padding: 0.3rem; }
-  button { padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
-  .btn-primary { background: #0d6efd; color: #fff; }
-  .btn-primary:hover { background: #0b5ed7; }
-  .btn-run { background: #198754; color: #fff; font-size: 0.8rem; padding: 0.2rem 0.6rem; }
-  .btn-run:hover { background: #157347; }
-  .btn-override { background: #dc3545; color: #fff; font-size: 0.8rem; padding: 0.2rem 0.6rem; }
-  .btn-override:hover { background: #bb2d3b; }
-  .card { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 1rem; margin-top: 0.8rem; }
-  .meta { color: #6c757d; font-size: 0.85rem; margin-bottom: 0.5rem; }
-  .rec-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0; border-bottom: 1px solid #f1f3f5; flex-wrap: wrap; }
-  .rec-row:last-child { border-bottom: none; }
-  .dot { font-size: 1rem; line-height: 1; }
-  .score { font-size: 0.8rem; color: #6c757d; width: 3ch; text-align: right; }
-  .method { font-weight: 500; flex: 1; min-width: 120px; }
-  .note { font-size: 0.8rem; color: #495057; flex: 2; min-width: 150px; }
-  pre { background: #f1f3f5; padding: 0.8rem; border-radius: 4px; overflow: auto; font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; max-height: 400px; }
-  .file-links a { display: inline-block; margin: 0.2rem 0.4rem 0.2rem 0; font-size: 0.85rem; color: #0d6efd; text-decoration: none; }
-  .file-links a:hover { text-decoration: underline; }
-  .file-links a.interactive-link { background: #e7f1ff; border: 1px solid #0d6efd; border-radius: 4px; padding: 0.25rem 0.6rem; font-weight: 600; }
-  .file-links a.interactive-link:hover { background: #0d6efd; color: #fff; text-decoration: none; }
-  .error { color: #dc3545; font-size: 0.9rem; margin-top: 0.5rem; }
-  #error { background: #fff3f3; border: 1px solid #f5c6cb; border-radius: 4px; padding: 0.5rem 0.8rem; margin-top: 0.6rem; color: #842029; font-size: 0.9rem; display: none; }
-  .spinner { display: none; color: #6c757d; font-size: 0.85rem; margin-left: 0.5rem; }
-  #result-section { display: none; }
-  #profile-section { display: none; }
-  .issue-row { padding: 0.3rem 0; border-bottom: 1px solid #f1f3f5; font-size: 0.85rem; }
-  .issue-row:last-child { border-bottom: none; }
-  .issue-kind { font-weight: 600; color: #dc3545; min-width: 100px; display: inline-block; }
-  .issue-col { color: #0d6efd; min-width: 100px; display: inline-block; }
-  .issue-sev { font-size: 0.78rem; color: #6c757d; margin-left: 0.4rem; }
-  .btn-clean { background: #fd7e14; color: #fff; margin-top: 0.6rem; }
-  .btn-clean:hover { background: #e8681a; }
-  .btn-reanalyze { background: #6f42c1; color: #fff; margin-top: 0.6rem; }
-  .btn-reanalyze:hover { background: #5a32a3; }
-  .btn-download { background: #0d6efd; color: #fff; font-size: 0.85rem; padding: 0.3rem 0.8rem; margin-top: 0.5rem; }
-  .btn-download:hover { background: #0b5ed7; }
-  .plan-row { padding: 0.25rem 0; font-size: 0.83rem; border-bottom: 1px solid #f1f3f5; }
-  .plan-row:last-child { border-bottom: none; }
-  .plan-action { font-weight: 600; color: #198754; min-width: 110px; display: inline-block; }
-  .inline-fig { display: block; max-width: 100%; border: 1px solid #dee2e6; border-radius: 4px; margin: 0.5rem 0; }
-  .report { font-size: 0.88rem; line-height: 1.6; }
-  .report h1 { font-size: 1.15rem; margin: 0.8rem 0 0.3rem; }
-  .report h2 { font-size: 1rem; margin: 0.7rem 0 0.25rem; border-bottom: 1px solid #dee2e6; padding-bottom: 0.15rem; }
-  .report h3 { font-size: 0.92rem; margin: 0.6rem 0 0.2rem; }
-  .report ul { margin: 0.2rem 0 0.4rem 1.4rem; padding: 0; }
-  .report li { margin: 0.15rem 0; }
-  .report p { margin: 0.3rem 0; }
-  .report code { background: #f1f3f5; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.85em; }
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e7e7e2;
+    --accent:#2f6f4f; --accent-soft:#e8f1ec; --green:#2f8f5b; --yellow:#c9952b; --red:#c0492f;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  header{padding:20px 32px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .tag{font-size:12px;color:var(--muted)}
+  .wrap{max-width:940px;margin:0 auto;padding:26px 32px 90px}
+  h2{font-size:13px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:600;margin:26px 0 12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+  .meta{color:var(--muted);font-size:13.5px}
+  button{font:inherit;cursor:pointer;border-radius:8px}
+  .btn-primary{background:var(--accent);color:#fff;border:none;padding:9px 20px;font-size:14px}
+  .btn-primary:hover{background:#27543d}
+  .btn-primary:disabled{background:#a9c3b5;cursor:not-allowed}
+  .spinner{display:none;color:var(--muted);font-size:13px;margin-left:8px}
+  #error{display:none;background:#fdecea;border:1px solid #f3c0b8;color:#9a2b1a;padding:10px 14px;border-radius:10px;margin:14px 0;font-size:14px}
+  /* upload */
+  .drop{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .drop input[type=file]{flex:1;min-width:200px;font-size:13.5px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#fdfdfc}
+  /* data summary */
+  .databar{display:flex;flex-wrap:wrap;gap:9px 12px;align-items:center}
+  .pill{font-size:12px;padding:3px 11px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
+  .pill.grey{background:#f0f0ec;color:var(--muted)}
+  .qual{margin-left:auto;font-size:13px;color:var(--muted)}
+  .row-actions{margin-top:12px}
+  .btn-soft{background:#fff;border:1px solid var(--line);color:var(--ink);padding:7px 14px;font-size:13px}
+  .btn-soft:hover{border-color:#cfcfc8}
+  /* issues */
+  .issue-row{display:flex;gap:10px;align-items:baseline;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .issue-row:last-child{border-bottom:none}
+  .issue-kind{font-weight:600;color:#7a5a2a}
+  .issue-col{color:var(--accent);font-size:12px}
+  .issue-sev{margin-left:auto;color:var(--muted);font-size:12px}
+  /* clean */
+  .plan-row{font-size:13px;padding:3px 0}
+  .plan-action{font-weight:600;color:var(--accent)}
+  /* goals */
+  .goals{display:flex;flex-wrap:wrap;gap:8px}
+  .goal{font-size:13px;padding:6px 13px;border:1px solid var(--line);border-radius:20px;background:#fff;cursor:pointer;color:var(--muted)}
+  .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  /* rec cards */
+  .rec{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:13px;box-shadow:var(--shadow)}
+  .rec.infeasible{opacity:.74}
+  .rec .top{display:flex;align-items:center;gap:11px}
+  .light{width:11px;height:11px;border-radius:50%;flex:none}
+  .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
+  .mname{font-weight:640;font-size:15px}
+  .fam{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .fit-badge{font-size:12px;color:var(--muted)}
+  .run{margin-left:auto;font-size:13px;border:1px solid var(--accent);color:var(--accent);background:#fff;padding:6px 16px}
+  .run:hover{background:var(--accent);color:#fff}
+  .run.override{border-color:var(--yellow);color:#946a1c}
+  .run.override:hover{background:var(--yellow);color:#fff}
+  .run:disabled{opacity:.5;cursor:wait}
+  .why{color:var(--muted);font-size:13.5px;margin:9px 0 11px}
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px}
+  .sc .d{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .sc .d .lab{width:30px;flex:none}
+  .bar{flex:1;height:6px;background:#eee;border-radius:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .bar.cost i{background:var(--yellow)}
+  .sc .d .v{width:22px;text-align:right;color:#a4a49c}
+  details{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
+  .bias{font-size:13px;color:#7a5a2a;background:#fdf7ea;border:1px solid #f0e2bf;border-radius:8px;padding:10px 12px;margin-top:9px;line-height:1.6}
+  .bias li{margin:2px 0}
+  /* result */
+  .sumtext{border-left:3px solid var(--accent);padding:4px 0 4px 14px;font-size:14px;line-height:1.65;white-space:pre-wrap}
+  .report{font-size:13.5px;line-height:1.6}
+  .report h1,.report h2,.report h3{text-transform:none;letter-spacing:0;color:var(--ink);border:none}
+  .report code{background:#f4f4f0;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .file-links{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+  .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);border-radius:8px;padding:7px 12px;text-decoration:none;background:#fff}
+  .inline-fig{max-width:420px;width:100%;border:1px solid var(--line);border-radius:10px}
+  .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:8px 18px;border-radius:8px;font-size:13px}
+  #profile-section,#clean-section,#result-section{display:none}
 </style>
 </head>
 <body>
-<h1>ResearchForge</h1>
+<header>
+  <h1>🔨 ResearchForge</h1>
+  <span class="tag">方法学大杂烩引擎 · 丢数据 → 识别 → 推荐(🟢🟡🔴 + 评分卡) → 跑 → 报告</span>
+</header>
 
-<div class="row">
-  <input type="file" id="csv-input" accept=".csv">
-  <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()">分析</button>
-  <span class="spinner" id="analyze-spinner">处理中...</span>
-</div>
-<div id="error"></div>
+<div class="wrap">
+  <div id="error"></div>
 
-<div id="profile-section">
-  <h2>数据概览</h2>
+  <!-- UPLOAD -->
+  <h2>① 上传数据</h2>
   <div class="card">
-    <div class="meta" id="data-meta"></div>
+    <div class="drop">
+      <input type="file" id="csv-input" accept=".csv,.xlsx,.xls">
+      <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()">识别 + 推荐</button>
+      <span class="spinner" id="analyze-spinner">处理中…</span>
+    </div>
+    <div class="meta" style="margin-top:8px">CSV / Excel · 自动识别类型、结构、质量，并给出按严谨度排序的可行分析。</div>
   </div>
 
-  <div id="issues-section" style="display:none">
-    <h2>数据质量问题</h2>
+  <!-- PROFILE + RECS -->
+  <div id="profile-section">
+    <h2>② 数据画像</h2>
     <div class="card">
-      <div id="issues-list"></div>
-      <div style="margin-top:0.6rem">
-        <button class="btn-clean" id="btn-clean" onclick="doClean()">清洗数据</button>
-        <span class="spinner" id="clean-spinner">处理中...</span>
+      <div class="databar" id="data-meta"></div>
+      <div class="row-actions">
+        <button class="btn-soft" id="btn-clean" onclick="doClean()">查看清洗方案</button>
+        <span class="spinner" id="clean-spinner">处理中…</span>
       </div>
     </div>
-  </div>
 
-  <div id="clean-section" style="display:none">
-    <h2>清洗方案</h2>
-    <div class="card">
-      <div id="clean-plan"></div>
-      <div id="clean-log-summary" class="meta" style="margin-top:0.5rem"></div>
-      <div style="margin-top:0.6rem">
-        <button class="btn-reanalyze" id="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
-        <span class="spinner" id="reanalyze-spinner">处理中...</span>
+    <div id="issues-section" style="display:none">
+      <h2>数据质量问题</h2>
+      <div class="card" id="issues-list"></div>
+    </div>
+
+    <div id="clean-section">
+      <h2>清洗方案</h2>
+      <div class="card">
+        <div id="clean-plan"></div>
+        <div id="clean-log-summary" class="meta" style="margin-top:8px"></div>
+        <div class="row-actions">
+          <button class="btn-soft" id="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
+          <span class="spinner" id="reanalyze-spinner">处理中…</span>
+        </div>
       </div>
     </div>
+
+    <h2>③ 分析目标</h2>
+    <div class="goals" id="goal-chips"></div>
+
+    <h2>④ 推荐方法 · 🟢可行 🟡需注意 🔴不匹配</h2>
+    <div id="rec-list"></div>
   </div>
 
-  <h2>推荐分析</h2>
-  <div class="card" id="rec-list"></div>
-</div>
-
-<div id="result-section">
-  <h2>分析结果</h2>
-  <div class="card">
-    <div id="result-summary" class="meta"></div>
-    <h2 style="margin-top:0.8rem">报告</h2>
-    <div class="report" id="result-report"></div>
-    <h2>输出文件</h2>
-    <div class="file-links" id="result-files"></div>
-    <div style="margin-top:0.6rem">
-      <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#">下载全部产物</a>
+  <!-- RESULT -->
+  <div id="result-section">
+    <h2>⑤ 结果报告</h2>
+    <div class="card">
+      <div id="result-summary" class="sumtext"></div>
+      <h2>报告</h2>
+      <div class="report" id="result-report"></div>
+      <h2>输出文件</h2>
+      <div class="file-links" id="result-files"></div>
+      <div style="margin-top:14px">
+        <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#">⬇ 下载全部产物</a>
+      </div>
     </div>
   </div>
 </div>
@@ -120,321 +162,220 @@
 <script>
 let currentFileId = null;
 let cleanedFileId = null;
+let lastRecs = [];
+let activeGoal = 'all';
 
-const DOTS = { green: '🟢', yellow: '🟡', red: '🔴' };
+const DOTS = { green: 'green', yellow: 'yellow', red: 'red' };
+const SC_DIMS = [
+  ['popularity','流'],['publishability','发'],['aesthetics','美'],
+  ['difficulty','难'],['fit','合'],['novelty','新'],
+];
+// goal taxonomy mirrors researchforge/recommender/goals.py (client-side filter)
+const GOALS = {
+  all:        {label:'全部', fam:[], ids:[]},
+  compare:    {label:'比较组间差异', fam:['experimental_design'], ids:['group_comparison']},
+  relate:     {label:'找关系 / 回归', fam:['econometrics'], ids:['correlation','ols_regression','logistic_regression','poisson_regression','negative_binomial_regression','quantile_regression','gam','gamm','glmm','mixed_effects','multinomial_logit','ordered_logit','sem','pls_sem','efa']},
+  causal:     {label:'因果效应', fam:['causal'], ids:[]},
+  predict:    {label:'预测', fam:[], ids:['random_forest','xgboost','bart','conformal_prediction']},
+  reduce:     {label:'降维 / 聚类', fam:[], ids:['pca','efa','kmeans_clustering','hierarchical_clustering','nmds']},
+  design:     {label:'设计实验 / 样本量', fam:['experimental_design'], ids:[]},
+  spatial:    {label:'空间分析', fam:['spatial'], ids:[]},
+  survival:   {label:'生存 / 事件史', fam:['survival'], ids:[]},
+  timeseries: {label:'时间序列', fam:['time-series'], ids:[]},
+  qca:        {label:'定性比较 / 配置', fam:['configurational'], ids:[]},
+  efficiency: {label:'效率 / 生产率', fam:['efficiency'], ids:[]},
+  evaluate:   {label:'综合评价 / 排序', fam:['mcda'], ids:[]},
+  meta:       {label:'元分析', fam:['meta'], ids:[]},
+  diversity:  {label:'生态多样性', fam:['ecology'], ids:[]},
+};
 
-// ---------------------------------------------------------------------------
-// Error banner
-// ---------------------------------------------------------------------------
-function showError(msg) {
-  const el = document.getElementById('error');
-  el.textContent = msg;
-  el.style.display = 'block';
-}
-function clearError() {
-  const el = document.getElementById('error');
-  el.textContent = '';
-  el.style.display = 'none';
-}
+function showError(msg){const el=document.getElementById('error');el.textContent=msg;el.style.display='block';}
+function clearError(){const el=document.getElementById('error');el.textContent='';el.style.display='none';}
+function spin(id,on){const el=document.getElementById(id);if(el)el.style.display=on?'inline':'none';}
+function setBusy(id,l){const b=document.getElementById(id);if(b){b._o=b.textContent;b.textContent=l||'…处理中';b.disabled=true;}}
+function setIdle(id){const b=document.getElementById(id);if(b){b.textContent=b._o||b.textContent;b.disabled=false;}}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// ---------------------------------------------------------------------------
-// Button loading state helpers
-// ---------------------------------------------------------------------------
-function setBusy(btnId, label) {
-  const btn = document.getElementById(btnId);
-  if (btn) { btn._origLabel = btn.textContent; btn.textContent = label || '…处理中'; btn.disabled = true; }
-}
-function setIdle(btnId) {
-  const btn = document.getElementById(btnId);
-  if (btn) { btn.textContent = btn._origLabel || btn.textContent; btn.disabled = false; }
-}
-
-// ---------------------------------------------------------------------------
-// Markdown → HTML (no external lib)
-// ---------------------------------------------------------------------------
-function mdToHtml(md) {
-  if (!md) return '<p>(无报告)</p>';
-
-  // Escape raw HTML first to prevent injection
-  function esc(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function mdToHtml(md){
+  if(!md) return '<p>(无报告)</p>';
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
+  const out=[];let ul=false;const closeUl=()=>{if(ul){out.push('</ul>');ul=false;}};
+  for(const raw of md.split('\n')){const line=raw.trimEnd();
+    if(/^### /.test(line)){closeUl();out.push(`<h3>${inl(line.slice(4))}</h3>`);}
+    else if(/^## /.test(line)){closeUl();out.push(`<h2>${inl(line.slice(3))}</h2>`);}
+    else if(/^# /.test(line)){closeUl();out.push(`<h1>${inl(line.slice(2))}</h1>`);}
+    else if(/^- /.test(line)){if(!ul){out.push('<ul>');ul=true;}out.push(`<li>${inl(line.slice(2))}</li>`);}
+    else if(line===''){closeUl();}
+    else{closeUl();out.push(`<p>${inl(line)}</p>`);}
   }
-
-  // Inline: **bold** and `code`
-  function inlineFormat(s) {
-    return esc(s)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-  }
-
-  const lines = md.split('\n');
-  const out = [];
-  let inUl = false;
-
-  function closeUl() { if (inUl) { out.push('</ul>'); inUl = false; } }
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-
-    if (/^### /.test(line)) {
-      closeUl();
-      out.push(`<h3>${inlineFormat(line.slice(4))}</h3>`);
-    } else if (/^## /.test(line)) {
-      closeUl();
-      out.push(`<h2>${inlineFormat(line.slice(3))}</h2>`);
-    } else if (/^# /.test(line)) {
-      closeUl();
-      out.push(`<h1>${inlineFormat(line.slice(2))}</h1>`);
-    } else if (/^- /.test(line)) {
-      if (!inUl) { out.push('<ul>'); inUl = true; }
-      out.push(`<li>${inlineFormat(line.slice(2))}</li>`);
-    } else if (line === '') {
-      closeUl();
-      // blank line = paragraph break; no tag needed
-    } else {
-      closeUl();
-      out.push(`<p>${inlineFormat(line)}</p>`);
-    }
-  }
-  closeUl();
-  return out.join('\n');
+  closeUl();return out.join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Main actions
-// ---------------------------------------------------------------------------
-async function doAnalyze() {
+// --------------------------------------------------------------------------
+async function doAnalyze(){
   clearError();
-  document.getElementById('profile-section').style.display = 'none';
-  document.getElementById('result-section').style.display = 'none';
-  document.getElementById('issues-section').style.display = 'none';
-  document.getElementById('clean-section').style.display = 'none';
-  cleanedFileId = null;
-
-  const input = document.getElementById('csv-input');
-  if (!input.files.length) { showError('请先选择一个 CSV 文件'); return; }
-
-  setBusy('btn-analyze', '…处理中');
-  const spinner = document.getElementById('analyze-spinner');
-  spinner.style.display = 'inline';
-
-  const fd = new FormData();
-  fd.append('file', input.files[0]);
-
+  ['profile-section','result-section','issues-section','clean-section'].forEach(id=>document.getElementById(id).style.display='none');
+  cleanedFileId=null;
+  const input=document.getElementById('csv-input');
+  if(!input.files.length){showError('请先选择一个 CSV / Excel 文件');return;}
+  setBusy('btn-analyze');spin('analyze-spinner',true);
+  const fd=new FormData();fd.append('file',input.files[0]);
   let data;
-  try {
-    const res = await fetch('/api/analyze', { method: 'POST', body: fd });
-    data = await res.json();
-    if (!res.ok) { showError(data.detail || '分析失败'); setIdle('btn-analyze'); spinner.style.display = 'none'; return; }
-  } catch (e) {
-    showError('网络错误：' + e.message);
-    setIdle('btn-analyze'); spinner.style.display = 'none'; return;
-  }
-  setIdle('btn-analyze');
-  spinner.style.display = 'none';
-
-  currentFileId = data.file_id;
+  try{
+    const res=await fetch('/api/analyze',{method:'POST',body:fd});
+    data=await res.json();
+    if(!res.ok){showError(data.detail||'分析失败');setIdle('btn-analyze');spin('analyze-spinner',false);return;}
+  }catch(e){showError('网络错误：'+e.message);setIdle('btn-analyze');spin('analyze-spinner',false);return;}
+  setIdle('btn-analyze');spin('analyze-spinner',false);
+  currentFileId=data.file_id;
   renderProfile(data.fingerprint);
-  renderIssues(data.fingerprint.issues || []);
-  renderRecs(data.recommendations);
-  document.getElementById('profile-section').style.display = '';
+  renderIssues(data.fingerprint.issues||[]);
+  lastRecs=data.recommendations||[];
+  activeGoal='all';
+  renderGoals();renderRecs();
+  document.getElementById('profile-section').style.display='';
 }
 
-function renderProfile(fp) {
-  const parts = [
-    `${fp.n_rows} 行 × ${fp.n_cols} 列`,
-    fp.is_panel ? '面板数据' : (fp.is_timeseries ? '时间序列' : '截面数据'),
-    fp.time_col ? `时间列: ${fp.time_col}` : '',
-    fp.unit_col ? `单位列: ${fp.unit_col}` : '',
-    fp.n_issues ? `质量问题: ${fp.n_issues} 项` : '无质量问题',
+function renderProfile(fp){
+  const struct=fp.is_panel?'面板数据':(fp.is_timeseries?'时间序列':'截面数据');
+  const bits=[
+    `<span class="pill grey">${fp.n_rows} 行 × ${fp.n_cols} 列</span>`,
+    `<span class="pill">${struct}</span>`,
+    fp.unit_col?`<span class="pill">单位列 ${escHtml(fp.unit_col)}</span>`:'',
+    fp.time_col?`<span class="pill">时间列 ${escHtml(fp.time_col)}</span>`:'',
+    `<span class="qual">质量问题 <b>${fp.n_issues||0}</b> 项 · ${fp.columns.length} 列已识别类型</span>`,
   ].filter(Boolean);
-  document.getElementById('data-meta').textContent = parts.join(' | ');
+  document.getElementById('data-meta').innerHTML=bits.join('');
 }
 
-function renderIssues(issues) {
-  const sec = document.getElementById('issues-section');
-  if (!issues.length) { sec.style.display = 'none'; return; }
-  const el = document.getElementById('issues-list');
-  el.innerHTML = issues.map(iss => {
-    const col = iss.column ? `<span class="issue-col">${escHtml(iss.column)}</span>` : '<span class="issue-col">—</span>';
-    return `<div class="issue-row">
-      <span class="issue-kind">${escHtml(iss.kind)}</span>${col}
-      <span>${escHtml(iss.detail)}</span>
-      <span class="issue-sev">[${escHtml(iss.severity)}]</span>
-    </div>`;
-  }).join('');
-  sec.style.display = '';
+function renderIssues(issues){
+  const sec=document.getElementById('issues-section');
+  if(!issues.length){sec.style.display='none';return;}
+  document.getElementById('issues-list').innerHTML=issues.map(i=>`
+    <div class="issue-row">
+      <span class="issue-kind">${escHtml(i.kind)}</span>
+      <span class="issue-col">${i.column?escHtml(i.column):'—'}</span>
+      <span>${escHtml(i.detail)}</span>
+      <span class="issue-sev">[${escHtml(i.severity)}]</span>
+    </div>`).join('');
+  sec.style.display='';
 }
 
-async function doClean() {
-  if (!currentFileId) return;
-  clearError();
-  document.getElementById('clean-section').style.display = 'none';
-  setBusy('btn-clean', '…处理中');
-  const spinner = document.getElementById('clean-spinner');
-  spinner.style.display = 'inline';
-
-  let data;
-  try {
-    const res = await fetch('/api/clean', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: currentFileId }),
-    });
-    data = await res.json();
-    if (!res.ok) { showError(data.detail || '清洗失败'); setIdle('btn-clean'); spinner.style.display = 'none'; return; }
-  } catch (e) {
-    showError('网络错误：' + e.message);
-    setIdle('btn-clean'); spinner.style.display = 'none'; return;
-  }
-  setIdle('btn-clean');
-  spinner.style.display = 'none';
-
-  cleanedFileId = data.cleaned_file_id;
-  renderCleanResult(data);
-  document.getElementById('clean-section').style.display = '';
-  document.getElementById('clean-section').scrollIntoView({ behavior: 'smooth' });
+function renderGoals(){
+  const el=document.getElementById('goal-chips');
+  // only show goals that actually have a recommendation for this dataset (+ 全部)
+  const present=new Set();
+  for(const r of lastRecs) for(const[k,g]of Object.entries(GOALS))
+    if(k!=='all' && (g.fam.includes(r.family)||g.ids.includes(r.id))) present.add(k);
+  const keys=['all',...Object.keys(GOALS).filter(k=>k!=='all'&&present.has(k))];
+  el.innerHTML=keys.map(k=>`<span class="goal${k===activeGoal?' on':''}" onclick="pickGoal('${k}')">${escHtml(GOALS[k].label)}</span>`).join('');
 }
+function pickGoal(k){activeGoal=k;renderGoals();renderRecs();}
 
-function renderCleanResult(data) {
-  const planEl = document.getElementById('clean-plan');
-  if (data.plan && data.plan.length) {
-    planEl.innerHTML = data.plan.map(s => {
-      const col = s.column ? ` — <span style="color:#0d6efd">${escHtml(s.column)}</span>` : '';
-      return `<div class="plan-row"><span class="plan-action">${escHtml(s.action)}</span>${col} <span style="color:#6c757d;font-size:0.8rem">${escHtml(s.reason)}</span></div>`;
+function renderRecs(){
+  const el=document.getElementById('rec-list');
+  let recs=lastRecs;
+  if(activeGoal!=='all'){const g=GOALS[activeGoal];recs=lastRecs.filter(r=>g.fam.includes(r.family)||g.ids.includes(r.id));}
+  if(!recs.length){el.innerHTML='<div class="card meta">该目标下暂无可行推荐。</div>';return;}
+  el.innerHTML=recs.map(r=>{
+    const ms=r.methodology_score||{};
+    const bars=SC_DIMS.map(([k,lab])=>{
+      const v=ms[k]||0;const cost=k==='difficulty'?' cost':'';
+      return `<div class="d"><span class="lab">${lab}</span><span class="bar${cost}"><i style="width:${v}%"></i></span><span class="v">${v}</span></div>`;
     }).join('');
-  } else {
-    planEl.innerHTML = '<div class="meta">无清洗步骤（数据已干净）</div>';
-  }
-
-  const applied = (data.log || []).filter(l => l.applied).length;
-  const total = (data.log || []).length;
-  document.getElementById('clean-log-summary').textContent =
-    `共 ${total} 步，${applied} 步已执行。清洗后文件已保存 (ID: ${cleanedFileId || '—'})`;
-}
-
-async function doReanalyze() {
-  if (!cleanedFileId) return;
-  clearError();
-  setBusy('btn-reanalyze', '…处理中');
-  const spinner = document.getElementById('reanalyze-spinner');
-  spinner.style.display = 'inline';
-
-  let data;
-  try {
-    const res = await fetch('/api/reanalyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: cleanedFileId }),
-    });
-    data = await res.json();
-    if (!res.ok) { showError(data.detail || '重新分析失败'); setIdle('btn-reanalyze'); spinner.style.display = 'none'; return; }
-  } catch (e) {
-    showError('网络错误：' + e.message);
-    setIdle('btn-reanalyze'); spinner.style.display = 'none'; return;
-  }
-  setIdle('btn-reanalyze');
-  spinner.style.display = 'none';
-
-  // Switch to cleaned file as the active file for subsequent runs
-  currentFileId = cleanedFileId;
-  cleanedFileId = null;
-
-  document.getElementById('clean-section').style.display = 'none';
-  document.getElementById('issues-section').style.display = 'none';
-  document.getElementById('result-section').style.display = 'none';
-
-  renderProfile(data.fingerprint);
-  renderIssues(data.fingerprint.issues || []);
-  renderRecs(data.recommendations);
-  document.getElementById('profile-section').style.display = '';
-  document.getElementById('profile-section').scrollIntoView({ behavior: 'smooth' });
-}
-
-function renderRecs(recs) {
-  const el = document.getElementById('rec-list');
-  if (!recs.length) { el.innerHTML = '<div class="meta">无推荐分析</div>'; return; }
-  el.innerHTML = recs.map(r => {
-    const dot = DOTS[r.light] || r.light;
-    const btnCls = r.feasible ? 'btn-run' : 'btn-override';
-    const btnLabel = r.feasible ? '运行' : '知情覆盖';
-    const biasesTip = r.biases.length ? ` title="${r.biases.join('、')}"` : '';
-    return `<div class="rec-row">
-      <span class="dot"${biasesTip}>${dot}</span>
-      <span class="score">${r.score}</span>
-      <span class="method">${escHtml(r.method)}</span>
-      <span class="note">${escHtml(r.note)}</span>
-      <button class="${btnCls}" onclick="doRun('${r.id}')">${btnLabel}</button>
+    const biases=(r.biases||[]).map(b=>`<li>${escHtml(b)}</li>`).join('');
+    const biasBlock=biases?`<details><summary>⚠ 偏差披露 / 假定（知情覆盖）</summary><div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
+    const btnCls=r.feasible?'run':'run override';
+    const btnLabel=r.feasible?'运行 →':'知情覆盖 →';
+    return `<div class="rec${r.feasible?'':' infeasible'}">
+      <div class="top">
+        <span class="light ${DOTS[r.light]||'red'}"></span>
+        <span class="mname">${escHtml(r.method)}</span>
+        <span class="fam">${escHtml(r.family)}</span>
+        <span class="fit-badge">契合 ${r.score}</span>
+        <button class="${btnCls}" onclick="doRun('${r.id}',this)">${btnLabel}</button>
+      </div>
+      <div class="why">${escHtml(r.note||'')}</div>
+      <div class="sc">${bars}</div>
+      ${biasBlock}
     </div>`;
   }).join('');
 }
 
-async function doRun(analysisId) {
-  if (!currentFileId) return;
-  document.getElementById('result-section').style.display = 'none';
-  clearError();
-
-  // Find the clicked run button and mark it busy
-  const runBtns = document.querySelectorAll('.btn-run, .btn-override');
-  let activeBtn = null;
-  for (const b of runBtns) {
-    if (b.getAttribute('onclick') === `doRun('${analysisId}')`) { activeBtn = b; break; }
-  }
-  if (activeBtn) { activeBtn._origLabel = activeBtn.textContent; activeBtn.textContent = '…处理中'; activeBtn.disabled = true; }
-
+async function doClean(){
+  if(!currentFileId)return;clearError();
+  document.getElementById('clean-section').style.display='none';
+  setBusy('btn-clean');spin('clean-spinner',true);
   let data;
-  try {
-    const res = await fetch('/api/run', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: currentFileId, analysis_id: analysisId }),
-    });
-    data = await res.json();
-    if (!res.ok) {
-      if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
-      showError(data.detail || '运行失败'); return;
-    }
-  } catch (e) {
-    if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
-    showError('网络错误：' + e.message); return;
-  }
-  if (activeBtn) { activeBtn.textContent = activeBtn._origLabel; activeBtn.disabled = false; }
-
-  renderResult(data);
-  document.getElementById('result-section').style.display = '';
-  document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+  try{
+    const res=await fetch('/api/clean',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:currentFileId})});
+    data=await res.json();
+    if(!res.ok){showError(data.detail||'清洗失败');setIdle('btn-clean');spin('clean-spinner',false);return;}
+  }catch(e){showError('网络错误：'+e.message);setIdle('btn-clean');spin('clean-spinner',false);return;}
+  setIdle('btn-clean');spin('clean-spinner',false);
+  cleanedFileId=data.cleaned_file_id;
+  const planEl=document.getElementById('clean-plan');
+  planEl.innerHTML=(data.plan&&data.plan.length)
+    ? data.plan.map(s=>`<div class="plan-row"><span class="plan-action">${escHtml(s.action)}</span>${s.column?' — '+escHtml(s.column):''} <span class="meta">${escHtml(s.reason)}</span></div>`).join('')
+    : '<div class="meta">无清洗步骤（数据已干净）</div>';
+  const applied=(data.log||[]).filter(l=>l.applied).length,total=(data.log||[]).length;
+  document.getElementById('clean-log-summary').textContent=`共 ${total} 步，${applied} 步已执行。清洗后文件已保存 (ID: ${cleanedFileId||'—'})`;
+  document.getElementById('clean-section').style.display='';
+  document.getElementById('clean-section').scrollIntoView({behavior:'smooth'});
 }
 
-function renderResult(data) {
-  document.getElementById('result-summary').textContent = data.summary || '(无摘要)';
-  document.getElementById('result-report').innerHTML = mdToHtml(data.report || '');
+async function doReanalyze(){
+  if(!cleanedFileId)return;clearError();
+  setBusy('btn-reanalyze');spin('reanalyze-spinner',true);
+  let data;
+  try{
+    const res=await fetch('/api/reanalyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:cleanedFileId})});
+    data=await res.json();
+    if(!res.ok){showError(data.detail||'重新分析失败');setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
+  }catch(e){showError('网络错误：'+e.message);setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
+  setIdle('btn-reanalyze');spin('reanalyze-spinner',false);
+  currentFileId=cleanedFileId;cleanedFileId=null;
+  document.getElementById('clean-section').style.display='none';
+  document.getElementById('result-section').style.display='none';
+  renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);
+  lastRecs=data.recommendations||[];activeGoal='all';renderGoals();renderRecs();
+  document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});
+}
 
-  const outDirBase = data.output_dir.replace(/\\/g, '/').split('/').pop();
+async function doRun(analysisId,btn){
+  if(!currentFileId)return;clearError();
+  document.getElementById('result-section').style.display='none';
+  if(btn){btn._o=btn.textContent;btn.textContent='…处理中';btn.disabled=true;}
+  let data;
+  try{
+    const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:currentFileId,analysis_id:analysisId})});
+    data=await res.json();
+    if(!res.ok){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError(data.detail||'运行失败');return;}
+  }catch(e){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError('网络错误：'+e.message);return;}
+  if(btn){btn.textContent=btn._o;btn.disabled=false;}
+  renderResult(data);
+  document.getElementById('result-section').style.display='';
+  document.getElementById('result-section').scrollIntoView({behavior:'smooth'});
+}
 
-  // Download-all button
-  const dlBtn = document.getElementById('btn-download-all');
-  dlBtn.href = `/api/download/${encodeURIComponent(outDirBase)}`;
-  dlBtn.style.display = 'inline-block';
-
-  const filesEl = document.getElementById('result-files');
-  if (data.files && data.files.length) {
-    filesEl.innerHTML = data.files.map(f => {
-      const url = `/outputs/${encodeURIComponent(outDirBase)}/${encodeURIComponent(f)}`;
-      if (f.toLowerCase().endsWith('.png')) {
-        return `<div><img src="${url}" class="inline-fig" alt="${escHtml(f)}"><div style="font-size:0.8rem;color:#6c757d">${escHtml(f)}</div></div>`;
-      }
-      if (f.toLowerCase().endsWith('.html')) {
-        return `<a href="${url}" target="_blank" class="interactive-link">🔍 ${escHtml(f)}（交互版）</a>`;
-      }
+function renderResult(data){
+  document.getElementById('result-summary').textContent=data.summary||'(无摘要)';
+  document.getElementById('result-report').innerHTML=mdToHtml(data.report||'');
+  const base=data.output_dir.replace(/\\/g,'/').split('/').pop();
+  const dl=document.getElementById('btn-download-all');
+  dl.href=`/api/download/${encodeURIComponent(base)}`;dl.style.display='inline-block';
+  const el=document.getElementById('result-files');
+  if(data.files&&data.files.length){
+    el.innerHTML=data.files.map(f=>{
+      const url=`/outputs/${encodeURIComponent(base)}/${encodeURIComponent(f)}`;
+      if(f.toLowerCase().endsWith('.png'))
+        return `<div><img src="${url}" class="inline-fig" alt="${escHtml(f)}"><div class="meta" style="font-size:11.5px">${escHtml(f)}</div></div>`;
+      if(f.toLowerCase().endsWith('.html'))
+        return `<a href="${url}" target="_blank">🔍 ${escHtml(f)}（交互版）</a>`;
       return `<a href="${url}" target="_blank">${escHtml(f)}</a>`;
     }).join('');
-  } else {
-    filesEl.innerHTML = '<span class="meta">无输出文件</span>';
-  }
-}
-
-function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }else{el.innerHTML='<span class="meta">无输出文件</span>';}
 }
 </script>
 </body>
