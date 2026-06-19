@@ -1,0 +1,63 @@
+# Ecology catalog entries (ecology wave: Mantel / IndVal / RDA).
+
+- id: mantel_test
+  method: Mantel test (distance-matrix correlation)
+  domain: ecology
+  family: ecology
+  goal: explain
+  description: Permutation test of the correlation between two distance matrices — e.g. community dissimilarity (Bray-Curtis over species counts) vs environmental/spatial distance (Euclidean over continuous variables). Reports the standardized Mantel r and a permutation p-value.
+  preconditions:
+    min_count_cols: 2
+    min_continuous: 1
+    min_rows: 4
+  produces:
+    - Mantel r
+    - permutation p-value
+    - distance-distance scatter
+  executor_ref: scipy
+  biases:
+    - tests correlation between distance matrices, not causation
+    - distance-metric choice (Bray-Curtis vs Euclidean) changes the conclusion
+    - distances are non-independent — significance relies on the permutation null, not parametric tests
+    - spatial autocorrelation can inflate apparent community-environment association
+
+- id: indicator_species
+  method: Indicator species analysis (IndVal)
+  domain: ecology
+  family: ecology
+  goal: explain
+  description: Dufrene-Legendre indicator value (IndVal = specificity x fidelity x 100) for each taxon against a grouping variable, with a permutation p-value. Identifies which taxa characterize each group.
+  preconditions:
+    min_count_cols: 1
+    requires_group: true
+    min_rows: 6
+  produces:
+    - per-taxon IndVal / best group / p-value table
+    - indicator-value bar chart
+  executor_ref: numpy
+  biases:
+    - permutation-based — p-values depend on sampling and the permutation null
+    - the group definition drives the result (different groupings yield different indicators)
+    - descriptive association, not causal — a high IndVal means a taxon both prefers and is common within a group
+    - rare taxa and small per-group n give unstable indicator values
+
+- id: rda
+  method: Redundancy analysis (constrained ordination)
+  domain: ecology
+  family: ecology
+  goal: explain
+  description: Constrained ordination via R vegan::rda — a community matrix constrained by environmental predictors. Reports constrained vs unconstrained variance, global + axis/term significance (anova.cca permutation tests), and a triplot. Optional R bridge (vegan) with honest graceful degrade to nmds / permanova.
+  preconditions:
+    min_count_cols: 2
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - constrained vs unconstrained variance table
+    - global / axis / term significance table
+    - RDA triplot
+  executor_ref: R vegan
+  biases:
+    - linear constrained ordination — assumes a linear species response to gradients; long gradients (unimodal response) prefer CCA
+    - constrained-variance fraction inflates with more predictors (overfitting; inspect adjusted R-squared)
+    - statistical association, not causal
+    - sensitive to predictor scaling and collinearity among environmental variables
