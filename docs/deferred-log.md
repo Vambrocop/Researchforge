@@ -86,5 +86,9 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+- **spatial_panel（SAR/SEM/SDM, splm）impacts 的 SE**：当前 direct/indirect/total 用 LeSage-Pace **解析点估计**（exact，`S=(I-ρW)^{-1}(Ib+Wθ)`），**未附模拟标准误/CI**。原因：splm 自带 `impacts()` 在本机 spdep/spatialreg 版本下易碎（`trW`、`as_dgRMatrix_listw` 已移位/改名，且 `impacts(spml)` 报 `have_factor_preds` 断言失败），故绕过自带实现、自算点估计。**补全**：用 ρ、β 的协方差（`vcov(m)`）做 delta-method 或参数自助（draw ρ/β ~ N(est, vcov)，重算 S，取分位）给 impacts 的 SE/CI。
+- **spatial_panel 的 W 仅 k-NN**：默认行标准化 k-NN（k=6，欧氏经纬度）。**待优化**：可配距离阈值/contiguity/反距离权重，以及真测地距离（与截面 spatial_regression 同一 backlog 第 6 条）。
+- **spatial_panel FE 仅个体（within, individual）**：未做双向（个体+时间）或随机效应空间面板，也未自动跑 Hausman 选 FE/RE-spatial。**补全**：接 `effect="twoways"` 与 `spml` 的 RE 变体 + `sphtest`（空间 Hausman）。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
