@@ -70,3 +70,79 @@
     - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
     - the distinguishing coefficient rho (default 0.5) affects the grades
     - scores are relative to the current set of alternatives
+
+- id: entropy_weight
+  method: Entropy-weight objective evaluation (熵权法)
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: Shannon-entropy OBJECTIVE weighting — each indicator's weight comes from its information entropy (e_j = -k Σ p ln p, k=1/ln(m)); higher dispersion -> higher weight. Weighted-sum composite + ranking of alternatives. Distinct from CRITIC (correlation-based) — entropy looks only at each indicator's own dispersion.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - entropy weights per indicator
+    - composite scores and ranking
+  executor_ref: numpy
+  biases:
+    - entropy weights reward indicators with high dispersion, NOT substantive importance
+    - sensitive to the normalisation method (uses min-max to non-negative)
+    - requires non-negative data; scores are relative to the current set of alternatives
+    - assumes every indicator is benefit-type unless cost indicators are specified
+
+- id: vikor
+  method: VIKOR compromise ranking
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: VIKOR (Opricovic) compromise ranking — ranks alternatives by Q = v·(S−S*)/(S⁻−S*) + (1−v)·(R−R*)/(R⁻−R*) where S is group utility and R is individual regret; checks the two acceptance conditions (acceptable advantage & stability) to report a single compromise solution or a compromise set. v is the strategy weight (consensus vs veto).
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - S / R / Q scores and ranking
+    - compromise solution or compromise set with acceptance-condition checks
+  executor_ref: numpy
+  biases:
+    - gives a compromise (closeness to the ideal), not a simple weighted sum
+    - the strategy weight v (default 0.5) shifts between majority utility and minimum regret
+    - the two acceptance conditions matter — a set may be recommended over a single winner
+    - assumes every indicator is benefit-type unless cost indicators are specified
+
+- id: promethee
+  method: PROMETHEE II complete ranking
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: PROMETHEE II (Brans) outranking — pairwise preference per criterion via a linear (V-shape) preference function with indifference/preference thresholds (q/p), aggregated into preference indices, then leaving/entering/net flows. Net flow phi = phi+ - phi- gives a complete preorder of alternatives.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - leaving / entering / net flows per alternative
+    - complete ranking by net flow
+  executor_ref: numpy
+  biases:
+    - the preference function and its thresholds (q/p) drive the results
+    - net flow can mask incomparabilities that PROMETHEE I (partial preorder) would reveal
+    - assumes every indicator is benefit-type unless cost indicators are specified
+    - scores are relative to the current set of alternatives
+
+- id: ahp
+  method: Analytic Hierarchy Process (AHP) weighting
+  domain: evaluation
+  family: mcda
+  goal: describe
+  description: AHP (Saaty) — derive criteria weights as the principal eigenvector of an n x n reciprocal pairwise comparison matrix, with a consistency ratio (CR) check. Accepts expert pairwise judgments via config['pairwise']; with no judgments it falls back to a DATA-DRIVEN PROXY (ratio of criteria means) which is clearly disclosed as not real AHP. Scores alternatives by the AHP weights.
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - AHP criteria weights, lambda_max, CI and consistency ratio (CR)
+    - composite scores and ranking
+  executor_ref: numpy
+  biases:
+    - AHP weights encode subjective expert pairwise judgments (here, a data proxy if none given)
+    - CR > 0.1 means the pairwise judgments are inconsistent and weights are unreliable
+    - rank reversal (adding/removing an alternative can flip ranks) is a known AHP critique
+    - assumes every indicator is benefit-type unless cost indicators are specified
