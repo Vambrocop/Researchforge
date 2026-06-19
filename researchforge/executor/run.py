@@ -69,13 +69,17 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _varimax,
 )
 from researchforge.executor._helpers.backends import (  # noqa: E402
-    _bart_via_r,
     _causal_forest_via_econml,
+    _dml_via_doubleml,
+    _rdd_via_rdrobust,
+    _sem_via_semopy,
+)
+from researchforge.executor._helpers.r_backends import (  # noqa: E402
+    _bart_via_r,
     _cic_via_r,
     _cna_via_r,
     _csqca_via_r,
     _diff_abundance_aldex2_via_r,
-    _dml_via_doubleml,
     _dynamic_gmm_via_r,
     _fsqca_via_r,
     _gam_via_r,
@@ -88,9 +92,7 @@ from researchforge.executor._helpers.backends import (  # noqa: E402
     _meta_via_r,
     _panel_qca_via_r,
     _qca_necessity_via_r,
-    _rdd_via_rdrobust,
     _sem_via_lavaan,
-    _sem_via_semopy,
     _sfa_via_r,
     _spatial_reg_via_r,
 )
