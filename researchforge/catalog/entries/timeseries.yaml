@@ -75,3 +75,23 @@
     - if the ARCH-LM test is not significant there is no volatility clustering and GARCH is unnecessary (the engine flags this)
     - assumes (weak) stationarity; alpha+beta>=1 implies an integrated (IGARCH) process with no finite unconditional variance (flagged)
     - normal innovations by default — fat-tailed financial series may need a Student-t distribution
+
+- id: structural_breaks
+  method: Structural break detection (change points, ruptures)
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Detect multiple structural breaks (change points in the MEAN level) of a series via the ruptures PELT algorithm with a BIC-style penalty that auto-selects the number of breaks (Bai-Perron style). The noise variance is estimated from first differences (immune to the breaks themselves), and a strong-linear-trend confound is flagged. Reports the break locations (mapped to the time column), the per-segment means/SDs, the largest mean jump, and a plot with break lines and segment levels. For spotting regime shifts / policy or event impacts in macro, environmental, or yield series. Set config value / penalty_mult / n_breaks.
+  preconditions:
+    is_timeseries: true
+    min_rows: 30
+  produces:
+    - number + locations of structural breaks (change points in the mean)
+    - per-segment means/SDs + largest mean jump
+    - series plot with break lines and segment levels
+  executor_ref: ruptures
+  biases:
+    - detects MEAN-level shifts only (not changes in slope/trend or variance) — a strong linear trend gets approximated by spurious steps; the engine flags high trend correlation and suggests detrending/differencing first
+    - the number of breaks depends on the penalty (config penalty_mult) or a fixed n_breaks — more penalty means fewer breaks
+    - break points are data-driven and exploratory — corroborate with known event/policy dates; they are descriptive, not causal
+    - needs enough observations per segment (min segment size scales with n) for stable estimates
