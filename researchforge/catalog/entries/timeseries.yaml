@@ -95,3 +95,23 @@
     - the number of breaks depends on the penalty (config penalty_mult) or a fixed n_breaks — more penalty means fewer breaks
     - break points are data-driven and exploratory — corroborate with known event/policy dates; they are descriptive, not causal
     - needs enough observations per segment (min segment size scales with n) for stable estimates
+
+- id: stl_decomposition
+  method: STL seasonal-trend decomposition
+  domain: time series
+  family: time-series
+  goal: explain
+  description: Decompose a single series into trend + seasonal + residual components via STL (Seasonal-Trend decomposition using Loess, robust), and quantify how strong the seasonality and trend are (Hyndman seasonal/trend strength F_s, F_t). The seasonal period is auto-detected from the periodogram (peak must stand out and span >=3 cycles) or supplied via config period. Reports the component series (CSV), the strength measures, and a four-panel decomposition plot. For understanding the structure of monthly/quarterly/weekly series before modelling. Descriptive only — not a forecast.
+  preconditions:
+    is_timeseries: true
+    min_rows: 20
+  produces:
+    - trend / seasonal / residual components (CSV)
+    - seasonal strength F_s + trend strength F_t
+    - four-panel STL decomposition plot
+  executor_ref: statsmodels
+  biases:
+    - the seasonal period must be correct — auto-detected from the periodogram (verify it), or set config period (monthly=12, quarterly=4, weekly=7); a wrong period gives a meaningless seasonal component (the engine flags weak seasonal strength)
+    - STL is a DESCRIPTIVE decomposition, not a forecast or a statistical test
+    - assumes a single dominant seasonal period; multiple/changing seasonality is not captured
+    - robust fitting reduces but does not remove the influence of outliers / level shifts
