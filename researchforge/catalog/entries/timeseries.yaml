@@ -35,3 +35,23 @@
     - assumes (weakly) stationary series — non-stationary data yields spurious causality; difference first
     - Granger causality is predictive, not structural / true causality
     - sensitive to the chosen lag order and to omitted variables
+
+- id: cointegration_vecm
+  method: Cointegration (Johansen / Engle-Granger) + VECM
+  domain: economics
+  family: time-series
+  goal: explain
+  description: For several non-stationary I(1) time series, test whether they share a long-run equilibrium (cointegration) and, if so, fit a vector error-correction model (VECM). Runs the Johansen trace test for the number of cointegrating relations and an Engle-Granger test on the first pair, checks the I(1) precondition with ADF tests on levels and differences, and — when cointegrated — reports the normalized long-run relation (cointegrating vector), the short-run adjustment speeds (alpha), and the (mean-reverting) error-correction term with a plot. For macro / eco-environmental series that drift together (e.g. prices, yields, emissions vs drivers).
+  preconditions:
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - Johansen trace test + number of cointegrating relations
+    - long-run equilibrium relation (cointegrating vector) + adjustment speeds (VECM)
+    - error-correction term plot + ADF stationarity checks
+  executor_ref: statsmodels
+  biases:
+    - requires the series to be I(1) (non-stationary in levels, stationary in first differences) — the engine runs ADF checks and flags violations; I(0) or I(2) series invalidate the analysis
+    - the Johansen result is sensitive to the chosen lag order and deterministic-term specification (constant inside vs outside the cointegration)
+    - a cointegrating relation is a statistical long-run equilibrium, NOT structural causality; direction/structure needs theory
+    - low power in short samples — few observations can miss a true cointegration or find a spurious one
