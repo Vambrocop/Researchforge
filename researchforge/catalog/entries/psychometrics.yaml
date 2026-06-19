@@ -1,0 +1,80 @@
+# Psychometrics / reliability catalog entries (pure Python: numpy / scipy / factor_analyzer).
+
+- id: cronbach_alpha
+  method: Cronbach's alpha (internal-consistency reliability)
+  domain: psychometrics
+  family: psychometrics
+  goal: describe
+  description: >-
+    Cronbach's coefficient alpha (Cronbach 1951) for a set of >=3 numeric items —
+    the classic internal-consistency reliability of a scale.
+    alpha = k/(k-1) * (1 - sum(item variances)/total-score variance).
+    Reports alpha, a Feldt (1965) F-based 95% confidence interval, corrected
+    item-total correlations (item vs sum-of-the-rest) and alpha-if-item-dropped
+    per item (flagging items whose removal RAISES alpha).
+  preconditions:
+    min_continuous: 3
+    min_rows: 10
+  produces:
+    - Cronbach's alpha with Feldt (1965) 95% CI
+    - corrected item-total correlations + alpha-if-item-dropped table
+    - alpha-if-item-dropped bar chart (red = removal raises alpha)
+  executor_ref: numpy / scipy
+  biases:
+    - all continuous/count columns (excluding unit/time) are treated as the scale's items by default — set config items/columns for a specific subscale
+    - alpha assumes tau-equivalence (equal loadings) and unidimensionality; it UNDER-estimates reliability when these are violated — prefer McDonald's omega then
+    - needs >=3 items; reverse-keyed items must be recoded first (a strongly negative corrected item-total correlation is flagged as a likely un-recoded reverse item)
+    - alpha rises mechanically with the number of items, so a high alpha on a long scale is not by itself evidence of unidimensionality
+
+- id: mcdonald_omega
+  method: McDonald's omega (congeneric reliability)
+  domain: psychometrics
+  family: psychometrics
+  goal: describe
+  description: >-
+    McDonald's omega_total (McDonald 1999) computed from a single common-factor
+    (congeneric) loading solution via factor_analyzer
+    FactorAnalyzer(n_factors=1, method='minres').
+    omega = (sum lambda)^2 / ((sum lambda)^2 + sum(1 - h^2)) on standardised items,
+    where lambda are the loadings and h^2 the communalities (residual var = 1 - h^2).
+    Reports omega, the per-item loadings/communalities, and a contrast with
+    Cronbach's alpha on the same items.
+  preconditions:
+    min_continuous: 3
+    min_rows: 10
+  produces:
+    - McDonald's omega_total from a 1-factor solution
+    - per-item loadings / communalities / residual variances table
+    - omega-vs-alpha contrast and a loadings bar chart
+  executor_ref: factor_analyzer
+  biases:
+    - all continuous/count columns (excluding unit/time) are the items by default — set config items/columns for a specific subscale
+    - omega relaxes alpha's tau-equivalence to a congeneric (unequal-loading) model and is generally the preferred reliability index
+    - still assumes unidimensionality (a single common factor) — a poorly fitting 1-factor model makes omega misleading
+    - the 1-factor solution is sign-indeterminate; loadings are aligned to the majority direction, and negative loadings flag possible un-recoded reverse items or multidimensionality
+
+- id: icc
+  method: Intraclass correlation (rater / measurement reliability)
+  domain: psychometrics
+  family: psychometrics
+  goal: describe
+  description: >-
+    Intraclass correlation coefficients for rater / measurement reliability on a
+    wide subject x rater layout (rows = subjects, columns = raters/measurements),
+    per Shrout & Fleiss (1979). Decomposes the two-way ANOVA mean squares
+    (MSR between-subjects, MSC between-raters, MSE residual, MSW one-way within) and
+    reports ICC(1,1), ICC(2,1) (absolute agreement), ICC(3,1) (consistency) plus
+    their average-of-k forms (1,k)/(2,k)/(3,k) and the F-test that ICC > 0.
+  preconditions:
+    min_continuous: 2
+    min_rows: 5
+  produces:
+    - ICC(1,1)/(2,1)/(3,1) and average forms (1,k)/(2,k)/(3,k)
+    - two-way ANOVA mean-squares table (MSR/MSC/MSE/MSW)
+    - F-test p-value + ICC-forms bar chart
+  executor_ref: numpy / scipy
+  biases:
+    - the data must be the wide subject x rater layout — all continuous/count columns are taken as raters by default; set config items/columns to the rater columns
+    - which ICC form to report depends on the design — random vs fixed raters (type 2 vs 3), single vs average rating ((.,1) vs (.,k)), absolute agreement vs consistency (type 2 vs 3)
+    - ICC(3,*) (consistency) ignores systematic rater bias; use ICC(2,*) (absolute agreement) when raters' actual values must match, not just rank-order
+    - small numbers of subjects give wide, unstable ICCs (the F-test guards against an ICC indistinguishable from zero)
