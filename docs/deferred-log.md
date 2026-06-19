@@ -10,10 +10,10 @@
 
 1. 🔄 **并行 subagent 集成队列（2026-06-19，compact 后用 `git worktree list` 找回）**：
    - ✅ **设计流（组件库）**：已审+合并+推送（main 6b267b8，web/static/components/ 8 文件）。**待办：DesignSync 推到 claude.ai/design**（需用户登录）。
-   - 🔍 **农学设计波（待审+整合）**：worktree 分支 `worktree-agent-a4079af329142421f`——`ammi`/`gge_biplot`/`response_surface`（纯 Python，experimental_design.py 1228 行，13 测过+12 无回归）。**待办：inference-reviewer 审（AMMI SVD/稳定性、GGE 中心化、RSM 典范分析）→ 合并 → 全量 → push。**
+   - ✅ **农学设计波（已审+整合 6/19）**：`ammi`/`gge_biplot`/`response_surface`（纯 Python，experimental_design.py 1230 行）。inference-reviewer **APPROVE**——手搓 SVD/canonical 数学经对数核验全部正确（AMMI 双中心化+秩 min(g-1,e-1)+ASV 方向；RSM 驻点 -0.5B⁻¹b + Hessian 特征值分类；GGE 列中心化+which-won-where 投影）。已合并 main，全量 292 绿。**剩 nice-to-have（无优先级，必清 backlog）**：(a) AMMI 中 `n_axes>=2` 守卫因前置 g,e≥3 永真、可简化（无害）；(b) AMMI `interaction_norm` 是 `inter` 行 Frobenius 范数（原始交互幅度，与 catalog 标签"interaction-residual norm"一致，仅记录）。
    - 🔍 **空间面板（待审+整合）**：worktree `worktree-agent-a0ee0a3a38f2b817e`（commit fef8de9）——`spatial_panel` SAR/SEM/SDM（R splm，econometrics.py 608 行，9 测过；rho 0.5→0.51 回收，impacts=b/(1-rho) 对得上）。**待办：inference-reviewer 审（rho/impacts 解析式 LeSage-Pace、W 选择、FE）→ 合并 → 全量 → push。** 注：worktree 里有未跟踪 scratch `tests/test_spatial_panel_debug.py`（已排除提交，整合时删）。impacts 仅点估计无模拟 SE（splm impacts() 版本碎，已 deferred-log delta/bootstrap 补全）。
    - 🔍 **生态波（待审+整合）**：worktree `worktree-agent-a5c9ed115ed07182a`（commit 84549f3）——`mantel_test`/`indicator_species`（纯 Python）+ `rda`（R vegan，已装，实测 93.7% 约束方差/F=274/p=.001）；新增 catalog `ecology.yaml`；ecology.py 1164 行，13 测过+13 无回归。**待办：inference-reviewer 审（Mantel 置换/RDA vegan 解析）→ 合并 → 全量 → push。**
-   - **整合顺序（compact 后逐个做）**：① 农学 a4079af ② 空间面板 a0ee0a3 ③ 生态 a5c9ed1。各：派 inference-reviewer→据审修→merge worktree 分支→`pytest -n 2` 全量绿→push。注意空间面板 worktree 有未跟踪 scratch 文件整合时删。
+   - **整合顺序**：✅① 农学 a4079af（done 6/19）→ 🔍② 空间面板 a0ee0a3 → 🔍③ 生态 a5c9ed1。各：派 inference-reviewer→据审修→merge worktree 分支→`pytest -n 2` 全量绿→push。注意空间面板 worktree 有未跟踪 scratch 文件整合时删。
    - 编排约定见记忆 [[design-tooling-and-orchestration]]：worktree 隔离、不相交文件、主脑双审、push 等用户。**红线：未经 inference-reviewer 审的真推断方法不合并/不推。**
 2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级；流行度/更新喂回 `recommender/scoring.py`。
 3. **更多方法波**（域聚焦 生态/农学/经济/环境/社科）：农学实验设计(AMMI/GGE/RSM)、生态(RDA/CCA/SDM)、MCDA(AHP/熵权/VIKOR)、合成DiD/de Chaisemartin、贝叶斯状态空间…（见 method-melting-pot-roadmap 记忆）。
