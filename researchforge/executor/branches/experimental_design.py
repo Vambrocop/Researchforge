@@ -932,7 +932,9 @@ def _branch_gge_biplot(ctx: Ctx) -> None:
         centered = M - col_mean[None, :]
 
         U, S, Vt = np.linalg.svd(centered, full_matrices=False)
-        rank = min(g, e)
+        # column-centering drops one df → true rank is min(g-1, e) (mirrors AMMI's min(g-1,e-1));
+        # avoids a trailing 0%-variance PC row in gge_variance.csv when g <= e.
+        rank = min(g - 1, e)
         S = S[:rank]
         U = U[:, :rank]
         Vt = Vt[:rank, :]
