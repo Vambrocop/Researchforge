@@ -24,6 +24,15 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
         if n_cont < pre.min_continuous:
             unmet.append(f"需要 ≥ {pre.min_continuous} 个连续变量（现有 {n_cont}）")
+    if pre.min_numeric_cols is not None:
+        # continuous OR count — for item-scale methods (Likert items profile as count, not
+        # continuous), so gating on min_continuous alone would hide them from ordinal data.
+        n_num = sum(
+            1 for c in fp.columns
+            if c.kind in {"continuous", "count"} and c.name not in {fp.unit_col, fp.time_col}
+        )
+        if n_num < pre.min_numeric_cols:
+            unmet.append(f"需要 ≥ {pre.min_numeric_cols} 个数值列（连续/计数，现有 {n_num}）")
     if pre.requires_binary_outcome and not any(c.kind == "binary" for c in fp.columns):
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
