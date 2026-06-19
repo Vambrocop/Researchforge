@@ -1,0 +1,85 @@
+<!-- @dsCard group="Layout" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>data-summary · ResearchForge A</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ---- standalone wrapper (preview-only) ---- */
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font);padding:32px}
+  .preview{max-width:760px;margin:0 auto}
+  .preview h1{font-size:18px;font-weight:650;letter-spacing:.2px;margin:0 0 4px}
+  .preview .sub{color:var(--muted);font-size:var(--fs-meta);margin-bottom:22px}
+
+  /* shared card shell (from .card) */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-card);
+        padding:var(--space-card);box-shadow:var(--shadow);margin-bottom:16px}
+
+  /* ======================================================================
+     COMPONENT: data-summary  (fingerprint pill bar)
+     A wrap-flowing bar of pills summarizing the dataset fingerprint:
+       n_rows × n_cols · structure(panel/timeseries/cross-section)
+       · unit_col · time_col · (quality summary pushed right via .qual)
+     pill        = accent-soft fill, accent ink
+     pill.grey   = neutral fill, muted ink (dimensions)
+     qual        = margin-left:auto, muted; bolds the issue count
+     ====================================================================== */
+  .databar{display:flex;flex-wrap:wrap;gap:9px 12px;align-items:center}
+  .pill{font-size:var(--fs-pill);padding:3px 11px;border-radius:var(--radius-pill);
+        background:var(--accent-soft);color:var(--accent)}
+  .pill.grey{background:#f0f0ec;color:var(--muted)}
+  .qual{margin-left:auto;font-size:var(--fs-small);color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="preview">
+  <h1>data-summary</h1>
+  <div class="sub">数据画像 pill bar · maps fingerprint → flowing pills</div>
+
+  <!-- variant: panel dataset (has unit_col + time_col) -->
+  <div class="card">
+    <div class="databar" id="bar-panel"></div>
+  </div>
+
+  <!-- variant: plain cross-section, clean -->
+  <div class="card">
+    <div class="databar" id="bar-cross"></div>
+  </div>
+</div>
+
+<script>
+  function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+  // mirrors index.html renderProfile() exactly
+  function renderProfile(fp,elId){
+    const struct=fp.is_panel?'面板数据':(fp.is_timeseries?'时间序列':'截面数据');
+    const bits=[
+      `<span class="pill grey">${fp.n_rows} 行 × ${fp.n_cols} 列</span>`,
+      `<span class="pill">${struct}</span>`,
+      fp.unit_col?`<span class="pill">单位列 ${escHtml(fp.unit_col)}</span>`:'',
+      fp.time_col?`<span class="pill">时间列 ${escHtml(fp.time_col)}</span>`:'',
+      `<span class="qual">质量问题 <b>${fp.n_issues||0}</b> 项 · ${fp.columns.length} 列已识别类型</span>`,
+    ].filter(Boolean);
+    document.getElementById(elId).innerHTML=bits.join('');
+  }
+
+  // fake fingerprints
+  renderProfile({
+    n_rows:4200,n_cols:9,is_panel:true,is_timeseries:false,
+    unit_col:'firm_id',time_col:'year',n_issues:3,
+    columns:[{name:'firm_id',kind:'id'},{name:'year',kind:'time'},
+             {name:'revenue',kind:'continuous'},{name:'treated',kind:'binary'}],
+  },'bar-panel');
+
+  renderProfile({
+    n_rows:312,n_cols:6,is_panel:false,is_timeseries:false,
+    unit_col:null,time_col:null,n_issues:0,
+    columns:[{name:'x1',kind:'continuous'},{name:'x2',kind:'continuous'},
+             {name:'group',kind:'categorical'}],
+  },'bar-cross');
+</script>
+</body>
+</html>

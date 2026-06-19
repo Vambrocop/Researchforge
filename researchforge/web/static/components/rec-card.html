@@ -1,0 +1,118 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rec-card · ResearchForge A</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ---- standalone wrapper (preview-only) ---- */
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font);padding:32px}
+  .preview{max-width:720px;margin:0 auto}
+  .preview h1{font-size:18px;font-weight:650;letter-spacing:.2px;margin:0 0 4px}
+  .preview .sub{color:var(--muted);font-size:var(--fs-meta);margin-bottom:22px}
+  button{font:inherit;cursor:pointer;border-radius:var(--radius-btn)}
+
+  /* ======================================================================
+     COMPONENT: rec-card  (the headline component)
+     A recommendation row composing: rigor-light + method/family/fit +
+     run/override button + note + 6-dim scorecard-bars + collapsible ⚠ biases.
+       .rec.infeasible   → dimmed (opacity .74)
+       .run.override     → amber border/ink for "知情覆盖" (informed override)
+       difficulty bar    → COST → .bar.cost (amber)
+     Data: recommendation {id,method,family,light,score,feasible,note,
+                           biases:[str], methodology_score:{...6 dims...}}
+     ====================================================================== */
+  .rec{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-card);
+       padding:var(--space-rec);margin-bottom:13px;box-shadow:var(--shadow)}
+  .rec.infeasible{opacity:.74}
+  .rec .top{display:flex;align-items:center;gap:11px}
+  .light{width:11px;height:11px;border-radius:50%;flex:none}
+  .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
+  .mname{font-weight:640;font-size:15px}
+  .fam{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .fit-badge{font-size:12px;color:var(--muted)}
+  .run{margin-left:auto;font-size:13px;border:1px solid var(--accent);color:var(--accent);
+       background:#fff;padding:6px 16px}
+  .run:hover{background:var(--accent);color:#fff}
+  .run.override{border-color:var(--yellow);color:#946a1c}
+  .run.override:hover{background:var(--yellow);color:#fff}
+  .run:disabled{opacity:.5;cursor:wait}
+  .why{color:var(--muted);font-size:var(--fs-meta);margin:9px 0 11px}
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px}
+  .sc .d{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .sc .d .lab{width:30px;flex:none}
+  .bar{flex:1;height:6px;background:#eee;border-radius:var(--radius-bar);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .bar.cost i{background:var(--yellow)}
+  .sc .d .v{width:22px;text-align:right;color:#a4a49c}
+  details{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
+  .bias{font-size:13px;color:var(--bias-ink);background:var(--bias-bg);border:1px solid var(--bias-line);
+        border-radius:var(--radius-btn);padding:10px 12px;margin-top:9px;line-height:1.6}
+  .bias li{margin:2px 0}
+</style>
+</head>
+<body>
+<div class="preview">
+  <h1>rec-card</h1>
+  <div class="sub">推荐卡 · rigor-light + 评分卡 + ⚠ 偏差折叠 + 运行/知情覆盖</div>
+  <div id="rec-list"></div>
+</div>
+
+<script>
+  const DOTS={green:'green',yellow:'yellow',red:'red'};
+  const SC_DIMS=[['popularity','流'],['publishability','发'],['aesthetics','美'],
+                 ['difficulty','难'],['fit','合'],['novelty','新']];
+  function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+  // mirrors index.html renderRecs() per-card template exactly
+  function recCard(r){
+    const ms=r.methodology_score||{};
+    const bars=SC_DIMS.map(([k,lab])=>{
+      const v=ms[k]||0, cost=k==='difficulty'?' cost':'';
+      return `<div class="d"><span class="lab">${lab}</span>`+
+             `<span class="bar${cost}"><i style="width:${v}%"></i></span>`+
+             `<span class="v">${v}</span></div>`;
+    }).join('');
+    const biases=(r.biases||[]).map(b=>`<li>${escHtml(b)}</li>`).join('');
+    const biasBlock=biases
+      ?`<details><summary>⚠ 偏差披露 / 假定（知情覆盖）</summary>`+
+       `<div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
+    const btnCls=r.feasible?'run':'run override';
+    const btnLabel=r.feasible?'运行 →':'知情覆盖 →';
+    return `<div class="rec${r.feasible?'':' infeasible'}">
+      <div class="top">
+        <span class="light ${DOTS[r.light]||'red'}"></span>
+        <span class="mname">${escHtml(r.method)}</span>
+        <span class="fam">${escHtml(r.family)}</span>
+        <span class="fit-badge">契合 ${r.score}</span>
+        <button class="${btnCls}" onclick="this.disabled=true;this.textContent='…处理中'">${btnLabel}</button>
+      </div>
+      <div class="why">${escHtml(r.note||'')}</div>
+      <div class="sc">${bars}</div>
+      ${biasBlock}
+    </div>`;
+  }
+
+  // fake recommendations (green feasible, yellow caution, red infeasible)
+  const RECS=[
+    {id:'did',method:'双重差分 (DiD)',family:'causal',light:'green',score:91,feasible:true,
+     note:'面板结构 + 明确处理时点，平行趋势可检验；推荐作为主因果识别策略。',
+     biases:['平行趋势假定不可直接验证，仅能用事前期做安慰剂检验','处理时点交错时朴素 TWFE 可能有负权重'],
+     methodology_score:{popularity:88,publishability:84,aesthetics:62,difficulty:46,fit:92,novelty:40}},
+    {id:'rdd',method:'断点回归 (RDD)',family:'causal',light:'yellow',score:68,feasible:true,
+     note:'存在疑似驱动变量与阈值，但样本在断点附近偏稀疏；带宽敏感性需谨慎。',
+     biases:['带宽选择影响估计；需报告多带宽稳健性','断点附近样本量小，局部 LATE 外推有限'],
+     methodology_score:{popularity:71,publishability:90,aesthetics:74,difficulty:66,fit:70,novelty:58}},
+    {id:'sem',method:'结构方程模型 (SEM)',family:'sem',light:'red',score:34,feasible:false,
+     note:'缺少足够的潜变量指标（每构念 < 3 题项），且样本量不足以稳定估计；不匹配当前数据。',
+     biases:['模型设定依赖强理论先验','小样本下拟合指标不可靠，易过拟合'],
+     methodology_score:{popularity:55,publishability:88,aesthetics:48,difficulty:90,fit:30,novelty:52}},
+  ];
+  document.getElementById('rec-list').innerHTML=RECS.map(recCard).join('');
+</script>
+</body>
+</html>

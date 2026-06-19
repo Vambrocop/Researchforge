@@ -1,0 +1,328 @@
+<!-- @dsCard group="Layout" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ResearchForge · A 组件库 (DesignSync 预览)</title>
+<!-- single source of truth: the lifted A tokens -->
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ====================================================================
+     GALLERY SHELL — reuses the A page chrome (header/wrap/h2/card)
+     ==================================================================== */
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font)}
+  header{padding:20px 32px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px}
+  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .tag{font-size:12px;color:var(--muted)}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 32px 90px}
+  h2{font-size:var(--fs-h2);letter-spacing:.4px;text-transform:uppercase;color:var(--muted);
+     font-weight:600;margin:34px 0 6px}
+  .sec-note{color:var(--muted);font-size:var(--fs-meta);margin:0 0 14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-card);
+        padding:var(--space-card);box-shadow:var(--shadow)}
+  .variant-label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;
+        margin:0 0 8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}}
+  .swatches{display:flex;flex-wrap:wrap;gap:14px}
+  .sw{width:120px}
+  .sw .chip{height:48px;border-radius:10px;border:1px solid var(--line)}
+  .sw .nm{font-size:12px;margin-top:6px;color:var(--ink)}
+  .sw .hx{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+  /* ====================================================================
+     COMPONENT STYLES (copied from each component file so the gallery is
+     self-contained; they all read the SAME tokens.css variables)
+     ==================================================================== */
+  button{font:inherit;cursor:pointer;border-radius:var(--radius-btn)}
+
+  /* rigor-light */
+  .light{width:11px;height:11px;border-radius:50%;flex:none;display:inline-block;vertical-align:middle}
+  .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
+
+  /* goal-chips */
+  .goals{display:flex;flex-wrap:wrap;gap:8px}
+  .goal{font-size:var(--fs-small);padding:6px 13px;border:1px solid var(--line);
+        border-radius:var(--radius-pill);background:#fff;cursor:pointer;color:var(--muted)}
+  .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+
+  /* data-summary */
+  .databar{display:flex;flex-wrap:wrap;gap:9px 12px;align-items:center}
+  .pill{font-size:var(--fs-pill);padding:3px 11px;border-radius:var(--radius-pill);
+        background:var(--accent-soft);color:var(--accent)}
+  .pill.grey{background:#f0f0ec;color:var(--muted)}
+  .qual{margin-left:auto;font-size:var(--fs-small);color:var(--muted)}
+
+  /* scorecard-bars */
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px}
+  .sc .d{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .sc .d .lab{width:30px;flex:none}
+  .bar{flex:1;height:6px;background:#eee;border-radius:var(--radius-bar);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .bar.cost i{background:var(--yellow)}
+  .sc .d .v{width:22px;text-align:right;color:#a4a49c}
+
+  /* rec-card */
+  .rec{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-card);
+       padding:var(--space-rec);margin-bottom:13px;box-shadow:var(--shadow)}
+  .rec.infeasible{opacity:.74}
+  .rec .top{display:flex;align-items:center;gap:11px}
+  .mname{font-weight:640;font-size:15px}
+  .fam{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .fit-badge{font-size:12px;color:var(--muted)}
+  .run{margin-left:auto;font-size:13px;border:1px solid var(--accent);color:var(--accent);
+       background:#fff;padding:6px 16px}
+  .run:hover{background:var(--accent);color:#fff}
+  .run.override{border-color:var(--yellow);color:#946a1c}
+  .run.override:hover{background:var(--yellow);color:#fff}
+  .why{color:var(--muted);font-size:var(--fs-meta);margin:9px 0 11px}
+  details{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
+  .bias{font-size:13px;color:var(--bias-ink);background:var(--bias-bg);border:1px solid var(--bias-line);
+        border-radius:var(--radius-btn);padding:10px 12px;margin-top:9px;line-height:1.6}
+  .bias li{margin:2px 0}
+
+  /* report-block */
+  .sumtext{border-left:3px solid var(--accent);padding:4px 0 4px 14px;font-size:14px;
+           line-height:1.65;white-space:pre-wrap}
+  .est-table{width:100%;border-collapse:collapse;font-size:var(--fs-small);margin-top:4px}
+  .est-table thead th{text-align:left;background:var(--accent-soft);color:var(--accent);
+        font-weight:600;padding:7px 12px}
+  .est-table thead th:first-child{border-top-left-radius:var(--radius-btn)}
+  .est-table thead th:last-child{border-top-right-radius:var(--radius-btn)}
+  .est-table tbody td{padding:7px 12px;border-bottom:1px solid var(--line)}
+  .est-table tbody tr:last-child td{border-bottom:none}
+  .est-table td.k{color:var(--muted)}
+  .est-table td.v{font-variant-numeric:tabular-nums;color:var(--ink)}
+  .report{font-size:var(--fs-meta);line-height:1.6}
+  .report h2{text-transform:none;letter-spacing:0;color:var(--ink);margin:12px 0 6px}
+  .report code{background:#f4f4f0;padding:1px 5px;border-radius:var(--radius-bar);font-size:12.5px}
+  .file-links{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+  .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);
+        border-radius:var(--radius-btn);padding:7px 12px;text-decoration:none;background:#fff}
+  .meta{color:var(--muted);font-size:var(--fs-meta)}
+  .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:8px 18px;
+        border-radius:var(--radius-btn);font-size:13px;text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔨 ResearchForge · A 组件库</h1>
+  <span class="tag">clean-minimal 设计系统 · DesignSync 预览 (Artifact) · 全部组件 + 变体</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= TOKENS ================= -->
+  <h2>Tokens · 调色板</h2>
+  <p class="sec-note">所有颜色从 index.html :root 原样提取，见 tokens.css。</p>
+  <div class="card">
+    <div class="swatches" id="swatches"></div>
+  </div>
+
+  <!-- ================= rigor-light ================= -->
+  <h2>rigor-light · 严谨度信号灯</h2>
+  <p class="sec-note">green 可行 · yellow 需注意 · red 不匹配</p>
+  <div class="card" style="display:flex;gap:28px;align-items:center;font-size:var(--fs-small);color:var(--muted)">
+    <span><span class="light green"></span> green</span>
+    <span><span class="light yellow"></span> yellow</span>
+    <span><span class="light red"></span> red</span>
+  </div>
+
+  <!-- ================= goal-chips ================= -->
+  <h2>goal-chips · 目标筛选</h2>
+  <p class="sec-note">单选高亮 (.on) — 这里 因果效应 处于 active 态。</p>
+  <div class="card"><div class="goals" id="goal-chips"></div></div>
+
+  <!-- ================= data-summary ================= -->
+  <h2>data-summary · 数据画像 pill bar</h2>
+  <p class="sec-note">变体：面板数据(含单位/时间列, 有质量问题) vs 截面数据(干净)。</p>
+  <div class="grid2">
+    <div>
+      <div class="variant-label">panel · with issues</div>
+      <div class="card"><div class="databar" id="bar-panel"></div></div>
+    </div>
+    <div>
+      <div class="variant-label">cross-section · clean</div>
+      <div class="card"><div class="databar" id="bar-cross"></div></div>
+    </div>
+  </div>
+
+  <!-- ================= scorecard-bars ================= -->
+  <h2>scorecard-bars · 6 维方法学评分卡</h2>
+  <p class="sec-note">流 发 美 难(成本→琥珀) 合 新。变体：高契合 vs 高难度。</p>
+  <div class="grid2">
+    <div>
+      <div class="variant-label">well-suited</div>
+      <div class="card"><div class="sc" id="sc-good"></div></div>
+    </div>
+    <div>
+      <div class="variant-label">costly (amber 难)</div>
+      <div class="card"><div class="sc" id="sc-costly"></div></div>
+    </div>
+  </div>
+
+  <!-- ================= rec-card ================= -->
+  <h2>rec-card · 推荐卡</h2>
+  <p class="sec-note">变体：🟢 green/可行 · 🟡 yellow/需注意 · 🔴 red/不可行(知情覆盖, 卡片变暗)。</p>
+  <div id="rec-list"></div>
+
+  <!-- ================= report-block ================= -->
+  <h2>report-block · 结果报告</h2>
+  <p class="sec-note">摘要(含 ⚠) + 估计表 + 报告正文 + 输出文件 + 下载全部。</p>
+  <div class="card">
+    <div id="result-summary" class="sumtext"></div>
+    <h2 style="margin-top:18px">关键估计</h2>
+    <table class="est-table" id="est-table"></table>
+    <h2>报告</h2>
+    <div class="report" id="result-report"></div>
+    <h2>输出文件</h2>
+    <div class="file-links" id="result-files"></div>
+    <div style="margin-top:14px">
+      <a id="btn-download-all" class="btn-download" href="#">⬇ 下载全部产物</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  /* ---------- shared helpers (mirror index.html) ---------- */
+  function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  const DOTS={green:'green',yellow:'yellow',red:'red'};
+  const SC_DIMS=[['popularity','流'],['publishability','发'],['aesthetics','美'],
+                 ['difficulty','难'],['fit','合'],['novelty','新']];
+  function scorecard(ms){
+    ms=ms||{};
+    return SC_DIMS.map(([k,lab])=>{
+      const v=ms[k]||0, cost=k==='difficulty'?' cost':'';
+      return `<div class="d"><span class="lab">${lab}</span>`+
+             `<span class="bar${cost}"><i style="width:${v}%"></i></span>`+
+             `<span class="v">${v}</span></div>`;
+    }).join('');
+  }
+
+  /* ---------- tokens swatches ---------- */
+  const SWATCHES=[
+    ['--bg','#fbfbfa','背景'],['--panel','#ffffff','面板'],['--ink','#1c1c1a','文字'],
+    ['--muted','#6b6b66','次要'],['--line','#e7e7e2','边线'],['--accent','#2f6f4f','主色'],
+    ['--accent-soft','#e8f1ec','主色浅'],['--green','#2f8f5b','绿灯'],
+    ['--yellow','#c9952b','黄灯/成本'],['--red','#c0492f','红灯'],
+  ];
+  document.getElementById('swatches').innerHTML=SWATCHES.map(([v,hx,nm])=>
+    `<div class="sw"><div class="chip" style="background:var(${v})"></div>`+
+    `<div class="nm">${nm} <code style="font-size:10px">${v}</code></div>`+
+    `<div class="hx">${hx}</div></div>`).join('');
+
+  /* ---------- goal-chips ---------- */
+  const goalList=[{key:'describe',label:'描述/探索'},{key:'causal',label:'因果效应'},
+    {key:'predict',label:'预测'},{key:'cluster',label:'分组/聚类'},{key:'reduce',label:'降维'}];
+  let activeGoal='causal';
+  function renderGoals(){
+    const chips=[{key:'all',label:'全部'},...goalList];
+    document.getElementById('goal-chips').innerHTML=chips.map(g=>
+      `<span class="goal${g.key===activeGoal?' on':''}" onclick="activeGoal='${g.key}';renderGoals()">${g.label}</span>`).join('');
+  }
+  renderGoals();
+
+  /* ---------- data-summary ---------- */
+  function renderProfile(fp,elId){
+    const struct=fp.is_panel?'面板数据':(fp.is_timeseries?'时间序列':'截面数据');
+    const bits=[
+      `<span class="pill grey">${fp.n_rows} 行 × ${fp.n_cols} 列</span>`,
+      `<span class="pill">${struct}</span>`,
+      fp.unit_col?`<span class="pill">单位列 ${escHtml(fp.unit_col)}</span>`:'',
+      fp.time_col?`<span class="pill">时间列 ${escHtml(fp.time_col)}</span>`:'',
+      `<span class="qual">质量问题 <b>${fp.n_issues||0}</b> 项 · ${fp.columns.length} 列已识别类型</span>`,
+    ].filter(Boolean);
+    document.getElementById(elId).innerHTML=bits.join('');
+  }
+  renderProfile({n_rows:4200,n_cols:9,is_panel:true,is_timeseries:false,unit_col:'firm_id',
+    time_col:'year',n_issues:3,columns:[{name:'a'},{name:'b'},{name:'c'},{name:'d'}]},'bar-panel');
+  renderProfile({n_rows:312,n_cols:6,is_panel:false,is_timeseries:false,unit_col:null,
+    time_col:null,n_issues:0,columns:[{name:'a'},{name:'b'},{name:'c'}]},'bar-cross');
+
+  /* ---------- scorecard variants ---------- */
+  document.getElementById('sc-good').innerHTML=scorecard(
+    {popularity:82,publishability:71,aesthetics:64,difficulty:38,fit:90,novelty:55});
+  document.getElementById('sc-costly').innerHTML=scorecard(
+    {popularity:48,publishability:88,aesthetics:42,difficulty:92,fit:60,novelty:84});
+
+  /* ---------- rec-card variants ---------- */
+  function recCard(r){
+    const biases=(r.biases||[]).map(b=>`<li>${escHtml(b)}</li>`).join('');
+    const biasBlock=biases
+      ?`<details><summary>⚠ 偏差披露 / 假定（知情覆盖）</summary>`+
+       `<div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
+    const btnCls=r.feasible?'run':'run override';
+    const btnLabel=r.feasible?'运行 →':'知情覆盖 →';
+    return `<div class="rec${r.feasible?'':' infeasible'}">
+      <div class="top">
+        <span class="light ${DOTS[r.light]||'red'}"></span>
+        <span class="mname">${escHtml(r.method)}</span>
+        <span class="fam">${escHtml(r.family)}</span>
+        <span class="fit-badge">契合 ${r.score}</span>
+        <button class="${btnCls}" onclick="this.disabled=true;this.textContent='…处理中'">${btnLabel}</button>
+      </div>
+      <div class="why">${escHtml(r.note||'')}</div>
+      <div class="sc">${scorecard(r.methodology_score)}</div>
+      ${biasBlock}
+    </div>`;
+  }
+  const RECS=[
+    {id:'did',method:'双重差分 (DiD)',family:'causal',light:'green',score:91,feasible:true,
+     note:'面板结构 + 明确处理时点，平行趋势可检验；推荐作为主因果识别策略。',
+     biases:['平行趋势假定不可直接验证，仅能用事前期做安慰剂检验','处理时点交错时朴素 TWFE 可能有负权重'],
+     methodology_score:{popularity:88,publishability:84,aesthetics:62,difficulty:46,fit:92,novelty:40}},
+    {id:'rdd',method:'断点回归 (RDD)',family:'causal',light:'yellow',score:68,feasible:true,
+     note:'存在疑似驱动变量与阈值，但样本在断点附近偏稀疏；带宽敏感性需谨慎。',
+     biases:['带宽选择影响估计；需报告多带宽稳健性','断点附近样本量小，局部 LATE 外推有限'],
+     methodology_score:{popularity:71,publishability:90,aesthetics:74,difficulty:66,fit:70,novelty:58}},
+    {id:'sem',method:'结构方程模型 (SEM)',family:'sem',light:'red',score:34,feasible:false,
+     note:'缺少足够潜变量指标（每构念 < 3 题项），样本量不足以稳定估计；不匹配当前数据。',
+     biases:['模型设定依赖强理论先验','小样本下拟合指标不可靠，易过拟合'],
+     methodology_score:{popularity:55,publishability:88,aesthetics:48,difficulty:90,fit:30,novelty:52}},
+  ];
+  document.getElementById('rec-list').innerHTML=RECS.map(recCard).join('');
+
+  /* ---------- report-block ---------- */
+  function mdToHtml(md){
+    if(!md) return '<p>(无报告)</p>';
+    const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const inl=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
+    const out=[];let ul=false;const closeUl=()=>{if(ul){out.push('</ul>');ul=false;}};
+    for(const raw of md.split('\n')){const line=raw.trimEnd();
+      if(/^## /.test(line)){closeUl();out.push(`<h2>${inl(line.slice(3))}</h2>`);}
+      else if(/^- /.test(line)){if(!ul){out.push('<ul>');ul=true;}out.push(`<li>${inl(line.slice(2))}</li>`);}
+      else if(line===''){closeUl();}
+      else{closeUl();out.push(`<p>${inl(line)}</p>`);}
+    }
+    closeUl();return out.join('\n');
+  }
+  const RESULT={
+    summary:'双重差分估计：处理组在政策实施后人均产出相对对照组提升约 +6.8%（p=0.004）。\n⚠ 平行趋势假定经事前 3 期安慰剂检验未见显著差异，但仍属不可直接验证的识别假定；交错处理时点已用 Sun-Abraham 加权避免负权重。',
+    output_dir:'C:\\rf\\outputs\\did_20260619_153012',
+    files:['did_event_study.png','coefficients.csv','report.html'],
+    report:'## 模型设定\n采用 **两期双向固定效应** 估计 `Y ~ treat*post + unit + year`。\n## 稳健性\n- 多带宽 / 安慰剂检验通过\n- 聚类标准误（按单位列）',
+    estimates:{ATT:'+0.068','标准误':'0.023','t 值':'2.96','p 值':'0.004','N (obs)':'4200','N (units)':'350'},
+  };
+  document.getElementById('result-summary').textContent=RESULT.summary;
+  const est=RESULT.estimates;
+  const rows=Object.keys(est).map(k=>`<tr><td class="k">${escHtml(k)}</td><td class="v">${escHtml(est[k])}</td></tr>`).join('');
+  document.getElementById('est-table').innerHTML=`<thead><tr><th>参数</th><th>值</th></tr></thead><tbody>${rows}</tbody>`;
+  document.getElementById('result-report').innerHTML=mdToHtml(RESULT.report);
+  const base=RESULT.output_dir.replace(/\\/g,'/').split('/').pop();
+  document.getElementById('result-files').innerHTML=RESULT.files.map(f=>{
+    const url=`/outputs/${encodeURIComponent(base)}/${encodeURIComponent(f)}`;
+    if(f.toLowerCase().endsWith('.png'))
+      return `<div><div class="meta" style="border:1px solid var(--line);border-radius:10px;padding:24px 18px;text-align:center">🖼 ${escHtml(f)} (图占位)</div></div>`;
+    if(f.toLowerCase().endsWith('.html'))
+      return `<a href="${url}" target="_blank">🔍 ${escHtml(f)}（交互版）</a>`;
+    return `<a href="${url}" target="_blank">${escHtml(f)}</a>`;
+  }).join('');
+  document.getElementById('btn-download-all').href=`/api/download/${encodeURIComponent(base)}`;
+</script>
+</body>
+</html>

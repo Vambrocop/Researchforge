@@ -1,0 +1,58 @@
+<!-- @dsCard group="Components" -->
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>goal-chips · ResearchForge A</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* ---- standalone wrapper (preview-only) ---- */
+  body{margin:0;background:var(--bg);color:var(--ink);font:var(--font);padding:32px}
+  .preview{max-width:620px;margin:0 auto}
+  .preview h1{font-size:18px;font-weight:650;letter-spacing:.2px;margin:0 0 4px}
+  .preview .sub{color:var(--muted);font-size:var(--fs-meta);margin-bottom:22px}
+
+  /* ======================================================================
+     COMPONENT: goal-chips
+     Selectable analysis-goal filter chips. One is active (.on).
+     The active chip uses the accent-soft fill + accent ink + bold.
+     Data: goals:[{key,label}]; "全部" (all) is always first.
+     ====================================================================== */
+  .goals{display:flex;flex-wrap:wrap;gap:8px}
+  .goal{font-size:var(--fs-small);padding:6px 13px;border:1px solid var(--line);
+        border-radius:var(--radius-pill);background:#fff;cursor:pointer;color:var(--muted)}
+  .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<div class="preview">
+  <h1>goal-chips</h1>
+  <div class="sub">分析目标筛选 · 单选高亮 (.on) · 点击切换 active</div>
+
+  <!-- component instance (interactive) -->
+  <div class="goals" id="goal-chips"></div>
+</div>
+
+<script>
+  // fake data mirroring backend goals + per-rec membership filtering
+  const goalList=[
+    {key:'describe',label:'描述/探索'},
+    {key:'causal',label:'因果效应'},
+    {key:'predict',label:'预测'},
+    {key:'cluster',label:'分组/聚类'},
+    {key:'reduce',label:'降维'},
+  ];
+  let activeGoal='causal';
+  function renderGoals(){
+    const el=document.getElementById('goal-chips');
+    const chips=[{key:'all',label:'全部'},...goalList];
+    el.innerHTML=chips.map(g=>
+      `<span class="goal${g.key===activeGoal?' on':''}" onclick="pickGoal('${g.key}')">${g.label}</span>`
+    ).join('');
+  }
+  function pickGoal(k){activeGoal=k;renderGoals();}
+  renderGoals();
+</script>
+</body>
+</html>
