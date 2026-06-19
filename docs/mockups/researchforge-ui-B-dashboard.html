@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResearchForge — UI Mock B (dashboard-dense)</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2c; --panel2:#1c2435; --ink:#e6e9f0; --muted:#8b95a8;
+    --line:#27314a; --accent:#5b8cff; --accent2:#7c5bff;
+    --green:#3ecf8e; --yellow:#e0a93b; --red:#e0594b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  .app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+  /* sidebar */
+  aside{background:var(--panel);border-right:1px solid var(--line);padding:16px 14px;display:flex;flex-direction:column;gap:16px}
+  .logo{font-weight:700;font-size:15px;letter-spacing:.3px}
+  .logo span{color:var(--muted);font-weight:400;font-size:11px;display:block;margin-top:2px}
+  .box{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .box h3{margin:0 0 8px;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .kv{display:flex;justify-content:space-between;font-size:12px;margin:3px 0}
+  .kv span{color:var(--muted)}
+  .glist{display:flex;flex-direction:column;gap:2px}
+  .glist a{font-size:12.5px;padding:6px 9px;border-radius:7px;color:var(--muted);cursor:pointer}
+  .glist a:hover{background:var(--panel2)}
+  .glist a.on{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;font-weight:600}
+  .health .ring{display:flex;align-items:center;gap:10px}
+  .health .score{font-size:22px;font-weight:700}
+  .health .mini{font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.7}
+  /* main */
+  main{padding:18px 24px 60px;overflow:auto}
+  .crumb{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .crumb b{color:var(--ink)}
+  .hbar{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+  .hbar h1{font-size:17px;margin:0;font-weight:650}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
+  .chip{font-size:11.5px;padding:3px 9px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+  .chip.hot{color:var(--accent);border-color:#33457a}
+  /* table */
+  .tbl{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .tbl th{font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel2)}
+  .tbl td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr.run-row{cursor:pointer}
+  .tbl tr.run-row:hover{background:var(--panel2)}
+  .light{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .light.green{background:var(--green);box-shadow:0 0 8px #3ecf8e66}
+  .light.yellow{background:var(--yellow);box-shadow:0 0 8px #e0a93b55}
+  .light.red{background:var(--red)}
+  .m{font-weight:620}
+  .sub{font-size:11.5px;color:var(--muted)}
+  .fam{font-size:10.5px;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  /* spark scorecard */
+  .spark{display:flex;gap:3px;align-items:flex-end;height:26px}
+  .spark i{width:7px;background:var(--accent);border-radius:1px;opacity:.85}
+  .spark i.cost{background:var(--yellow)}
+  .fit{font-weight:700}
+  .go{font:inherit;font-size:12px;border:1px solid #33457a;color:var(--accent);background:transparent;padding:5px 12px;border-radius:7px;cursor:pointer}
+  .go:hover{background:var(--accent);color:#0f1420;border-color:var(--accent)}
+  .go[disabled]{color:#55607a;border-color:var(--line);cursor:not-allowed}
+  .leg{font-size:11.5px;color:var(--muted);margin:9px 2px 0}
+  /* report */
+  .report{display:none;margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .report.on{display:block}
+  .report h2{font-size:14px;margin:0 0 12px}
+  .sumtext{background:var(--panel2);border-left:3px solid var(--accent);border-radius:8px;padding:13px 15px;font-size:13px}
+  .warn{color:var(--yellow)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  table.est{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.est th,table.est td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  table.est th:first-child,table.est td:first-child{text-align:left}
+  table.est th{color:var(--muted);font-weight:600;font-size:10.5px;text-transform:uppercase}
+  figure{margin:0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px}
+  figcaption{font-size:11px;color:var(--muted);text-align:center;margin-top:6px}
+  .files{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .file{font-size:11.5px;border:1px solid var(--line);border-radius:7px;padding:6px 11px;color:var(--accent);background:var(--panel2)}
+  .note{font-size:11px;color:#55607a;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside>
+    <div class="logo">🔨 ResearchForge<span>v0.8 前端原型 B · 假数据</span></div>
+
+    <div class="box">
+      <h3>数据集</h3>
+      <div class="kv"><span>文件</span><b>farm_panel.csv</b></div>
+      <div class="kv"><span>规模</span><b>2,400 × 9</b></div>
+      <div class="kv"><span>结构</span><b>面板 (village×year)</b></div>
+      <div class="kv"><span>处理</span><b>subsidy (0/1)</b></div>
+      <div class="kv"><span>质量</span><b style="color:var(--green)">92/100</b></div>
+    </div>
+
+    <div class="box">
+      <h3>分析目标</h3>
+      <div class="glist">
+        <a>比较组间差异</a><a>找关系 / 回归</a><a class="on">因果效应</a><a>预测</a>
+        <a>降维 / 聚类</a><a>设计实验 / 样本量</a><a>空间分析</a><a>生存 / 事件史</a>
+        <a>时间序列</a><a>定性比较 / 配置</a><a>效率 / 生产率</a><a>综合评价 / 排序</a>
+        <a>元分析</a><a>生态多样性</a>
+      </div>
+    </div>
+
+    <div class="box health">
+      <h3>引擎健康</h3>
+      <div class="ring"><div class="score" style="color:var(--green)">89</div>
+        <div class="mini">设计 90 · 严谨 90<br>可用性 58 · 快速 70<br>80 方法 / 15 族</div></div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main>
+    <div class="crumb">数据集 / farm_panel.csv / 目标：<b>因果效应</b> / 推荐</div>
+    <div class="hbar">
+      <h1>推荐方法</h1>
+      <div class="chips">
+        <span class="chip hot">6 个可行</span><span class="chip">按严谨度排序</span><span class="chip">🟢🟡🔴 + 6维评分卡</span>
+      </div>
+    </div>
+
+    <table class="tbl">
+      <thead><tr>
+        <th style="width:30px"></th><th>方法</th><th>族</th><th style="width:54px">契合</th>
+        <th style="width:120px">6维评分卡<br><span style="font-weight:400;text-transform:none">流·发·美·难·合·新</span></th>
+        <th style="width:88px"></th>
+      </tr></thead>
+      <tbody>
+        <tr class="run-row" onclick="rep()">
+          <td><span class="light green"></span></td>
+          <td><div class="m">交错 DiD · Sun-Abraham 交互加权</div><div class="sub">异质稳健 ATT；面板+从未处理对照→最佳识别</div></td>
+          <td><span class="fam">causal</span></td>
+          <td class="fit" style="color:var(--green)">93</td>
+          <td><div class="spark"><i style="height:72%"></i><i style="height:88%"></i><i style="height:80%"></i><i class="cost" style="height:74%"></i><i style="height:93%"></i><i style="height:85%"></i></div></td>
+          <td><button class="go" onclick="rep(event)">运行 →</button></td>
+        </tr>
+        <tr class="run-row" onclick="rep()">
+          <td><span class="light green"></span></td>
+          <td><div class="m">事件研究（动态 DiD）</div><div class="sub">逐期动态效应 + 前置期平行趋势检验</div></td>
+          <td><span class="fam">causal</span></td>
+          <td class="fit" style="color:var(--green)">90</td>
+          <td><div class="spark"><i style="height:78%"></i><i style="height:86%"></i><i style="height:84%"></i><i class="cost" style="height:62%"></i><i style="height:90%"></i><i style="height:70%"></i></div></td>
+          <td><button class="go" onclick="rep(event)">运行 →</button></td>
+        </tr>
+        <tr class="run-row" onclick="rep()">
+          <td><span class="light yellow"></span></td>
+          <td><div class="m">双重机器学习 DML (ATE)</div><div class="sub">🟡 摊平面板做横截面；稳健性对照；报干扰项 R² 诊断</div></td>
+          <td><span class="fam">causal</span></td>
+          <td class="fit" style="color:var(--yellow)">68</td>
+          <td><div class="spark"><i style="height:74%"></i><i style="height:84%"></i><i style="height:60%"></i><i class="cost" style="height:80%"></i><i style="height:68%"></i><i style="height:82%"></i></div></td>
+          <td><button class="go" onclick="rep(event)">运行 →</button></td>
+        </tr>
+        <tr class="run-row" onclick="rep()">
+          <td><span class="light yellow"></span></td>
+          <td><div class="m">倾向得分匹配 PSM (ATT)</div><div class="sub">🟡 截面匹配；需重叠/正值性；面板信息未用</div></td>
+          <td><span class="fam">causal</span></td>
+          <td class="fit" style="color:var(--yellow)">64</td>
+          <td><div class="spark"><i style="height:80%"></i><i style="height:70%"></i><i style="height:62%"></i><i class="cost" style="height:66%"></i><i style="height:64%"></i><i style="height:55%"></i></div></td>
+          <td><button class="go" onclick="rep(event)">运行 →</button></td>
+        </tr>
+        <tr>
+          <td><span class="light red"></span></td>
+          <td><div class="m">模糊断点回归 fuzzy RDD</div><div class="sub">🔴 未检测到驱动变量+断点（设计驱动，需 config 指定）</div></td>
+          <td><span class="fam">causal</span></td>
+          <td class="fit" style="color:var(--red)">—</td>
+          <td><div class="sub">设计前置不满足</div></td>
+          <td><button class="go" disabled>不匹配</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="leg">契合 = 数据特定严谨度分（= 评分卡「契合」维）。难度为 COST（橙，高=假定/解释负担重）。点任意行查看结果。</div>
+
+    <!-- REPORT -->
+    <div class="report" id="rep">
+      <h2>结果 · 交错 DiD（Sun-Abraham 交互加权）</h2>
+      <div class="sumtext">
+        <b>交错DiD 完成</b>：3 队列 / 36 处理村 / 12 从未处理对照；总体处理后 <b style="color:var(--green)">ATT = 2.75</b>
+        （SE 0.10，p&lt;0.001）；前置期 ATT 未见显著（支持平行趋势）。
+        <div class="warn" style="margin-top:7px">⚠ 按队列样本份额加权聚合（对异质稳健，避免 TWFE 负权重）；依赖平行趋势 + 从未处理对照干净；
+        总体 ATT 为处理后事件期简单平均；端点为合并累计期。</div>
+      </div>
+      <div class="grid2">
+        <table class="est">
+          <tr><th>事件期</th><th>IW-ATT</th><th>CI 下</th><th>CI 上</th><th>p</th></tr>
+          <tr><td>-2 前置</td><td>-0.09</td><td>-0.33</td><td>0.16</td><td>0.50</td></tr>
+          <tr><td>-1 参照</td><td>0.00</td><td>—</td><td>—</td><td>—</td></tr>
+          <tr><td>0</td><td>2.80</td><td>2.57</td><td>3.03</td><td>&lt;.001</td></tr>
+          <tr><td>+1</td><td>2.89</td><td>2.63</td><td>3.14</td><td>&lt;.001</td></tr>
+          <tr><td>+2</td><td>2.75</td><td>2.53</td><td>2.98</td><td>&lt;.001</td></tr>
+        </table>
+        <figure>
+          <svg viewBox="0 0 480 200" width="100%" height="190" font-family="sans-serif">
+            <line x1="44" y1="160" x2="464" y2="160" stroke="#2b3550"/>
+            <line x1="44" y1="16" x2="44" y2="160" stroke="#2b3550"/>
+            <line x1="205" y1="16" x2="205" y2="160" stroke="#e0594b" stroke-dasharray="4 3"/>
+            <line x1="44" y1="135" x2="464" y2="135" stroke="#222c44"/>
+            <g fill="#3ecf8e" stroke="#3ecf8e">
+              <circle cx="90" cy="137" r="3.5"/><circle cx="150" cy="135" r="3.5"/>
+              <circle cx="265" cy="58" r="3.5"/><circle cx="330" cy="54" r="3.5"/><circle cx="395" cy="60" r="3.5"/>
+              <line x1="90" y1="128" x2="90" y2="146"/><line x1="150" y1="126" x2="150" y2="144"/>
+              <line x1="265" y1="48" x2="265" y2="68"/><line x1="330" y1="44" x2="330" y2="64"/><line x1="395" y1="50" x2="395" y2="70"/>
+            </g>
+            <text x="250" y="182" font-size="10" fill="#8b95a8">事件期（红线=onset）</text>
+          </svg>
+          <figcaption>event-study IW-ATT：前置≈0，处理后≈2.8</figcaption>
+        </figure>
+      </div>
+      <div class="files">
+        <span class="file">⬇ staggered_did.csv</span><span class="file">⬇ staggered_did.png</span>
+        <span class="file">⬇ analysis_code.py</span><span class="file">⬇ 报告.md</span>
+      </div>
+    </div>
+
+    <div class="note">原型 B · 仅展示布局与流程，数据为假，未连引擎。点表格行 / 运行 看结果面板。</div>
+  </main>
+</div>
+<script>
+  function rep(e){ if(e) e.stopPropagation();
+    var r=document.getElementById('rep'); r.classList.add('on'); r.scrollIntoView({behavior:'smooth'}); }
+  document.querySelectorAll('.glist a').forEach(a=>a.onclick=()=>{
+    document.querySelectorAll('.glist a').forEach(x=>x.classList.remove('on'));a.classList.add('on');});
+</script>
+</body>
+</html>

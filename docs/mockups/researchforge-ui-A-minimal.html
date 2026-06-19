@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResearchForge — UI Mock A (clean-minimal)</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e7e7e2;
+    --accent:#2f6f4f; --accent-soft:#e8f1ec; --green:#2f8f5b; --yellow:#c9952b; --red:#c0492f;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
+  header{padding:22px 32px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px}
+  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .tag{font-size:12px;color:var(--muted)}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 32px 80px}
+  /* stepper */
+  .steps{display:flex;gap:8px;margin-bottom:26px;font-size:13px}
+  .steps div{padding:6px 14px;border-radius:20px;color:var(--muted);cursor:pointer}
+  .steps div.on{background:var(--accent);color:#fff}
+  .step{display:none} .step.on{display:block}
+  /* data summary */
+  .data{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);margin-bottom:22px}
+  .data .row{display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center}
+  .data b{font-weight:620}
+  .pill{font-size:12px;padding:3px 10px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
+  .pill.grey{background:#f0f0ec;color:var(--muted)}
+  .qual{margin-left:auto;font-size:13px;color:var(--muted)}
+  /* goals */
+  .goals{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 26px}
+  .goal{font-size:13px;padding:6px 13px;border:1px solid var(--line);border-radius:20px;background:#fff;cursor:pointer;color:var(--muted)}
+  .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  h2{font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 12px}
+  /* method cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px;box-shadow:var(--shadow);transition:border-color .15s}
+  .card:hover{border-color:#d7d7d0}
+  .card .top{display:flex;align-items:center;gap:12px}
+  .light{width:11px;height:11px;border-radius:50%;flex:none}
+  .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
+  .mname{font-weight:640;font-size:15.5px}
+  .fam{font-size:12px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .run{margin-left:auto;font:inherit;font-size:13px;border:1px solid var(--accent);color:var(--accent);background:#fff;
+    padding:6px 16px;border-radius:8px;cursor:pointer}
+  .run:hover{background:var(--accent);color:#fff}
+  .run[disabled]{border-color:var(--line);color:#bdbdb6;cursor:not-allowed;background:#fafaf8}
+  .why{color:var(--muted);font-size:13.5px;margin:9px 0 12px}
+  /* scorecard bars */
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px;margin:4px 0 4px}
+  .sc .d{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .sc .d .lab{width:42px;flex:none}
+  .bar{flex:1;height:6px;background:#eee;border-radius:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent)}
+  .bar.cost i{background:var(--yellow)}
+  .sc .d .v{width:24px;text-align:right;color:#9a9a93}
+  details{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
+  .bias{font-size:13px;color:#7a5a2a;background:#fdf7ea;border:1px solid #f0e2bf;border-radius:8px;padding:10px 12px;margin-top:9px}
+  /* report */
+  .report .sumtext{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:16px 18px;box-shadow:var(--shadow);font-size:14px}
+  .warn{color:#7a5a2a}
+  table{width:100%;border-collapse:collapse;margin:16px 0;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 14px;text-align:right;font-size:13.5px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{background:#f7f7f3;color:var(--muted);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .files{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .file{font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:7px 12px;background:#fff;color:var(--accent)}
+  figure{margin:16px 0;background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px}
+  figcaption{font-size:12px;color:var(--muted);text-align:center;margin-top:6px}
+  .back{font-size:13px;color:var(--accent);cursor:pointer;display:inline-block;margin-bottom:14px}
+  .note{font-size:12px;color:#a99;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔨 ResearchForge</h1>
+  <span class="tag">方法学大杂烩引擎 · v0.8 前端原型 A（clean-minimal）· 假数据</span>
+</header>
+
+<div class="wrap">
+  <div class="steps">
+    <div data-s="1">1 · 上传 / 识别</div>
+    <div class="on" data-s="2">2 · 推荐方法</div>
+    <div data-s="3">3 · 结果报告</div>
+  </div>
+
+  <!-- STEP 1 -->
+  <section class="step" data-step="1">
+    <div class="data" style="text-align:center;padding:40px">
+      <div style="font-size:40px">📂</div>
+      <div style="margin:10px 0 4px;font-weight:620">把数据拖到这里，或点击上传</div>
+      <div style="color:var(--muted);font-size:13px">CSV / Excel · 自动识别类型、结构、质量</div>
+    </div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="step on" data-step="2">
+    <div class="data">
+      <div class="row">
+        <b>farm_panel.csv</b>
+        <span class="pill grey">2,400 行 × 9 列</span>
+        <span class="pill">面板数据 · unit=village · time=year</span>
+        <span class="pill">1 个二值处理：subsidy</span>
+        <span class="pill grey">4 连续 · 2 类别</span>
+        <span class="qual">数据质量 <b>92</b>/100 · 缺失 1.3%</span>
+      </div>
+    </div>
+
+    <h2>分析目标</h2>
+    <div class="goals">
+      <span class="goal">比较组间差异</span>
+      <span class="goal">找关系 / 回归</span>
+      <span class="goal on">因果效应</span>
+      <span class="goal">预测</span>
+      <span class="goal">降维 / 聚类</span>
+      <span class="goal">设计实验 / 样本量</span>
+      <span class="goal">空间分析</span>
+      <span class="goal">生存 / 事件史</span>
+      <span class="goal">时间序列</span>
+      <span class="goal">定性比较 / 配置</span>
+      <span class="goal">效率 / 生产率</span>
+      <span class="goal">综合评价 / 排序</span>
+      <span class="goal">元分析</span>
+      <span class="goal">生态多样性</span>
+    </div>
+
+    <h2>推荐方法 · 按严谨度排序 🟢可行 🟡需注意 🔴不匹配</h2>
+
+    <!-- card: staggered DiD -->
+    <div class="card">
+      <div class="top">
+        <span class="light green"></span>
+        <span class="mname">交错 DiD — Sun-Abraham 交互加权</span>
+        <span class="fam">causal</span>
+        <button class="run" onclick="showReport()">运行 →</button>
+      </div>
+      <div class="why">面板 + 随时间开启的处理 + 存在从未处理对照 → 异质稳健的处理后 ATT，正是这份数据的最佳识别。</div>
+      <div class="sc">
+        <div class="d"><span class="lab">流行</span><span class="bar"><i style="width:72%"></i></span><span class="v">72</span></div>
+        <div class="d"><span class="lab">可发表</span><span class="bar"><i style="width:88%"></i></span><span class="v">88</span></div>
+        <div class="d"><span class="lab">美观</span><span class="bar"><i style="width:80%"></i></span><span class="v">80</span></div>
+        <div class="d"><span class="lab">难度</span><span class="bar cost"><i style="width:74%"></i></span><span class="v">74</span></div>
+        <div class="d"><span class="lab">契合</span><span class="bar"><i style="width:93%"></i></span><span class="v">93</span></div>
+        <div class="d"><span class="lab">新颖</span><span class="bar"><i style="width:85%"></i></span><span class="v">85</span></div>
+      </div>
+      <details>
+        <summary>⚠ 偏差披露 / 假定（知情覆盖）</summary>
+        <div class="bias">需要从未处理对照组（已满足）；识别仍依赖<b>平行趋势</b>（前置期 ATT 应≈0，引擎会检）；
+        总体 ATT 为处理后事件期简单平均；端点为合并累计期。难度=COST（高=解释/假定负担重）。</div>
+      </details>
+    </div>
+
+    <!-- card: event study -->
+    <div class="card">
+      <div class="top">
+        <span class="light green"></span>
+        <span class="mname">事件研究（动态 DiD）</span>
+        <span class="fam">causal</span>
+        <button class="run" onclick="showReport()">运行 →</button>
+      </div>
+      <div class="why">看处理开启前后的逐期动态效应 + 前置期平行趋势检验，与交错 DiD 互补。</div>
+      <div class="sc">
+        <div class="d"><span class="lab">流行</span><span class="bar"><i style="width:78%"></i></span><span class="v">78</span></div>
+        <div class="d"><span class="lab">可发表</span><span class="bar"><i style="width:86%"></i></span><span class="v">86</span></div>
+        <div class="d"><span class="lab">美观</span><span class="bar"><i style="width:84%"></i></span><span class="v">84</span></div>
+        <div class="d"><span class="lab">难度</span><span class="bar cost"><i style="width:62%"></i></span><span class="v">62</span></div>
+        <div class="d"><span class="lab">契合</span><span class="bar"><i style="width:90%"></i></span><span class="v">90</span></div>
+        <div class="d"><span class="lab">新颖</span><span class="bar"><i style="width:70%"></i></span><span class="v">70</span></div>
+      </div>
+      <details><summary>⚠ 偏差披露 / 假定</summary>
+        <div class="bias">交错采纳下纯 TWFE 在异质效应时可能有偏（负权重）——优先看上面的 Sun-Abraham；
+        识别依赖平行趋势；按单位聚类 SE。</div></details>
+    </div>
+
+    <!-- card: double ML -->
+    <div class="card">
+      <div class="top">
+        <span class="light yellow"></span>
+        <span class="mname">双重机器学习 DML（ATE）</span>
+        <span class="fam">causal</span>
+        <button class="run" onclick="showReport()">运行 →</button>
+      </div>
+      <div class="why">把面板摊平做横截面 ATE，靠大量控制变量去混杂；🟡 忽略了面板结构，作为稳健性对照。</div>
+      <div class="sc">
+        <div class="d"><span class="lab">流行</span><span class="bar"><i style="width:74%"></i></span><span class="v">74</span></div>
+        <div class="d"><span class="lab">可发表</span><span class="bar"><i style="width:84%"></i></span><span class="v">84</span></div>
+        <div class="d"><span class="lab">美观</span><span class="bar"><i style="width:60%"></i></span><span class="v">60</span></div>
+        <div class="d"><span class="lab">难度</span><span class="bar cost"><i style="width:80%"></i></span><span class="v">80</span></div>
+        <div class="d"><span class="lab">契合</span><span class="bar"><i style="width:68%"></i></span><span class="v">68</span></div>
+        <div class="d"><span class="lab">新颖</span><span class="bar"><i style="width:82%"></i></span><span class="v">82</span></div>
+      </div>
+      <details><summary>⚠ 偏差披露 / 假定</summary>
+        <div class="bias">依赖无未观测混杂 + 重叠；会额外报<b>干扰项交叉拟合 R²</b>（诊断，非有效性门槛）；忽略 village 的面板聚类。</div></details>
+    </div>
+
+    <!-- card: fuzzy RDD red -->
+    <div class="card" style="opacity:.72">
+      <div class="top">
+        <span class="light red"></span>
+        <span class="mname">模糊断点回归 fuzzy RDD</span>
+        <span class="fam">causal</span>
+        <button class="run" disabled>不匹配</button>
+      </div>
+      <div class="why">🔴 未检测到驱动变量 + 断点（RDD 是设计驱动的，引擎不猜）。如有资格分数线，用 config 指定后可启用。</div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="step report" data-step="3">
+    <span class="back" onclick="go(2)">← 返回推荐</span>
+    <h2>结果 · 交错 DiD（Sun-Abraham 交互加权）</h2>
+    <div class="sumtext">
+      <b>交错DiD 完成</b>（Sun-Abraham 交互加权）：3 个处理队列 / 36 个处理村 / 12 个从未处理对照；
+      总体处理后 <b>ATT = 2.75</b>（SE 0.10，显著，p&lt;0.001）；事件期 IW-ATT 见下图。前置期 ATT 未见显著（支持平行趋势）。
+      <div class="warn" style="margin-top:8px">⚠ 交错采纳下纯 TWFE 会受坏对照负权重污染——本估计按队列样本份额加权聚合（对异质稳健）；
+      识别仍依赖平行趋势与从未处理对照干净；总体 ATT 为处理后事件期简单平均；端点为合并累计期。</div>
+    </div>
+
+    <table>
+      <tr><th>事件期</th><th>IW-ATT</th><th>95% CI 下</th><th>95% CI 上</th><th>p</th></tr>
+      <tr><td>-2（前置）</td><td>-0.09</td><td>-0.33</td><td>0.16</td><td>0.50</td></tr>
+      <tr><td>-1（参照）</td><td>0.00</td><td>—</td><td>—</td><td>—</td></tr>
+      <tr><td>0</td><td>2.80</td><td>2.57</td><td>3.03</td><td>&lt;.001</td></tr>
+      <tr><td>+1</td><td>2.89</td><td>2.63</td><td>3.14</td><td>&lt;.001</td></tr>
+      <tr><td>+2</td><td>2.75</td><td>2.53</td><td>2.98</td><td>&lt;.001</td></tr>
+    </table>
+
+    <figure>
+      <svg viewBox="0 0 560 220" width="100%" height="220" font-family="sans-serif">
+        <line x1="50" y1="180" x2="540" y2="180" stroke="#ccc"/>
+        <line x1="50" y1="20" x2="50" y2="180" stroke="#ccc"/>
+        <line x1="240" y1="20" x2="240" y2="180" stroke="#c0492f" stroke-dasharray="4 3"/>
+        <line x1="50" y1="150" x2="540" y2="150" stroke="#eee"/>
+        <!-- pre points ~0 -->
+        <g fill="#2f6f4f">
+          <circle cx="100" cy="152" r="4"/><circle cx="170" cy="150" r="4"/>
+          <circle cx="310" cy="70" r="4"/><circle cx="380" cy="66" r="4"/><circle cx="450" cy="72" r="4"/>
+        </g>
+        <g stroke="#2f6f4f"><line x1="100" y1="142" x2="100" y2="162"/><line x1="170" y1="140" x2="170" y2="160"/>
+          <line x1="310" y1="60" x2="310" y2="80"/><line x1="380" y1="56" x2="380" y2="76"/><line x1="450" y1="62" x2="450" y2="82"/></g>
+        <text x="295" y="200" font-size="11" fill="#888">事件期（相对处理开启，红线=onset）</text>
+        <text x="14" y="100" font-size="11" fill="#888" transform="rotate(-90 14,100)">IW-ATT</text>
+      </svg>
+      <figcaption>event-study IW-ATT（前置≈0 → 支持平行趋势；处理后≈2.8）</figcaption>
+    </figure>
+
+    <div class="files">
+      <span class="file">⬇ staggered_did.csv</span>
+      <span class="file">⬇ staggered_did.png</span>
+      <span class="file">⬇ analysis_code.py</span>
+      <span class="file">⬇ 报告.md</span>
+    </div>
+  </section>
+
+  <div class="note">原型 A · 仅展示布局与流程，数据为假，未连引擎。切换步骤体验流程。</div>
+</div>
+
+<script>
+  function go(n){
+    document.querySelectorAll('.step').forEach(s=>s.classList.toggle('on',s.dataset.step==n));
+    document.querySelectorAll('.steps div').forEach(d=>d.classList.toggle('on',d.dataset.s==n));
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('.steps div').forEach(d=>d.onclick=()=>go(d.dataset.s));
+  document.querySelectorAll('.goal').forEach(g=>g.onclick=()=>{
+    document.querySelectorAll('.goal').forEach(x=>x.classList.remove('on'));g.classList.add('on');});
+  function showReport(){go(3);}
+</script>
+</body>
+</html>
