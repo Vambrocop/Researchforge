@@ -274,7 +274,13 @@ def _branch_bootstrap_ci(ctx: Ctx) -> None:
     # alpha1 = Phi( z0 + (z0 + z_{alpha/2}) / (1 - a*(z0 + z_{alpha/2})) )
     # alpha2 = Phi( z0 + (z0 + z_{1-alpha/2}) / (1 - a*(z0 + z_{1-alpha/2})) )
     # CI = ( percentile(boot, 100*alpha1), percentile(boot, 100*alpha2) )
-    prop_less = float(np.mean(boot_finite < obs))
+    # tie-aware "mean" rank convention (matches scipy's percentile-of-score): plain
+    # strict-`<` biases z0 when bootstrap values tie the estimate (discrete stats like
+    # median/std on integer data) and shifts the whole interval the wrong way.
+    n_eff = boot_finite.size
+    prop_less = (
+        np.count_nonzero(boot_finite < obs) + np.count_nonzero(boot_finite <= obs)
+    ) / (2.0 * n_eff)
     # clamp away from 0/1 so the inverse-normal is finite (Efron's convention)
     prop_less = min(max(prop_less, 1.0 / (2 * n_boot)), 1.0 - 1.0 / (2 * n_boot))
     z0 = float(_sps.norm.ppf(prop_less))
@@ -290,9 +296,15 @@ def _branch_bootstrap_ci(ctx: Ctx) -> None:
             ix = np.concatenate((np.arange(i), np.arange(i + 1, n)))
             jk[i] = float(_fn(s[ix]))
     jk_mean = float(np.mean(jk))
+    sumsq_jk = float(np.sum((jk_mean - jk) ** 2))
     num = float(np.sum((jk_mean - jk) ** 3))
-    den = 6.0 * (float(np.sum((jk_mean - jk) ** 2)) ** 1.5)
+    den = 6.0 * (sumsq_jk ** 1.5)
     a = num / den if den != 0 else 0.0
+    # BCa is ill-founded when the jackknife is constant (sumsq=0 -> a forced to 0) or the
+    # bootstrap distribution is near-degenerate (≤2 distinct values) — typical of highly
+    # tied/discrete statistics or a near-constant column. scipy raises/returns NaN here;
+    # we still return the percentile-shifted interval but flag it as unreliable.
+    bca_degenerate = (sumsq_jk == 0.0) or (int(np.unique(boot_finite).size) < 3)
 
     z_lo = float(_sps.norm.ppf(alpha / 2.0))
     z_hi = float(_sps.norm.ppf(1.0 - alpha / 2.0))
@@ -356,11 +368,17 @@ def _branch_bootstrap_ci(ctx: Ctx) -> None:
     except Exception:
         pass
 
+    estimates["bca_reliable"] = 0.0 if bca_degenerate else 1.0
     summary.append(
         f"{entry.method} 完成：{stat_label} 点估计={obs:.4g}，"
         f"BCa {int(ci_level*100)}% CI=[{ci_lo:.4g}, {ci_hi:.4g}]"
         f"（z0={z0:.3g}，加速度 a={a:.3g}，n_boot={n_boot}，种子={seed}）。"
     )
+    if bca_degenerate:
+        summary.append(
+            "⚠ BCa 退化警告：刀切法/重采样分布近常数（统计量在数据上高度离散/有结，或列近常数），"
+            "偏差/加速度校正不可靠，区间应谨慎解读（scipy 在此情形会拒绝返回 BCa 区间）。"
+        )
     summary.append(
         "⚠ 假定：BCa 校正了 bootstrap 分布的偏差(z0)与偏态(加速度 a)，优于朴素百分位法；"
         "假定重采样能模拟原抽样过程——样本极小或强依赖(时序/聚类)时会失效；"
