@@ -163,6 +163,7 @@
 let currentFileId = null;
 let cleanedFileId = null;
 let lastRecs = [];
+let goalList = [];            // [{key,label}] supplied by the backend (mirrors goals.py, no drift)
 let activeGoal = 'all';
 
 const DOTS = { green: 'green', yellow: 'yellow', red: 'red' };
@@ -170,24 +171,6 @@ const SC_DIMS = [
   ['popularity','流'],['publishability','发'],['aesthetics','美'],
   ['difficulty','难'],['fit','合'],['novelty','新'],
 ];
-// goal taxonomy mirrors researchforge/recommender/goals.py (client-side filter)
-const GOALS = {
-  all:        {label:'全部', fam:[], ids:[]},
-  compare:    {label:'比较组间差异', fam:['experimental_design'], ids:['group_comparison']},
-  relate:     {label:'找关系 / 回归', fam:['econometrics'], ids:['correlation','ols_regression','logistic_regression','poisson_regression','negative_binomial_regression','quantile_regression','gam','gamm','glmm','mixed_effects','multinomial_logit','ordered_logit','sem','pls_sem','efa']},
-  causal:     {label:'因果效应', fam:['causal'], ids:[]},
-  predict:    {label:'预测', fam:[], ids:['random_forest','xgboost','bart','conformal_prediction']},
-  reduce:     {label:'降维 / 聚类', fam:[], ids:['pca','efa','kmeans_clustering','hierarchical_clustering','nmds']},
-  design:     {label:'设计实验 / 样本量', fam:['experimental_design'], ids:[]},
-  spatial:    {label:'空间分析', fam:['spatial'], ids:[]},
-  survival:   {label:'生存 / 事件史', fam:['survival'], ids:[]},
-  timeseries: {label:'时间序列', fam:['time-series'], ids:[]},
-  qca:        {label:'定性比较 / 配置', fam:['configurational'], ids:[]},
-  efficiency: {label:'效率 / 生产率', fam:['efficiency'], ids:[]},
-  evaluate:   {label:'综合评价 / 排序', fam:['mcda'], ids:[]},
-  meta:       {label:'元分析', fam:['meta'], ids:[]},
-  diversity:  {label:'生态多样性', fam:['ecology'], ids:[]},
-};
 
 function showError(msg){const el=document.getElementById('error');el.textContent=msg;el.style.display='block';}
 function clearError(){const el=document.getElementById('error');el.textContent='';el.style.display='none';}
@@ -232,6 +215,7 @@ async function doAnalyze(){
   renderProfile(data.fingerprint);
   renderIssues(data.fingerprint.issues||[]);
   lastRecs=data.recommendations||[];
+  goalList=data.goals||[];
   activeGoal='all';
   renderGoals();renderRecs();
   document.getElementById('profile-section').style.display='';
@@ -264,19 +248,19 @@ function renderIssues(issues){
 
 function renderGoals(){
   const el=document.getElementById('goal-chips');
-  // only show goals that actually have a recommendation for this dataset (+ 全部)
+  // only show goals that actually have a recommendation for this dataset (+ 全部); membership is
+  // computed server-side per rec (rec.goals), so this never drifts from goals.py.
   const present=new Set();
-  for(const r of lastRecs) for(const[k,g]of Object.entries(GOALS))
-    if(k!=='all' && (g.fam.includes(r.family)||g.ids.includes(r.id))) present.add(k);
-  const keys=['all',...Object.keys(GOALS).filter(k=>k!=='all'&&present.has(k))];
-  el.innerHTML=keys.map(k=>`<span class="goal${k===activeGoal?' on':''}" onclick="pickGoal('${k}')">${escHtml(GOALS[k].label)}</span>`).join('');
+  for(const r of lastRecs) for(const k of (r.goals||[])) present.add(k);
+  const chips=[{key:'all',label:'全部'},...goalList.filter(g=>present.has(g.key))];
+  el.innerHTML=chips.map(g=>`<span class="goal${g.key===activeGoal?' on':''}" onclick="pickGoal('${g.key}')">${escHtml(g.label)}</span>`).join('');
 }
 function pickGoal(k){activeGoal=k;renderGoals();renderRecs();}
 
 function renderRecs(){
   const el=document.getElementById('rec-list');
   let recs=lastRecs;
-  if(activeGoal!=='all'){const g=GOALS[activeGoal];recs=lastRecs.filter(r=>g.fam.includes(r.family)||g.ids.includes(r.id));}
+  if(activeGoal!=='all'){recs=lastRecs.filter(r=>(r.goals||[]).includes(activeGoal));}
   if(!recs.length){el.innerHTML='<div class="card meta">该目标下暂无可行推荐。</div>';return;}
   el.innerHTML=recs.map(r=>{
     const ms=r.methodology_score||{};
@@ -339,7 +323,7 @@ async function doReanalyze(){
   document.getElementById('clean-section').style.display='none';
   document.getElementById('result-section').style.display='none';
   renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);
-  lastRecs=data.recommendations||[];activeGoal='all';renderGoals();renderRecs();
+  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';renderGoals();renderRecs();
   document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});
 }
 

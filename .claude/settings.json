@@ -187,7 +187,8 @@
       "Bash(PYTHONUTF8=1 py -3 -m researchforge.cli status)",
       "Bash(PYTHONUTF8=1 py -3 -c \"import doubleml; print\\('doubleml', doubleml.__version__\\)\")",
       "Bash(Rscript -e 'cat\\(R.version.string, \"\\\\n\"\\); cat\\(\"mgcv:\", as.character\\(packageVersion\\(\"mgcv\"\\)\\), \"\\\\n\"\\)')",
-      "Bash(PYTHONUTF8=1 py -3 -c \"from researchforge.executor import rbridge; print\\('r_available', rbridge.r_available\\(\\)\\); print\\('mgcv', rbridge.r_package_available\\('mgcv'\\)\\)\")"
+      "Bash(PYTHONUTF8=1 py -3 -c \"from researchforge.executor import rbridge; print\\('r_available', rbridge.r_available\\(\\)\\); print\\('mgcv', rbridge.r_package_available\\('mgcv'\\)\\)\")",
+      "Bash(PYTHONUTF8=1 py -3 -c \"import uvicorn; print\\('uvicorn', uvicorn.__version__, 'OK'\\)\")"
     ],
     "additionalDirectories": [
       "e:\\my-projects\\Researchforge\\.git",

@@ -20,6 +20,7 @@ def analyze_path(path: str | Path) -> dict:
     """
     from researchforge.profiler import profile_dataset
     from researchforge.recommender import recommend
+    from researchforge.recommender.goals import GOALS, entry_matches_goal
 
     fp = profile_dataset(Path(path))
     recs = recommend(fp)
@@ -51,11 +52,16 @@ def analyze_path(path: str | Path) -> dict:
             "biases": list(r.rigor.biases),
             "methodology_score": r.score.as_dict(),
             "score_note": r.score.note,
+            # goal keys this method matches (server-side, mirrors the CLI selector incl. keywords)
+            "goals": [k for k in GOALS if entry_matches_goal(r.entry, k)],
         }
         for r in recs
     ]
 
-    return {"fingerprint": fingerprint, "recommendations": recommendations}
+    # goal taxonomy (key + label, in canonical order) so the frontend never drifts from goals.py
+    goals = [{"key": k, "label": GOALS[k]["label"]} for k in GOALS]
+
+    return {"fingerprint": fingerprint, "recommendations": recommendations, "goals": goals}
 
 
 def clean_path(path: str | Path, cleaned_out: str | Path) -> dict:
