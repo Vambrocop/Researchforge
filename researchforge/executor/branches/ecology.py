@@ -730,6 +730,8 @@ def _branch_mantel_test(ctx: Ctx) -> None:
             f"p={p_value:.3f}（{n_perm} 次置换，{sig}）。"
             "⚠ Mantel 检验的是两个距离矩阵的相关、非因果；"
             "⚠ 距离度量选择会改变结论（计数群落默认 Bray-Curtis，可 config metric/corr 切换）；"
+            "⚠ 空间自相关会使 Mantel r 偏高/p 偏小（样点非独立）——若 env 即地理距离，"
+            "考虑偏 Mantel（控制空间）或谨慎解读；"
             f"⚠ 列分组按 community={comm_cols[:3]}{'...' if len(comm_cols) > 3 else ''} / "
             f"env={env_cols} 自动划分，可用 config 覆盖。"
         )
@@ -888,6 +890,7 @@ def _branch_indicator_species(ctx: Ctx) -> None:
             f"各组显著指示种数：{grp_desc}。"
             "⚠ IndVal 基于置换检验，p 值依采样与组定义；"
             "⚠ 分组定义直接决定结果（不同分组得到不同指示种）；"
+            "⚠ 稀有类群与组内样本量小时指示值不稳（置换 p 的分辨率受组规模限制）；"
             "⚠ 描述性关联、非因果，A×B 高表示该物种既偏好该组又在组内常见。"
         )
         code += [
@@ -918,6 +921,9 @@ def _rda_via_r(csv_path, comm_cols: list[str], pred_cols: list[str]):
         "tot <- m$tot.chi\n"
         "constr <- if (is.null(m$CCA)) 0 else m$CCA$tot.chi\n"
         "unconstr <- if (is.null(m$CA)) 0 else m$CA$tot.chi\n"
+        # adjusted R^2 (Ezekiel) — honest fit measure; raw constrained% inflates with #predictors.
+        # NA when n is too small relative to constraints; emit -999 sentinel for that case.
+        "r2 <- tryCatch(RsquareAdj(m)$adj.r.squared, error = function(e) NA)\n"
         "set.seed(0)\n"
         "ag <- anova(m, permutations = 999)\n"
         "set.seed(0)\n"
@@ -928,6 +934,7 @@ def _rda_via_r(csv_path, comm_cols: list[str], pred_cols: list[str]):
         'cat(sprintf("total|%.6f\\n", tot))\n'
         'cat(sprintf("constrained|%.6f\\n", constr))\n'
         'cat(sprintf("unconstrained|%.6f\\n", unconstr))\n'
+        'cat(sprintf("r2adj|%.6f\\n", ifelse(is.na(r2), -999, r2)))\n'
         'cat("##GLOBAL\\n")\n'
         'cat(sprintf("F|%.6f\\np|%.6g\\n", ag$F[1], ag$"Pr(>F)"[1]))\n'
         'cat("##EIG\\n")\n'
@@ -1076,6 +1083,8 @@ def _branch_rda(ctx: Ctx) -> None:
         unconstr = parsed["var"].get("unconstrained", 0.0)
         pct_constr = 100.0 * constr / tot if tot > 0 else 0.0
         pct_unconstr = 100.0 * unconstr / tot if tot > 0 else 0.0
+        r2adj_raw = parsed["var"].get("r2adj", -999.0)
+        r2adj = r2adj_raw if r2adj_raw > -900.0 else float("nan")  # -999 sentinel = NA in R
         g_F = parsed["global"].get("F", float("nan"))
         g_p = parsed["global"].get("p", float("nan"))
 
@@ -1103,6 +1112,10 @@ def _branch_rda(ctx: Ctx) -> None:
 
         estimates["constrained_variance_pct"] = round(pct_constr, 2)
         estimates["unconstrained_variance_pct"] = round(pct_unconstr, 2)
+        import math as _math
+
+        if _math.isfinite(r2adj):
+            estimates["adjusted_r_squared"] = round(float(r2adj), 4)
         estimates["global_F"] = round(float(g_F), 4)
         estimates["global_p"] = round(float(g_p), 4)
         n_sig_terms = sum(1 for _, _, p in parsed["terms"] if p < 0.05)
@@ -1145,13 +1158,17 @@ def _branch_rda(ctx: Ctx) -> None:
             pass
 
         sig = "显著" if (np.isfinite(g_p) and g_p < 0.05) else "不显著"
+        r2adj_txt = (
+            f"，调整 R²={r2adj:.3f}（Ezekiel 校正预测变量数后的诚实拟合）"
+            if _math.isfinite(r2adj) else "（调整 R² 不可估：样点对约束变量过少）"
+        )
         summary.append(
             f"{entry.method} 完成（R vegan::rda）：{len(comm_cols)} 物种 × {len(sub)} 样点，"
             f"受 {len(pred_cols)} 个环境变量约束。约束方差占比 {pct_constr:.1f}%、"
-            f"非约束（残差）{pct_unconstr:.1f}%；全局检验 F={g_F:.3f}，p={g_p:.3f}"
+            f"非约束（残差）{pct_unconstr:.1f}%{r2adj_txt}；全局检验 F={g_F:.3f}，p={g_p:.3f}"
             f"（999 次置换，{sig}）；{n_sig_terms}/{len(pred_cols)} 个预测变量显著。"
             "⚠ RDA 是线性约束排序，假定物种对梯度线性响应——长环境梯度（单峰响应）应优先 CCA；"
-            "⚠ 约束方差占比受预测变量数影响（过拟合风险，可看 adjusted R²）；"
+            "⚠ 原始约束方差占比随预测变量数膨胀（过拟合风险），应以上面的**调整 R²**为准；"
             "⚠ 统计关联、非因果；预测变量按连续列自动选取，可用 config predictors 覆盖。"
         )
         code += [
