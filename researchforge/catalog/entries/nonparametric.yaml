@@ -1,0 +1,63 @@
+# Nonparametric / resampling catalog entries (permutation / bootstrap / robust).
+# Distribution-free or resampling-based methods that lean on the empirical
+# distribution rather than parametric assumptions. Pure Python (scipy/numpy/
+# statsmodels); fixed resampling seed (np.random.default_rng(0)) — disclosed.
+
+- id: permutation_test
+  method: Permutation test (distribution-free group difference)
+  domain: statistics
+  family: nonparametric
+  goal: explain
+  description: Distribution-free two-/k-sample test for a difference in a continuous outcome across groups. Statistic is the difference in means (2 groups) or the F-ratio (3+ groups); the null is built by permuting the group labels n_perm times (default 9999, capped). Reports the observed statistic, a permutation p-value (with the +1 correction), per-group means, and a permutation-null histogram. Makes no normality assumption.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 8
+  produces:
+    - observed statistic + permutation p-value
+    - per-group means table
+    - permutation-null histogram with observed stat marked
+  executor_ref: empirical-analysis-python
+  biases:
+    - exchangeability assumption — under H0 only the group labels are exchangeable; confounded assignment breaks the null
+    - tests the chosen statistic (mean difference / F-ratio), not differences in the distributions in general
+    - the p-value is exact only up to the resampling resolution (minimum p = 1/(n_perm+1))
+    - significance is not effect size — a tiny difference can be significant with large n
+
+- id: bootstrap_ci
+  method: Bootstrap confidence interval (BCa)
+  domain: statistics
+  family: nonparametric
+  goal: describe
+  description: Bias-corrected and accelerated (BCa) bootstrap confidence interval for a statistic of a column — mean (default), median, std, or the correlation between two columns. Draws n_boot (default 9999) resamples, corrects the bootstrap distribution for bias (z0) and skewness (acceleration a, from a jackknife), and reports the BCa interval, point estimate, z0, a, and the bootstrap-distribution histogram. More accurate than the naive percentile interval.
+  preconditions:
+    min_continuous: 1
+    min_rows: 8
+  produces:
+    - point estimate + BCa confidence interval table (z0, acceleration, n_boot)
+    - bootstrap-distribution histogram with estimate and CI marked
+  executor_ref: empirical-analysis-python
+  biases:
+    - BCa corrects bias and skewness of the bootstrap distribution but still assumes the resample mimics the original sampling
+    - breaks down for very small n or heavily dependent data (time series / clustered samples)
+    - the interval level is asymptotic and depends on the resampling resolution
+    - the choice of statistic (mean vs median vs correlation) changes the interpretation
+
+- id: robust_regression
+  method: Robust regression (Huber M + Theil-Sen)
+  domain: statistics
+  family: nonparametric
+  goal: explain
+  description: Outlier-resistant linear regression. Fits a Huber's T M-estimator (statsmodels RLM, IRLS) for one or more predictors and reports the robust coefficients, robust standard errors, and a robust-vs-OLS coefficient comparison that exposes how much outliers move the slope. For a single predictor it adds Theil-Sen (median of pairwise slopes, ~29% breakdown) and a scatter plot with the robust, OLS, and Theil-Sen fitted lines.
+  preconditions:
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - robust vs OLS coefficient comparison table (robust SE, coef diff, Theil-Sen slope)
+    - scatter plot with robust / OLS / Theil-Sen fitted lines (1-predictor case)
+  executor_ref: empirical-analysis-python
+  biases:
+    - M-estimators (Huber) downweight outliers in Y but not high-leverage points in X — use MM-estimators or Theil-Sen for that
+    - Theil-Sen has a ~29% breakdown point but is reported only for the single-predictor case
+    - robust standard errors are asymptotic
+    - regression is associational, not causal — compare to OLS to gauge outlier influence, not to claim an effect
