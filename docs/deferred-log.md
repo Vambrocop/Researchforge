@@ -4,14 +4,17 @@
 > 每条：**项** · **为何没做/降级** · **当前可用替代/现状** · **如何补全/优化**。
 > 由 AI 自走时持续追加（受 CPU/GPU/装包/后端限制时尤其要写在这）。
 
-## 🔜 下一波（优先级，2026-06-18 更新）
+## 🔜 下一波（优先级，2026-06-19 更新）
 
-> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆（branches/ + _helpers/ + 注册表 + 自动发现 + ≤1500 护栏）、测试提速（`pytest -n 2` 全量 4:29→2:49 + `pytest -m "not slow"` 快循环；别用 `-n auto` 会 OOM）、conformal_prediction、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did 全双审）、**推断 backlog #4a causal_forest BH/FDR + #4b BART holdout R²**（见下）。评分卡 总分 89（设计 90 / 快速 70）。全量 265 绿。
+> 新会话/下一波接着做这些（记忆 `next-batch` 也指向这里）。**已完成（别重做）**：run.py 巨石全拆、测试提速（`pytest -n 2`；别用 `-n auto` OOM）、conformal、**因果/计量方法波**（PSM/IPW/event_study/fuzzy_rdd/staggered_did）、**推断 backlog #4a-#4d**（causal_forest BH/FDR、BART holdout R²、DML nuisance CV R²、GAMM 非高斯族）、**A 风格 web 前端**（接引擎 + goals 后端供给）、**时间序列波**（协整+VECM/GARCH/结构突变/STL/ARDL）。全部 inference-reviewer 双审或确定性实测。全量 283 绿。
 
-1. ✅ **推断 backlog —— 全清完（2026-06-19）**：#4a causal_forest BH/FDR + fdr_by；#4b BART 80/20 holdout R²；#4c DML nuisance 交叉拟合 R²；#4d GAMM 非高斯族(binomial/poisson, 自动+config family)。四者均 inference-reviewer 双审「correct as-is」。下一摊见下方 Web 前端 / discover。
-   - 〔GAMM nice-to-have：无 config 时若结果意图是二值/计数但默认取了首个连续列做高斯，可加一行 summary 提示「检测到二值/计数列 X，如需非高斯设 config outcome/family」。非 bug（默认高斯已披露），UX 优化。〕
-2. **Web 前端**（可用性 58，最大短板）：已有 FastAPI `researchforge/web/`，缺前端——上传→推荐（🟢🟡🔴 严谨度灯 + 6 维评分卡）→跑→报告/图。**动手前问用户**敲定栈（原生 HTML+模板 vs 框架）/样式/页面范围。
-3. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级（抓不到回退 SEED）；流行度/更新喂回 `recommender/scoring.py`。
+1. 🔄 **并行进行中（2 个 background worktree subagent，2026-06-19 启）**：
+   - **设计流**：前端组件化（web/static/components/：rec-card/scorecard/rigor-light/goal-chips/data-summary/report-block + gallery + @dsCard 标记）→ 主脑用 **DesignSync** 同步到 claude.ai/design 设计系统。
+   - **难方法流**：**空间面板计量**（SAR/SEM/SDM panel，R splm 经 rbridge，W 由 lon/lat kNN）→ econometrics 族。主脑派 inference-reviewer 双审 + 整合。
+   - 编排约定见记忆 [[design-tooling-and-orchestration]]：worktree 隔离、不相交文件、主脑审/整合、push 等用户。
+2. **discover 真抓取（阶段2）**：`catalog/discover.py` 现离线 SEED，已留 `fetch_fn` 注入点；接真实 CRAN/PyPI/GitHub，带诚实降级；流行度/更新喂回 `recommender/scoring.py`。
+3. **更多方法波**（域聚焦 生态/农学/经济/环境/社科）：农学实验设计(AMMI/GGE/RSM)、生态(RDA/CCA/SDM)、MCDA(AHP/熵权/VIKOR)、合成DiD/de Chaisemartin、贝叶斯状态空间…（见 method-melting-pot-roadmap 记忆）。
+   - 〔GAMM nice-to-have：无 config 时结果意图是二值/计数却默认高斯，可加 summary 提示。UX 优化、非 bug。〕
 
 ---
 
