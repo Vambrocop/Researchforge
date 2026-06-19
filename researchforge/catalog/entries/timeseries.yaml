@@ -55,3 +55,23 @@
     - the Johansen result is sensitive to the chosen lag order and deterministic-term specification (constant inside vs outside the cointegration)
     - a cointegrating relation is a statistical long-run equilibrium, NOT structural causality; direction/structure needs theory
     - low power in short samples — few observations can miss a true cointegration or find a spurious one
+
+- id: garch
+  method: GARCH(1,1) volatility model
+  domain: economics
+  family: time-series
+  goal: explain
+  description: Model time-varying volatility (conditional heteroskedasticity / volatility clustering) in a single series with a GARCH(1,1) via the arch package. Reports the ARCH and GARCH coefficients, the volatility persistence (alpha+beta — how long shocks to volatility last), an ARCH-LM test that justifies whether GARCH is needed at all, the unconditional volatility, and a conditional-volatility plot over time. For returns / prices / any series where calm and turbulent periods cluster (finance, commodity prices, climate variability).
+  preconditions:
+    is_timeseries: true
+    min_rows: 50
+  produces:
+    - GARCH(1,1) coefficients (omega, alpha, beta) + volatility persistence
+    - ARCH-LM test for volatility clustering + unconditional volatility
+    - conditional-volatility time-series plot
+  executor_ref: arch
+  biases:
+    - models the VARIANCE, not the mean — assumes the mean equation (here a constant) is adequate; a trending/serially-correlated mean should be modelled first (e.g. ARIMA) and GARCH applied to residuals/returns
+    - if the ARCH-LM test is not significant there is no volatility clustering and GARCH is unnecessary (the engine flags this)
+    - assumes (weak) stationarity; alpha+beta>=1 implies an integrated (IGARCH) process with no finite unconditional variance (flagged)
+    - normal innovations by default — fat-tailed financial series may need a Student-t distribution
