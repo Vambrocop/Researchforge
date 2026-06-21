@@ -33,6 +33,16 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         )
         if n_num < pre.min_numeric_cols:
             unmet.append(f"需要 ≥ {pre.min_numeric_cols} 个数值列（连续/计数，现有 {n_num}）")
+    if pre.min_categorical_cols is not None:
+        # categorical/binary/count — for rater-agreement methods (κ); rating codes coded as
+        # small integers profile as `count`, so requires_group (categorical/binary only) would
+        # hide κ from numeric-coded ratings. The handler still degrades honestly if unsuitable.
+        n_cat = sum(
+            1 for c in fp.columns
+            if c.kind in {"categorical", "binary", "count"} and c.name not in {fp.unit_col, fp.time_col}
+        )
+        if n_cat < pre.min_categorical_cols:
+            unmet.append(f"需要 ≥ {pre.min_categorical_cols} 个分类/计数列（评分者列，现有 {n_cat}）")
     if pre.requires_binary_outcome and not any(c.kind == "binary" for c in fp.columns):
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
