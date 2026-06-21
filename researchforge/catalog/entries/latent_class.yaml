@@ -1,0 +1,62 @@
+# Latent-variable mixture catalog entries — finite mixtures / latent classes (stepmix).
+
+- id: latent_class_analysis
+  method: Latent class analysis (LCA, stepmix)
+  domain: psychometrics
+  family: latent_class
+  goal: explore
+  description: >-
+    Finite-mixture latent class analysis for categorical / binary indicators (Bernoulli or
+    Multinoulli measurement via EM). Recovers latent classes from item-response patterns —
+    the number of classes k is selected by BIC over a configurable range (default 2..5; or
+    forced via config n_classes). Reports class sizes (mixing proportions), per-class
+    item-response probabilities (the class profiles — what defines each latent class), the
+    scaled relative entropy (0-1 classification certainty; >0.8 means well-separated), the
+    BIC/AIC curve plus the selected k, and posterior class membership per row. Plots the
+    item-probability profiles and the BIC curve. Uses Python stepmix.
+  preconditions:
+    min_categorical_cols: 2
+    min_rows: 50
+  produces:
+    - class sizes (mixing proportions) + posterior class membership per row (CSV)
+    - per-class item-response probabilities (class profiles) + profile plot
+    - entropy (0-1), BIC/AIC per k + selected k, BIC curve plot
+  executor_ref: stepmix
+  biases:
+    - indicators auto-picked from categorical/binary/count columns — set config indicators=[...] to override
+    - a latent class is a statistical construct (a mixture component), NOT an externally validated real group
+    - k is a modeling choice selected by BIC (the curve is reported); other criteria (AIC/entropy) may prefer a different k
+    - class labels are arbitrary (label switching) — classes are ordered by size (class0 = largest) and that ordering is the only meaning
+    - EM can hit local optima — mitigated with multiple random inits (n_init, default 10) and a fixed seed; results are seed-dependent
+    - needs categorical / binary indicators; for continuous indicators use latent profile analysis (LPA)
+
+- id: latent_profile_analysis
+  method: Latent profile analysis (LPA = continuous LCA, stepmix)
+  domain: psychometrics
+  family: latent_class
+  goal: explore
+  description: >-
+    Latent profile analysis — the continuous analogue of LCA, i.e. a Gaussian finite mixture
+    over standardized continuous indicators (free per-class, per-indicator diagonal variances)
+    fit by EM. Recovers latent profiles; the number of profiles k is selected by BIC over a
+    configurable range (default 2..5; or forced via config n_classes). Reports class sizes
+    (mixing proportions), per-class means and variances per indicator (the profiles, reported
+    on the original scale), the scaled relative entropy (0-1 certainty; >0.8 well-separated),
+    the BIC/AIC curve plus the selected k, and posterior membership per row. Plots the class
+    mean profiles (a line per class across indicators) and the BIC curve. Uses Python stepmix.
+  preconditions:
+    min_continuous: 2
+    min_rows: 50
+  produces:
+    - class sizes (mixing proportions) + posterior class membership per row (CSV)
+    - per-class means and variances per indicator (class profiles, original scale) + profile plot
+    - entropy (0-1), BIC/AIC per k + selected k, BIC curve plot
+  executor_ref: stepmix
+  biases:
+    - indicators auto-picked from continuous columns — set config indicators=[...] to override
+    - LPA assumes within-class (multivariate) normality; this implementation uses a diagonal covariance (free per-class variances) and so ignores within-class correlations among indicators
+    - a latent profile is a statistical construct, NOT an externally validated real group
+    - k is a modeling choice selected by BIC (the curve is reported); other criteria may prefer a different k
+    - class labels are arbitrary (label switching) — classes are ordered by size (class0 = largest)
+    - EM can hit local optima — mitigated with multiple random inits (n_init, default 10) and a fixed seed; results are seed-dependent
+    - indicators are standardized before fitting (scale-sensitive); means/variances are back-transformed to the original scale for reporting
