@@ -60,6 +60,7 @@ RDD（running/cutoff）、synthetic_control（treated_unit/treatment_time）、c
 Py：rdrobust, doubleml, econml, networkx, dbarts(R), pysyncon, factor_analyzer, lifelines, linearmodels, semopy。
 R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, mgcv, lme4, qte, JM, ALDEx2, ANCOMBC, dbarts, brms+rstan（**但无编译器、不可用**）。
 **缺**：blavaan, JAGS, RTools/C++ 编译器（→ Stan 类方法当前不可跑）。
+**缺包→方法暂跳（2026-06-20 探测，装包后可建）**：IRT 2PL/Rasch（py `girth` + R `mirt` 均无）；合成DiD synthetic_did（R `synthdid` 无）+ de Chaisemartin did_multiplegt（R `did`/`DIDmultiplegtDYN` 无）——可纯 Python 实现但算法重、易错，优先装包；GWR 走纯 Python（mgwr/spgwr/GWmodel 均无，本批已纯手写）；LCA 潜类别（py `stepmix` + R `poLCA` 无）。装包优先级：mirt（IRT 一族）> synthdid（前沿因果）> poLCA（LCA）。
 
 ## 好点子 / 优化灵感（Good ideas — 多来自双审与建造时的发现）
 
