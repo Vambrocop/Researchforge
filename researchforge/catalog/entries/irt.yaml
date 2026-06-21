@@ -1,0 +1,63 @@
+# Item Response Theory (IRT) catalog entries (pure Python via girth — marginal MML).
+# Data shape = respondents x binary(0/1) items, same as the reliability family.
+
+- id: irt_2pl
+  method: 2-parameter logistic IRT (item discrimination + difficulty)
+  domain: psychometrics
+  family: irt
+  goal: describe
+  description: >-
+    Two-parameter logistic Item Response Theory on a respondents x binary(0/1)
+    item matrix, fitted by girth.twopl_mml via marginal maximum likelihood
+    (the person ability theta is integrated out against a N(0,1) prior).
+    Each item j gets a discrimination a_j (slope — how sharply the item separates
+    abilities) and a difficulty b_j (the ability at which P(correct)=0.5), and the
+    item characteristic curve is P(correct)=1/(1+exp(-a_j(theta-b_j))).
+    Reports the per-item (a, b) table, EAP person-ability scores, the Item
+    Characteristic Curves plot, the model log-likelihood, and item-fit notes
+    (low-discrimination / extreme-difficulty flags).
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 20
+  produces:
+    - per-item discrimination (a) and difficulty (b) table
+    - EAP person-ability (theta) scores per respondent
+    - Item Characteristic Curves (ICC) plot over theta
+    - model log-likelihood + low-discrimination / extreme-difficulty item-fit flags
+  executor_ref: girth (twopl_mml + ability_eap)
+  biases:
+    - all binary 0/1 columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific test form, and config model accepts 2pl (default)
+    - 2PL assumes unidimensionality (one latent ability), local independence (responses uncorrelated given theta) and monotonicity (P rises with theta) — violations bias every parameter
+    - discrimination a is the item slope (larger = better separation of high vs low ability); difficulty b is the ability level at 50 percent correct
+    - needs binary 0/1 items; polytomous/Likert data must be dichotomised first; stable 2PL estimation typically needs >=~100 respondents
+    - MML integrates ability out against a N(0,1) prior, so theta is anchored to the standard-normal metric (mean~0, SD~1); theta is scored afterwards by EAP, not jointly estimated with the item parameters
+
+- id: irt_rasch
+  method: Rasch / 1-parameter logistic IRT (equal-discrimination)
+  domain: psychometrics
+  family: irt
+  goal: describe
+  description: >-
+    Rasch (one-parameter logistic) Item Response Theory on a respondents x
+    binary(0/1) item matrix, fitted by girth.rasch_mml via marginal maximum
+    likelihood. All items share ONE discrimination (default a=1) and only the
+    difficulty b_j varies, so the item characteristic curves are parallel
+    (non-crossing) — the Rasch signature. Reports per-item difficulties, EAP
+    person abilities with standard errors, the parallel ICCs, an approximate
+    person-separation reliability, and both the Rasch and a same-data 2PL
+    log-likelihood for an informal check of whether equal discrimination holds.
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 20
+  produces:
+    - per-item difficulty (b) table with the shared discrimination
+    - EAP person-ability (theta) scores + per-person standard errors
+    - parallel Item Characteristic Curves plot
+    - person-separation reliability + Rasch-vs-2PL log-likelihood comparison
+  executor_ref: girth (rasch_mml + twopl_mml + ability_eap)
+  biases:
+    - all binary 0/1 columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific test form
+    - Rasch assumes EQUAL discrimination across all items (more restrictive than 2PL) — a markedly higher 2PL log-likelihood signals the equal-a assumption is violated, in which case prefer 2PL
+    - when equal discrimination holds, Rasch supports specific objectivity and interval-scale interpretation; if item slopes truly differ, those claims fail
+    - same unidimensionality + local-independence assumptions as 2PL; needs binary 0/1 items (dichotomise polytomous data first)
+    - the person-separation reliability is approximated from the test information (no exact LR chi-square is run); difficulties/abilities are anchored to the N(0,1) prior metric
