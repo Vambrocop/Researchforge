@@ -336,9 +336,12 @@ def _branch_fleiss_kappa(ctx: Ctx) -> None:
             cat_labels = [str(c) for c in cats]
 
         n_subjects, q = counts.shape
-        # n = ratings per subject; Fleiss assumes equal n. Use the modal/row sum.
+        # n = ratings per subject; Fleiss assumes equal n. Use the actual MODE (most common
+        # row sum), not the median — for a tie like [3,3,4,4] the median (3.5→4) is arbitrary
+        # and drops half the subjects; the mode retains the largest equal-n subset.
         row_n = counts.sum(axis=1)
-        n_raters = int(round(float(np.median(row_n))))
+        _vals, _cnts = np.unique(row_n, return_counts=True)
+        n_raters = int(_vals[int(np.argmax(_cnts))])
         unequal = bool(np.any(row_n != row_n[0]))
         if not np.all(row_n > 1):
             summary.append("Fleiss' κ 跳过：每个被试需 ≥2 个评分（P_i 需要 n>1）。")

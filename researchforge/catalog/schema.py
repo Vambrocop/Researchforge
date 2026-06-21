@@ -19,6 +19,7 @@ class Precondition(BaseModel):
     min_rows: Optional[int] = None
     min_continuous: Optional[int] = None
     min_numeric_cols: Optional[int] = None  # continuous OR count (Likert items profile as count)
+    min_categorical_cols: Optional[int] = None  # categorical/binary/count (rater codes profile as count)
     requires_binary_outcome: Optional[bool] = None
     requires_group: Optional[bool] = None
     requires_count_outcome: Optional[bool] = None

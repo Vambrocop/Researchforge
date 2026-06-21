@@ -7,7 +7,7 @@
   goal: describe
   description: Cohen's kappa (Cohen 1960) for two raters on categorical ratings — chance-corrected agreement with the observed/expected agreement, the asymptotic SE and 95% CI, the confusion matrix, and the Landis-Koch strength band. For ordinal scales it also reports linear and quadratic weighted kappa (Cohen 1968), and flags the kappa paradox (high agreement but low kappa under skewed prevalence). Pick the two rater columns by name with config rater1/rater2.
   preconditions:
-    requires_group: true
+    min_categorical_cols: 2
     min_rows: 10
   produces:
     - kappa (with SE + 95% CI) and observed/expected agreement
@@ -27,7 +27,7 @@
   goal: describe
   description: Fleiss' kappa (Fleiss 1971) for three or more raters assigning subjects to categories — chance-corrected agreement from a subjects-by-categories tally, with mean observed agreement P-bar, expected agreement P-bar-e, per-category kappa, the asymptotic SE and z-test of kappa = 0, and the Landis-Koch band. Accepts a wide subjects x raters matrix of codes (config raters), or an already-tallied counts-per-category matrix (config count_matrix true).
   preconditions:
-    requires_group: true
+    min_categorical_cols: 2
     min_rows: 5
   produces:
     - overall kappa with SE + z-test (kappa = 0)
