@@ -1,0 +1,59 @@
+# Mixture / density / robust-outlier catalog entries — unsupervised structure &
+# multivariate outlier detection (sklearn, pure Python). Auto-discovered.
+
+- id: gaussian_mixture
+  method: Gaussian mixture model (GMM clustering)
+  domain: machine learning
+  family: mixture
+  goal: explore
+  description: Soft probabilistic clustering — fits a mixture of Gaussian components by EM over standardized continuous features, selecting the number of components by BIC over a configurable range (default 1..6) and optionally comparing covariance_type. Reports the selected k with its BIC curve, per-component weights and means, hard cluster labels, the per-point max soft-assignment probability (membership certainty), the silhouette of the hard assignment, and a PCA scatter colored by component.
+  preconditions:
+    min_continuous: 2
+    min_rows: 10
+  produces:
+    - selected k + BIC curve (CSV + plot)
+    - per-component weights/means + cluster labels with membership certainty
+    - silhouette + PCA scatter colored by component
+  executor_ref: scikit-learn
+  biases:
+    - GMM is soft probabilistic clustering assuming Gaussian components (unlike k-means spherical hard assignment)
+    - k is chosen by BIC (a modeling choice — the BIC curve is reported)
+    - EM can land in local optima (n_init mitigates, not a global guarantee); features are standardized
+
+- id: dbscan_clustering
+  method: DBSCAN (density-based clustering)
+  domain: machine learning
+  family: mixture
+  goal: explore
+  description: Density-based clustering over standardized continuous features — finds arbitrary-shaped clusters and labels low-density points as noise (the -1 label) without pre-specifying the number of clusters. eps is auto-picked from the knee of the sorted k-distance curve (k = min_samples; default min_samples = 2 x n_features) or set via config. Reports the number of clusters, the number of noise points, cluster sizes, labels, and a PCA scatter with noise in grey plus the k-distance elbow plot.
+  preconditions:
+    min_continuous: 2
+    min_rows: 10
+  produces:
+    - number of clusters + number of noise points (the -1 label) + cluster sizes
+    - cluster labels (CSV)
+    - PCA scatter (noise grey) + k-distance elbow plot
+  executor_ref: scikit-learn
+  biases:
+    - DBSCAN finds density clusters and labels outliers as noise — no need to pre-specify k
+    - eps and min_samples drive everything (both reported, along with the k-distance knee heuristic)
+    - struggles with clusters of varying density; features are standardized
+
+- id: mahalanobis_outliers
+  method: Robust Mahalanobis outlier detection (MCD)
+  domain: statistics
+  family: mixture
+  goal: explore
+  description: Robust multivariate outlier detection — computes Mahalanobis distances from a Minimum Covariance Determinant (MCD) robust mean/covariance that resists outliers, and flags points whose squared distance exceeds the chi-square(p, 0.975) cutoff (p = number of features). Reports the number and rows of flagged outliers, a robust-versus-classical covariance comparison (showing how outliers inflate the classical estimate), the Mahalanobis distances (CSV), and a distance plot with the chi-square threshold line.
+  preconditions:
+    min_continuous: 2
+    min_rows: 10
+  produces:
+    - number + rows of flagged outliers (chi-square cutoff)
+    - robust (MCD) vs classical covariance comparison (CSV)
+    - Mahalanobis distances (CSV) + distance plot with threshold line
+  executor_ref: scikit-learn
+  biases:
+    - MCD gives a high-breakdown robust covariance (resistant to about h outliers)
+    - the chi-square cutoff assumes multivariate normality of the clean data (a heuristic threshold — the flagged percentage is reported)
+    - needs n greater than about 2 x p; standardization is NOT applied (Mahalanobis is scale-invariant, unlike the distance methods)
