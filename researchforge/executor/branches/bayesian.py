@@ -364,8 +364,9 @@ def _branch_bayesian_proportion(ctx: Ctx) -> None:
     else:
         ci = _beta_credible_interval(a_post, b_post, level)
 
-    # P(θ > ref) = 1 - CDF(ref) under the posterior
-    p_gt_ref = float(1.0 - stats.beta.cdf(ref, a_post, b_post))
+    # P(θ > ref) = survival function (NOT 1-cdf: 1-cdf catastrophically cancels to 0.0
+    # in the upper tail, e.g. Beta(141,61) at ref=0.95; sf keeps the true ~8.7e-31).
+    p_gt_ref = float(stats.beta.sf(ref, a_post, b_post))
 
     tbl = pd.DataFrame(
         {
@@ -439,7 +440,7 @@ def _branch_bayesian_proportion(ctx: Ctx) -> None:
         f"a_post, b_post = {prior_a}+k, {prior_b}+(n-k)  # Beta posterior",
         "post_mean = a_post/(a_post+b_post)",
         "ci = stats.beta.ppf([.025,.975], a_post, b_post)  # equal-tail credible interval",
-        f"p_gt_ref = 1 - stats.beta.cdf({ref}, a_post, b_post)",
+        f"p_gt_ref = stats.beta.sf({ref}, a_post, b_post)  # survival fn (not 1-cdf: tail cancellation)",
     ]
 
 
@@ -511,10 +512,15 @@ def _branch_bayesian_poisson_rate(ctx: Ctx) -> None:
           float(stats.gamma.ppf(1 - (1 - level) / 2, a_post, scale=1.0 / b_post)))
     emp_rate = sum_y / total_exposure
 
-    # overdispersion check: for Poisson Var ≈ Mean; flag if Var >> Mean
-    y_mean = float(np.mean(y))
-    y_var = float(np.var(y, ddof=1)) if len(y) > 1 else float("nan")
-    dispersion = (y_var / y_mean) if y_mean > 0 else float("nan")
+    # overdispersion check: EXPOSURE-AWARE Pearson dispersion. Raw var(y)/mean(y) is wrong
+    # when exposure varies (y_i~Poisson(rate·exp_i) is legitimately non-constant-mean even at
+    # a constant rate, so raw var/mean false-positives). Pearson: λ̂_i = post_mean·exp_i,
+    # dispersion = Σ(y_i−λ̂_i)²/λ̂_i / (n−1); reduces to ~var/mean when exposure is constant.
+    n_obs = len(y)
+    lam_hat = post_mean * exposure
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pearson = float(np.sum(np.where(lam_hat > 0, (y - lam_hat) ** 2 / lam_hat, 0.0)))
+    dispersion = pearson / (n_obs - 1) if n_obs > 1 else float("nan")
     overdispersed = bool(np.isfinite(dispersion) and dispersion > 1.5)
 
     estimates["sum_y"] = sum_y
@@ -626,10 +632,10 @@ def _branch_bayesian_poisson_rate(ctx: Ctx) -> None:
         f"{int(level*100)}% 可信区间 [{ci[0]:.4f},{ci[1]:.4f}]（经验率 {emp_rate:.4f}）。" + ratio_note
     )
     disp_msg = (
-        f"⚠ 检测到过度离散（var/mean={dispersion:.2f}>1.5）：泊松假定(率恒定/无过度离散)被违反，"
+        f"⚠ 检测到过度离散（Pearson 离散度={dispersion:.2f}>1.5，已计入曝光）：泊松假定(率恒定/无过度离散)被违反，"
         "可信区间偏窄，建议改用负二项。"
         if overdispersed
-        else (f"⚠ 离散度 var/mean={dispersion:.2f}（接近 1，符合泊松假定）。" if np.isfinite(dispersion) else "")
+        else (f"⚠ Pearson 离散度={dispersion:.2f}（接近 1，符合泊松假定）。" if np.isfinite(dispersion) else "")
     )
     summary.append(
         f"⚠ 先验：{prior_label}（默认弱信息，已声明）。⚠ 共轭 Gamma-泊松；假定 Poisson（率恒定、无过度离散）。"
