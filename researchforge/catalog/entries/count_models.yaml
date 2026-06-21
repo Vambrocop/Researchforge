@@ -1,0 +1,77 @@
+- id: zero_inflated_poisson
+  method: Zero-inflated Poisson (excess-zero counts)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Two-part count model for outcomes with excess zeros — a structural-zero logistic plus a Poisson count process.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 30
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: true
+  produces:
+  - count-model IRRs (exp coef)
+  - inflation (zero) coefficients
+  - observed vs Poisson-expected zeros
+  - AIC vs plain Poisson
+  executor_ref: statsmodels
+  biases:
+  - excess zeros must be real (else over-fitting two processes)
+  - residual overdispersion (consider ZINB)
+  - inflation covariates default to a constant
+- id: zero_inflated_negbin
+  method: Zero-inflated negative binomial (excess zeros + overdispersion)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: Two-part count model handling both excess zeros and overdispersion — structural-zero logistic plus a negative-binomial count with dispersion alpha.
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 40
+    min_continuous: null
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: true
+  produces:
+  - count-model IRRs (exp coef)
+  - inflation (zero) coefficients
+  - dispersion alpha
+  - AIC vs ZIP and Poisson
+  executor_ref: statsmodels
+  biases:
+  - convergence can be finicky (report non-convergence honestly)
+  - alpha greater than zero confirms overdispersion
+  - inflation covariates default to a constant
+- id: tweedie_glm
+  method: Tweedie GLM (semi-continuous nonnegative outcome)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: GLM with the Tweedie family for nonnegative semi-continuous data (a mass at zero plus a continuous positive part) — compound Poisson-Gamma when 1<p<2 (insurance costs, rainfall, biomass).
+  preconditions:
+    is_panel: null
+    is_timeseries: null
+    requires_treatment: null
+    requires_time: null
+    min_rows: 30
+    min_continuous: 1
+    requires_binary_outcome: null
+    requires_group: null
+    requires_count_outcome: null
+  produces:
+  - coefficients (exp for log-link)
+  - deviance
+  - variance power used
+  executor_ref: statsmodels
+  biases:
+  - var_power is a modeling choice (ideally profiled)
+  - assumes the mean-variance power law
+  - semi-continuous structure must hold
