@@ -132,7 +132,7 @@ def _branch_csqca(ctx: Ctx) -> None:
             files.append("csqca_solution.csv")
             (d / "solution.txt").write_text(
                 f"清晰集 QCA 充分性解（complex solution） → {outcome}:\n  {sol_str}\n\n"
-                f"清晰校准(二值列直接用,连续列按中位数二分),incl.cut={_ic}；* =AND, + =OR\n"
+                f"清晰校准(连续条件列按中位数二分为 0/1；⚠ 当前仅自动选连续列,二值列暂未自动纳为条件),incl.cut={_ic}；* =AND, + =OR\n"
                 "说明：① complex 解(不纳入反事实)；② 中位数二分丢失信息——连续条件通常 fsQCA 更优,"
                 "且偏态/离散数据的中位数二分可能极不均衡(近恒值)；③ 充分性≠因果。\n\n"
                 + tab.to_string(index=False),
