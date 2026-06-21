@@ -63,9 +63,9 @@ def test_fleiss_hand_computed(tmp_path: Path) -> None:
         fp, _ENTRY, output_root=str(tmp_path / "o"),
         config={"count_matrix": True, "raters": ["cat0", "cat1"]},
     )
-    assert abs(res.estimates["fleiss_kappa"] - 1.0 / 3.0) < 1e-6
-    assert abs(res.estimates["P_bar_observed"] - 2.0 / 3.0) < 1e-6
-    assert abs(res.estimates["P_e_expected"] - 0.5) < 1e-6
+    assert abs(res.estimates["fleiss_kappa"] - 1.0 / 3.0) < 1e-3  # estimate rounded to 4dp
+    assert abs(res.estimates["P_bar_observed"] - 2.0 / 3.0) < 1e-3
+    assert abs(res.estimates["P_e_expected"] - 0.5) < 1e-3
     assert res.estimates["n_subjects"] == 4.0
     assert res.estimates["n_raters"] == 3.0
     assert res.estimates["n_categories"] == 2.0

@@ -120,7 +120,7 @@ def test_quadratic_weighted_kappa_ordinal(tmp_path: Path) -> None:
         fp, _ENTRY, output_root=str(tmp_path / "o"), config={"weights": "quadratic"}
     )
     ref = _ck_weighted_quad(list(base), list(r2))
-    assert abs(res.estimates["kappa_quadratic_weighted"] - ref) < 1e-6
+    assert abs(res.estimates["kappa_quadratic_weighted"] - ref) < 1e-3  # estimate rounded to 4dp
     # quadratic weighting rewards near-misses -> >= unweighted kappa here
     assert res.estimates["kappa_quadratic_weighted"] >= res.estimates["cohens_kappa"] - 1e-9
     assert "kappa_linear_weighted" in res.estimates
