@@ -1,0 +1,37 @@
+- id: callaway_santanna
+  method: Callaway & Sant'Anna (2021) — group-time ATT (staggered DiD)
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    Gold-standard heterogeneity-robust difference-in-differences for STAGGERED
+    treatment adoption (units first treated at different times). Estimates the
+    group-time average treatment effects ATT(g,t) via the R `did` package
+    (att_gt, doubly-robust by default, multiplier-bootstrap SEs), then aggregates
+    with aggte into an overall ATT, a dynamic event study (ATT by length of
+    exposure e), and per-cohort ATTs. Avoids the negative-weighting and
+    forbidden-comparison bias of two-way fixed effects under staggered adoption
+    with heterogeneous effects — already-treated units are never used as
+    controls. Roles — panel unit (idname) + time (tname) + continuous outcome
+    (yname) + first-treatment-period gname (0 = never treated). gname is taken
+    from an explicit column, else DERIVED from a 0/1 treatment indicator (first
+    period each unit turns on). Pre-treatment event-study coefficients (e<0) are
+    the parallel-trends evidence. Requires R `did` — degrades honestly to the
+    pure-Python staggered_did (Sun-Abraham) or event_study when absent. Config
+    unit/time/outcome/gname (or treatment)/control_group/est_method.
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 60
+  produces:
+    - overall ATT + SE + 95% CI (did aggte simple)
+    - dynamic event-study ATT(e) table (leads + lags) with 95% CI + plot (parallel-trends check)
+    - per-cohort ATT table (did aggte group)
+    - cohort / treated / never-treated counts + pre-trend flag
+  executor_ref: R::did
+  biases:
+    - the CS estimator's whole point — it avoids the negative-weighting / forbidden-comparison bias of two-way FE under staggered adoption with heterogeneous effects (already-treated units are never controls)
+    - identification rests on (conditional) parallel trends + no anticipation; pre-treatment event-study coefficients are reported as EVIDENCE, not a guarantee
+    - control-group choice (never-treated vs not-yet-treated) affects the estimate; the choice used is reported, and never-treated auto-falls-back to not-yet-treated when no never-treated units exist
+    - doubly-robust est_method (default); needs enough treated units per cohort — small or few cohorts make ATT(g,t) and the aggregate noisy
+    - requires the optional R `did` package; without it the engine degrades honestly to staggered_did (Sun-Abraham) or event_study
