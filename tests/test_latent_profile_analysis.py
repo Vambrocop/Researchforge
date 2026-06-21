@@ -71,12 +71,12 @@ def test_lpa_recovers_two_profiles(tmp_path: Path) -> None:
     assert "完成" in res.summary, res.summary
     assert res.estimates["n_classes"] == 2.0
     assert res.estimates["entropy"] >= 0.8
-    mem = pd.read_csv(tmp_path / "o" / "latent_profile_analysis" / "class_membership.csv")
+    mem = pd.read_csv(Path(res.output_dir) / "class_membership.csv")
     assert _ari(truth, mem["class"].values) > 0.8
 
     # recovered means near truth (original scale). The two true centers are 0 and 5;
     # one class should sit near 0 and the other near 5 on every indicator.
-    prof = pd.read_csv(tmp_path / "o" / "latent_profile_analysis" / "class_profiles.csv")
+    prof = pd.read_csv(Path(res.output_dir) / "class_profiles.csv")
     for j in range(3):
         row = prof[prof["indicator"] == f"x{j+1}"].iloc[0]
         means = sorted([row["class0_mean"], row["class1_mean"]])
@@ -95,7 +95,7 @@ def test_lpa_recovers_three_profiles(tmp_path: Path) -> None:
     assert "完成" in res.summary, res.summary
     assert res.estimates["n_classes"] == 3.0
     assert res.estimates["entropy"] >= 0.8
-    mem = pd.read_csv(tmp_path / "o" / "latent_profile_analysis" / "class_membership.csv")
+    mem = pd.read_csv(Path(res.output_dir) / "class_membership.csv")
     assert _ari(truth, mem["class"].values) > 0.8
 
 
@@ -118,7 +118,7 @@ def test_lpa_classes_ordered_by_size(tmp_path: Path) -> None:
     df.to_csv(csv, index=False)
     fp = profile_dataset(csv)
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
-    sizes = pd.read_csv(tmp_path / "o" / "latent_profile_analysis" / "class_sizes.csv")
+    sizes = pd.read_csv(Path(res.output_dir) / "class_sizes.csv")
     props = sizes["mixing_proportion"].values
     assert all(props[i] >= props[i + 1] - 1e-9 for i in range(len(props) - 1))
 
