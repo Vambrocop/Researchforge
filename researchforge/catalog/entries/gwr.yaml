@@ -1,0 +1,30 @@
+# Geographically Weighted Regression (GWR) catalog entry.
+
+- id: gwr
+  method: Geographically Weighted Regression (GWR)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: >-
+    Fit a locally weighted OLS at every location, weighting observations by a spatial
+    kernel of their distance to the focal point, so each regression coefficient becomes
+    a surface over space that reveals spatial non-stationarity in the relationship.
+    Bandwidth is selected by minimising AICc (Gaussian or bisquare kernel, adaptive
+    k-nearest-neighbour bandwidth by default). Reports per-location coefficient surfaces,
+    coefficient ranges, the global OLS comparison, local R-squared, and a non-stationarity
+    flag. Pure-Python implementation (numpy), no R needed. Exploratory, not confirmatory.
+  preconditions:
+    requires_geo: true
+    min_continuous: 2
+    min_rows: 30
+  produces:
+    - per-location coefficient surfaces (CSV)
+    - coefficient range table (min/median/max + non-stationarity flag)
+    - local R-squared and coefficient surface map (PNG)
+    - AICc-selected bandwidth and effective parameters tr(S)
+  executor_ref: numpy
+  biases:
+    - exploratory not confirmatory — coefficients varying over space do not prove causal heterogeneity
+    - bandwidth choice drives smoothness (reported, AICc-selected); a different bandwidth gives a different surface
+    - local multicollinearity and multiple testing across locations inflate apparent coefficient variation
+    - coordinates must be projected/planar for distances to be meaningful — lon/lat Euclidean distance is only approximate
