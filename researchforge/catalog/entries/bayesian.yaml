@@ -1,0 +1,95 @@
+# Bayesian conjugate-inference catalog entries (closed-form, no MCMC).
+# Pure Python (scipy/numpy) closed-form conjugate posteriors. Any draw-based
+# quantity (lift CI / expected loss / rate ratio) uses a FIXED seed (disclosed).
+# Priors are ALWAYS stated; a posterior probability is NOT a frequentist p-value;
+# a credible interval is a direct probability statement (not a confidence interval).
+
+- id: bayesian_ab_test
+  method: Bayesian A/B test (Beta-Binomial conjugate)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Bayesian A/B test for a binary outcome across two arms via the Beta-Binomial
+    conjugate pair (Beta prior, Binomial likelihood). Input is a binary outcome
+    column plus a 2-level group column (config outcome/group), or four count config
+    keys (successes_a/trials_a/successes_b/trials_b). Prior defaults to the uniform
+    Beta(1,1) (config prior_a/prior_b). Posteriors are Beta(a+successes, b+failures)
+    per arm. Reports per-arm posterior mean conversion and 95% credible intervals,
+    P(B greater than A) computed in closed form via the Beta-inequality sum (Cook /
+    Evan Miller; falls back to fixed-seed posterior draws if posterior alpha is
+    non-integer), the lift (B minus A) posterior with a credible interval (fixed-seed
+    draws), and the decision-theoretic expected loss of choosing each arm. Plots the
+    two Beta posterior densities.
+  preconditions:
+    requires_binary_outcome: true
+    requires_group: true
+    min_rows: 8
+  produces:
+    - per-arm posterior table (Beta alpha/beta, posterior mean, credible interval, expected loss)
+    - P(B greater than A), lift posterior with credible interval, decision-theoretic expected loss
+    - two Beta posterior density curves
+  executor_ref: empirical-analysis-python
+  biases:
+    - priors are stated (default uniform Beta(1,1)) and matter at small n — report the prior
+    - P(B greater than A) is a posterior probability, NOT a frequentist p-value
+    - Bayesian inference needs no peeking/sequential-testing correction, but the prior still drives small-n results
+    - assumes iid Bernoulli trials within each arm (no within-arm clustering / time drift)
+    - lift credible interval and expected loss come from fixed-seed Monte-Carlo draws (resampling noise)
+
+- id: bayesian_proportion
+  method: Bayesian single-proportion estimation (Beta-Binomial conjugate)
+  domain: statistics
+  family: bayesian
+  goal: describe
+  description: >-
+    Single-proportion Bayesian estimation via the Beta-Binomial conjugate pair. A
+    binary column (config outcome) with k successes in n trials gives the posterior
+    Beta(a+k, b+n-k). Default prior is the uniform Beta(1,1); the Jeffreys prior
+    Beta(0.5,0.5) is available via config (prior=jeffreys), or set prior_a/prior_b
+    directly. Reports the posterior mean, mode and median, a 95% equal-tail (or HPD
+    via config interval=hpd) credible interval, and P(theta greater than ref) for a
+    configurable reference (config ref, default 0.5). Plots the Beta posterior with
+    the mean, credible interval and reference marked.
+  preconditions:
+    requires_binary_outcome: true
+    min_rows: 8
+  produces:
+    - posterior summary table (mean/median/mode, credible interval, P(theta greater than ref))
+    - Beta posterior density with mean, credible interval and reference marked
+  executor_ref: empirical-analysis-python
+  biases:
+    - prior choice matters at small n (uniform Beta(1,1) vs Jeffreys Beta(0.5,0.5) shifts the estimate) — report the prior
+    - a credible interval is a direct probability statement about theta, NOT a confidence interval
+    - the posterior mode is undefined when posterior alpha or beta is at most 1 (reported as NaN)
+    - assumes iid Bernoulli observations (independent trials, constant probability)
+
+- id: bayesian_poisson_rate
+  method: Bayesian Poisson rate estimation (Gamma-Poisson conjugate)
+  domain: statistics
+  family: bayesian
+  goal: describe
+  description: >-
+    Bayesian rate estimation for count data via the Gamma-Poisson conjugate pair
+    (Gamma prior, Poisson likelihood). A count column (config outcome) with an
+    optional exposure/offset column (config exposure) gives the posterior
+    Gamma(a0+sum_y, b0+sum_exposure). Default prior is the weakly-informative
+    Gamma(0.001,0.001) (config prior_a/prior_b). Reports the posterior mean rate and
+    a 95% credible interval (cross-checked against the empirical rate sum_y/sum_exp),
+    and an overdispersion flag when the count variance far exceeds the mean. If a
+    2-level group is present it also reports the rate-ratio posterior and P(ratio
+    greater than 1) from fixed-seed draws. Plots the Gamma posterior rate density.
+  preconditions:
+    requires_count_outcome: true
+    min_rows: 8
+  produces:
+    - posterior rate summary table (Gamma shape/rate, posterior mean, credible interval, empirical rate, dispersion)
+    - optional rate-ratio posterior with credible interval and P(ratio greater than 1)
+    - Gamma posterior rate density curve
+  executor_ref: empirical-analysis-python
+  biases:
+    - conjugate Gamma-Poisson assumes Poisson counts (constant rate, no overdispersion)
+    - the prior is weakly informative by default (Gamma(0.001,0.001)) and is stated — report it
+    - if the data are overdispersed (variance much greater than mean) the credible interval is too narrow — a flag fires; consider negative-binomial
+    - a credible interval is a direct probability statement, NOT a confidence interval
+    - the rate-ratio posterior and P(ratio greater than 1) come from fixed-seed Monte-Carlo draws
