@@ -284,10 +284,13 @@ def _branch_gwr(ctx: Ctx) -> None:
     )
     files.append("gwr_coefficients.csv")
 
-    # ---- coefficient ranges + non-stationarity test ----------------------- #
-    # Non-stationarity test used: local-IQR-vs-global-SE rule (honest, simple).
-    # A coefficient whose local interquartile range exceeds 2·(global OLS SE) is
-    # flagged spatially non-stationary (its spatial spread dwarfs estimation noise).
+    # ---- coefficient ranges + a DESCRIPTIVE wide-spread indicator ---------- #
+    # NOT a formal non-stationarity test. We flag coefficients whose local IQR
+    # exceeds 2·(global OLS SE) as having "wide local spread". This is a rough
+    # exploratory indicator that TENDS TO OVER-FLAG: the local IQR carries the
+    # sampling noise of small k-NN windows, while the global SE uses all n points,
+    # so the two are mis-scaled and the flag fires even on stationary data. A
+    # formal test (Monte-Carlo permutation / Leung et al. 2000) is NOT performed.
     range_rows = []
     nonstat_flags = {}
     for j, name in enumerate(predictors, start=1):
@@ -308,7 +311,7 @@ def _branch_gwr(ctx: Ctx) -> None:
                 "local_iqr": round(iqr, 6),
                 "global_ols_beta": round(float(beta_ols[j]), 6),
                 "global_ols_se": round(se, 6),
-                "nonstationary": nonstat,
+                "wide_local_spread": nonstat,  # descriptive (over-flags); NOT a formal test
             }
         )
     pd.DataFrame(range_rows).to_csv(
@@ -375,7 +378,7 @@ def _branch_gwr(ctx: Ctx) -> None:
     n_nonstat = sum(nonstat_flags.values())
     nonstat_names = [k for k, v in nonstat_flags.items() if v]
     nonstat_txt = (
-        f"空间非平稳的预测变量 {n_nonstat}/{len(predictors)} 个"
+        f"局部系数「宽幅」(局部 IQR > 2·全局 OLS SE) 的预测变量 {n_nonstat}/{len(predictors)} 个"
         + (f"（{', '.join(nonstat_names)}）" if nonstat_names else "")
     )
     summary.append(
@@ -383,7 +386,7 @@ def _branch_gwr(ctx: Ctx) -> None:
         f"{', '.join(predictors)}；核={'双平方(bisquare)' if kernel == 'bisquare' else '高斯(gaussian)'}，"
         f"{bw_report}（按 AICc={aicc:.1f} 选择）；有效参数 tr(S)={trS:.2f}；"
         f"平均局部 R²={np.mean(local_r2):.3f}（全局 OLS R²={ols_r2:.3f}）；{nonstat_txt}"
-        "（判据：局部 IQR > 2·全局 OLS SE）。"
+        "（⚠ 这是**描述性指标、非正式检验**，倾向高估：局部窗噪声放大 IQR；正式非平稳检验需 Monte-Carlo/Leung，未做）。"
         " ⚠ GWR 是探索性而非验证性方法：系数随空间变化揭示关系异质性，但"
         "带宽选择决定平滑度（已报告，AICc 选）；局部多重共线性 + 跨位置多重检验会夸大表观变异；"
         "经纬度欧氏距离仅为近似（应使用投影/平面坐标使距离有意义）。"
