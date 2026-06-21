@@ -22,6 +22,9 @@
 > - 网络分析 network_analysis：`source`、`target`(边两端节点列)、`weight`(可选边权)、`directed`(默认 False)
 > - 保形预测 conformal_prediction：`outcome`(结果,默认首个连续列)、`predictors`(预测变量列表)、`alpha`(误覆盖率,默认0.1→90%区间)、`seed`(默认0,固定切分+RF)
 > - 空间面板 spatial_panel(SAR/SEM/SDM, R splm)：`unit`/`time`(面板索引)、`outcome`、`predictors`、`lon`/`lat`(每单位坐标,建 W)、`model`(`lag`=SAR 默认 / `error`=SEM / `sdm`=空间杜宾)、`knn_k`(空间权重近邻数,默认6,行标准化)；LM 检验(slmtest)仅给 lag-vs-error 建议、不自动切换；impacts(direct/indirect/total)用 LeSage-Pace 解析式
+> - Cohen's κ cohens_kappa：`rater1`/`rater2`(两位评分者列,默认前两个类别/序数列)、`weights`(`none` 默认 / `linear` / `quadratic`,序数量表加权口径,二者均会算出报告,此键仅决定摘要头条)
+> - Fleiss' κ fleiss_kappa：`raters`(评分者列表,默认全部类别/二值/计数列)、`count_matrix`(默认 False;True 时各列=按类别已计数的「被试×类别」矩阵)；评分数不齐时按众数 n 对齐删行
+> - Bland-Altman bland_altman：`method1`/`method2`(两种连续测量列,默认前两个连续列)；LoA=bias±1.96·SD,各界限 95% CI 用 Bland-Altman SE(LoA)≈SD·√(1/n+1.96²/(2(n-1)))
 
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 

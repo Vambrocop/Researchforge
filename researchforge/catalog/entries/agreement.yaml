@@ -1,0 +1,60 @@
+# Agreement / inter-rater-reliability & method-comparison catalog entries.
+
+- id: cohens_kappa
+  method: Cohen's kappa (two-rater agreement)
+  domain: statistics
+  family: agreement
+  goal: describe
+  description: Cohen's kappa (Cohen 1960) for two raters on categorical ratings — chance-corrected agreement with the observed/expected agreement, the asymptotic SE and 95% CI, the confusion matrix, and the Landis-Koch strength band. For ordinal scales it also reports linear and quadratic weighted kappa (Cohen 1968), and flags the kappa paradox (high agreement but low kappa under skewed prevalence). Pick the two rater columns by name with config rater1/rater2.
+  preconditions:
+    requires_group: true
+    min_rows: 10
+  produces:
+    - kappa (with SE + 95% CI) and observed/expected agreement
+    - linear / quadratic weighted kappa (ordinal)
+    - confusion matrix + heatmap + Landis-Koch band
+  executor_ref: empirical-analysis-python
+  biases:
+    - kappa corrects agreement for chance and is sensitive to marginal prevalence/base-rates — the kappa paradox (high agreement, low kappa) is flagged for skewed 2x2 tables
+    - weighted kappa (linear/quadratic) is for ORDINAL categories; the category order is taken from sorted labels — verify it matches your scale
+    - two raters only — for 3+ raters use fleiss_kappa
+    - the first two categorical/ordinal columns are used by default — set config rater1/rater2 if wrong
+
+- id: fleiss_kappa
+  method: Fleiss' kappa (multi-rater agreement)
+  domain: statistics
+  family: agreement
+  goal: describe
+  description: Fleiss' kappa (Fleiss 1971) for three or more raters assigning subjects to categories — chance-corrected agreement from a subjects-by-categories tally, with mean observed agreement P-bar, expected agreement P-bar-e, per-category kappa, the asymptotic SE and z-test of kappa = 0, and the Landis-Koch band. Accepts a wide subjects x raters matrix of codes (config raters), or an already-tallied counts-per-category matrix (config count_matrix true).
+  preconditions:
+    requires_group: true
+    min_rows: 5
+  produces:
+    - overall kappa with SE + z-test (kappa = 0)
+    - per-category kappa + category proportions
+    - P-bar / P-bar-e + Landis-Koch band
+  executor_ref: empirical-analysis-python
+  biases:
+    - Fleiss kappa assumes raters are interchangeable (not necessarily the same raters per subject) and an equal number of ratings per subject — subjects with unequal counts are aligned to the modal n
+    - chance-corrected and prevalence-sensitive — skewed category prevalence depresses kappa even with high raw agreement
+    - all rater columns are used by default — set config raters=[...] (or count_matrix=true for a pre-tallied matrix)
+
+- id: bland_altman
+  method: Bland-Altman method-comparison agreement
+  domain: statistics
+  family: agreement
+  goal: describe
+  description: Bland-Altman (1986) agreement between two continuous measurements of the same quantity — the bias (mean difference), the 95% limits of agreement (bias +/- 1.96 SD) with their confidence intervals, the percentage of points within the limits, and a proportional-bias check (regression of the difference on the mean). Produces the difference-vs-mean Bland-Altman plot. Pick the two measurement columns by name with config method1/method2.
+  preconditions:
+    min_continuous: 2
+    min_rows: 10
+  produces:
+    - bias (with 95% CI) + 95% limits of agreement (with CIs)
+    - proportional-bias slope/p + percent within limits
+    - Bland-Altman difference-vs-mean plot
+  executor_ref: empirical-analysis-python
+  biases:
+    - Bland-Altman assesses AGREEMENT, not correlation — a high Pearson r can hide poor agreement (the Pearson r is reported alongside for contrast)
+    - what counts as an acceptable difference (the limits of agreement width) needs clinical/domain judgement, not a statistical threshold
+    - assumes the differences are approximately normal with constant variance — proportional bias / heteroscedasticity and non-normality are checked and flagged
+    - requires paired measurements; the first two continuous columns are used by default — set config method1/method2 if wrong
