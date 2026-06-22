@@ -1,0 +1,87 @@
+# OLS regression-diagnostics catalog entries — post-fit checks on an OLS model.
+# Auto-discovered (catalog loads every *.yaml in this directory). Each id maps to a
+# @register handler in executor/branches/regression_diagnostics.py. All fit
+# OLS(outcome ~ predictors) (outcome = first continuous column, predictors = the rest;
+# overridable via config outcome/predictors) and then interrogate the fit.
+# Pure Python (statsmodels / numpy / scipy) — no R.
+
+- id: vif_multicollinearity
+  method: Multicollinearity diagnostics (VIF + condition number)
+  domain: statistics
+  family: regression
+  goal: explain
+  description: >-
+    Diagnose multicollinearity among the predictors of an OLS model. For each predictor
+    it reports the Variance Inflation Factor (VIF_j = 1/(1-R2_j), where R2_j is from
+    regressing predictor j on the other predictors) and its tolerance (1/VIF), plus the
+    overall condition number and condition indices from the eigenvalues of the scaled
+    (unit-length-column) cross-product matrix. Flags VIF > 5 (moderate) / > 10 (severe)
+    and condition number > 30. High collinearity inflates standard errors and
+    destabilises coefficients but does not bias them.
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 3
+    min_rows: 10
+  produces:
+    - per-predictor VIF + tolerance + severity flag (CSV)
+    - condition number + condition indices (CSV)
+    - VIF bar chart with the 5 and 10 threshold lines (PNG)
+  executor_ref: py::vif_multicollinearity
+  biases:
+    - VIF needs >= 2 predictors; the outcome is the first continuous column unless config overrides it
+    - high VIF / high condition number inflate SEs and destabilise coefficients but do NOT bias OLS estimates
+    - the condition number is scale-sensitive; the full design INCLUDING the intercept is scaled to unit column length (Belsley-Kuh-Welsch), without centering, so the >30 cutoff applies and intercept-related collinearity stays visible
+    - VIF / condition cutoffs (5 / 10 / 30) are conventional rules of thumb, not hard tests
+
+- id: heteroskedasticity_test
+  method: Heteroskedasticity tests (Breusch-Pagan + White)
+  domain: statistics
+  family: regression
+  goal: explain
+  description: >-
+    Test an OLS model for non-constant error variance. Runs the Breusch-Pagan test
+    (squared residuals regressed on the regressors; LM = n*R2 ~ chi-square) and the more
+    general White test (auxiliary regression on the regressors, their squares, and
+    cross-products), reporting each test's LM statistic with its p-value and the F-form.
+    A small p-value implies heteroskedasticity. The canonical residuals-vs-fitted plot is
+    produced as a visual check. When the test is significant the OLS standard errors are
+    biased and robust (HC) SEs or WLS should be used.
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 2
+    min_rows: 12
+  produces:
+    - Breusch-Pagan + White LM/p/df + F-form (CSV)
+    - residuals-vs-fitted scatter (PNG)
+  executor_ref: py::heteroskedasticity_test
+  biases:
+    - a significant test means OLS SEs are biased (point estimates stay unbiased) -> use robust (HC) SEs or WLS
+    - White is more general (no functional-form assumption) but lower-powered and consumes df quickly with many predictors
+    - the tests detect a variance structure, not the right remedy
+    - outcome = first continuous column and predictors = the rest unless config overrides them
+
+- id: influence_diagnostics
+  method: Influence diagnostics (leverage / Cook's D / DFFITS)
+  domain: statistics
+  family: regression
+  goal: explain
+  description: >-
+    Detect influential observations in an OLS fit. For every observation it computes the
+    leverage (hat-matrix diagonal), the externally studentized residual, Cook's distance,
+    and DFFITS, then flags points exceeding the standard heuristics (Cook's D > 4/n,
+    |DFFITS| > 2*sqrt(p/n), leverage > 2p/n). Produces an influence plot — leverage on x,
+    studentized residual on y, point size proportional to Cook's D — with threshold lines.
+    Flags are diagnostic heuristics, not proof a point is an error.
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 2
+    min_rows: 12
+  produces:
+    - per-observation leverage / studentized resid / Cook's D / DFFITS + flag (CSV)
+    - influence plot (leverage vs studentized residual, size proportional to Cook's D) (PNG)
+  executor_ref: py::influence_diagnostics
+  biases:
+    - the flags (4/n, 2*sqrt(p/n), 2p/n) are heuristics, NOT proof a point is an error — inspect flagged points, do not auto-delete
+    - high leverage is not the same as high influence; Cook's D combines leverage and residual and is the more complete measure
+    - diagnostics describe the current model fit, not whether the model is correctly specified
+    - outcome = first continuous column and predictors = the rest unless config overrides them

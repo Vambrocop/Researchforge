@@ -1,0 +1,97 @@
+# Predictor relative-importance catalog entries — decompose a linear-OLS model R²
+# across its (often correlated) predictors. Auto-discovered (catalog loads every
+# *.yaml here). Each id maps to a @register handler in
+# executor/branches/importance_analysis.py. All follow the regression-family column
+# convention: outcome = first continuous column (config outcome override), predictors
+# = remaining continuous/binary columns (config predictors override). Pure Python.
+
+- id: dominance_analysis
+  method: Dominance analysis (Budescu general dominance)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Rank how much each predictor contributes to a linear regression's explained
+    variance using Budescu (1993) / Azen-Budescu general dominance: fit OLS for every
+    one of the 2^p predictor subsets and average each predictor's incremental R²
+    across all subsets. General-dominance weights partition the full-model R² exactly
+    (they sum to it), so the ranking is fair even when predictors are correlated.
+    Reports per-predictor general dominance, its share of R², and rank, plus a
+    horizontal bar chart. Outcome = first continuous column (override via config
+    outcome); predictors = the remaining numeric columns (override via config
+    predictors). Capped at 8 predictors (256 subset models).
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 3
+    min_rows: 20
+  produces:
+    - per-predictor general dominance + % of model R² + rank (CSV)
+    - horizontal bar chart of general dominance
+    - decomposition sum check (sums to the full-model R²)
+  executor_ref: py::dominance_analysis
+  biases:
+    - general dominance is a variance partition for LINEAR ADDITIVE models — not causal importance
+    - with correlated predictors it fairly splits shared variance, but a misspecified model (omitted variables / nonlinearity / interactions) can still mislead the ranking
+    - capped at 8 predictors because it enumerates 2^p OLS submodels — pick predictors via config above that
+    - outcome defaults to the first continuous column and predictors to the remaining numeric columns — set config outcome/predictors if wrong
+
+- id: relative_weights
+  method: Relative weights (Johnson epsilon)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Estimate each predictor's share of a linear regression's R² using Johnson (2000)
+    relative weights (epsilon): standardize the predictors and outcome, eigen-decompose
+    the predictor correlation matrix to build orthogonal counterparts of the predictors,
+    regress the outcome on those orthogonal variables, then transform the squared
+    orthogonal betas back through the eigen-loadings. The weights sum to the model R².
+    This approximates the dominance partition WITHOUT enumerating 2^p subsets, so it
+    scales to many predictors. Reports each predictor's raw weight, its share of R²,
+    and rank, plus a bar chart. Outcome = first continuous column (override via config
+    outcome); predictors = the remaining numeric columns (override via config predictors).
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 3
+    min_rows: 20
+  produces:
+    - per-predictor relative weight + % of model R² + rank (CSV)
+    - bar chart of each predictor's % of R²
+    - decomposition sum check (weights sum to the full-model R²)
+  executor_ref: py::relative_weights
+  biases:
+    - relative weights approximate the dominance variance partition via orthogonalization (no subset enumeration, so it scales to many predictors)
+    - same LINEAR / variance-partition caveat — not causal importance
+    - needs at least 2 predictors; near-collinear predictors make the orthogonalization unstable (flagged and skipped if singular)
+    - outcome defaults to the first continuous column and predictors to the remaining numeric columns — set config outcome/predictors if wrong
+
+- id: commonality_analysis
+  method: Commonality analysis (unique vs common variance)
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Partition a linear regression's R² into UNIQUE and COMMON (shared) components via
+    commonality analysis (Mood 1969 / Nimon 2008). For p predictors there are 2^p − 1
+    commonality coefficients: each predictor's unique component is R²(full) − R²(full
+    without it), while the common components capture variance that sets of predictors
+    jointly explain. Reports the unique component per predictor, the total common
+    variance, the largest pairwise common component, and the full coefficient table,
+    plus a bar chart of unique contributions. Commonality coefficients can be negative
+    (suppression) and are disclosed. Outcome = first continuous column (override via
+    config outcome); predictors = the remaining numeric columns (override via config
+    predictors). Capped at 6 predictors (63 coefficients).
+  preconditions:
+    min_continuous: 1
+    min_numeric_cols: 3
+    min_rows: 20
+  produces:
+    - unique + common variance components (2^p − 1 coefficients, CSV)
+    - total unique / total common / largest pairwise common
+    - bar chart of unique contribution per predictor
+  executor_ref: py::commonality_analysis
+  biases:
+    - commonality coefficients can be NEGATIVE (suppression) — disclosed, not an error
+    - the number of components explodes as 2^p − 1, so it is capped at 6 predictors — pick predictors via config above that
+    - a variance partition for LINEAR ADDITIVE models — not causal importance
+    - outcome defaults to the first continuous column and predictors to the remaining numeric columns — set config outcome/predictors if wrong

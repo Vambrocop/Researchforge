@@ -1,0 +1,77 @@
+# Spatial point-pattern & local / categorical autocorrelation catalog entries.
+# Pure-Python (numpy/scipy), hand-rolled — no R, no libpysal/esda/pointpats.
+
+- id: ripleys_k
+  method: Ripley's K / L function (point-pattern clustering)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: >-
+    Test whether a 2-D point pattern is clustered, random (CSR), or dispersed across
+    scales via Ripley's K and its variance-stabilised L function. Uses an approximate
+    bounding-box edge correction and a Monte-Carlo complete-spatial-randomness (CSR)
+    envelope; L(r) - r above the envelope = clustering, below = dispersion.
+  preconditions:
+    requires_geo: true
+    min_rows: 20
+  produces:
+    - K / L / L(r) - r over a radius grid
+    - Monte-Carlo CSR envelope (2.5-97.5 percentiles)
+    - centred-L plot vs CSR band
+  executor_ref: py::ripleys_k
+  biases:
+    - edge correction is approximate (bounding-box circle-fraction, not a true isotropic correction)
+    - the CSR envelope is Monte-Carlo (a fixed seed is disclosed); few simulations widen it
+    - clustering at one scale can mask dispersion at another
+    - euclidean distance on lat/lon approximates true geodesic distance
+
+- id: getis_ord
+  method: Getis-Ord Gi* hotspots + global G
+  domain: gis
+  family: spatial
+  goal: explain
+  description: >-
+    Locate statistically significant local clusters of high values (hotspots) and low
+    values (coldspots) with the Getis-Ord Gi* local z-score over k-nearest-neighbour
+    weights (including self), and report the global G statistic with its analytical
+    z / p (Getis & Ord 1992) for overall high-value concentration.
+  preconditions:
+    requires_geo: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - Gi* z-score + hotspot/coldspot class per location
+    - global G statistic with z and p-value
+    - Gi* hotspot map
+  executor_ref: py::getis_ord
+  biases:
+    - the local Gi* applies to any real-valued variable, but the GLOBAL G is defined ONLY for a non-negative variable (it measures concentration of high positive values); for a variable with negative values the global G is skipped and disclosed (use moran_i for global autocorrelation of a centered variable)
+    - Gi* depends on the spatial weights spec (k-NN k is disclosed)
+    - z-scores assume asymptotic normality (rough for small n or clustered weights)
+    - per-location tests are not corrected for multiple comparisons (raw z reported)
+    - euclidean distance on lat/lon approximates true geodesic neighbours
+
+- id: join_count
+  method: Join-count statistics (binary spatial autocorrelation)
+  domain: gis
+  family: spatial
+  goal: explain
+  description: >-
+    Categorical spatial autocorrelation for a binary attribute over a symmetrised
+    k-nearest-neighbour contiguity graph. Counts BB (1-1), WW (0-0) and BW (1-0)
+    joins and compares them to free-sampling (CSR) expectations with exact analytical
+    variances; a significant positive BB z indicates like-value clustering.
+  preconditions:
+    requires_geo: true
+    min_categorical_cols: 1
+    min_rows: 20
+  produces:
+    - BB / WW / BW join counts vs expected
+    - BB and BW z-scores and p-values
+    - observed-vs-expected bar chart
+  executor_ref: py::join_count
+  biases:
+    - free-sampling (CSR) assumption for the expected counts and variances
+    - weights come from k-NN (k disclosed, symmetrised) — result depends on the spec
+    - needs a genuinely binary attribute with both classes present
+    - euclidean distance on lat/lon approximates true geodesic neighbours
