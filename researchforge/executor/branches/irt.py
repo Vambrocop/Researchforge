@@ -401,8 +401,12 @@ def _branch_irt_rasch(ctx: Ctx) -> None:
         )
         if stability:
             msg += " " + stability
-        if ll_2pl == ll_2pl and ll_gap > 2.0 * k:
-            msg += " ⚠ 2PL 对数似然明显更高，提示各题区分度并不相等，Rasch 的等区分度假设可能不成立（改看 2PL）。"
+        if ll_2pl == ll_2pl:
+            # informational ONLY — this is a PLUG-IN (EAP-θ) log-lik gap, NOT a nested LR
+            # statistic; it is uncalibrated and swings both signs even on genuine Rasch data
+            # (~27% false-alarm at a fixed threshold), so we do NOT issue a "Rasch fails" verdict.
+            msg += (f" 2PL−Rasch 对数似然差 = {ll_gap:.1f}（plug-in、非 LR 检验，仅供参考；"
+                    "判定等区分度是否成立请看 2PL 各题 a 的离散程度，而非此差值）。")
         if extreme_b:
             msg += f" ⚠ 极端难度题项（|b|>3）：{', '.join(map(str, extreme_b))}。"
         msg += (

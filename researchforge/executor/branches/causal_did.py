@@ -147,6 +147,7 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
     #     0/1 treatment indicator -------------------------------------------------
     gname_col = cfg.get("gname") if cfg.get("gname") in df.columns else None
     derived = False
+    nonabsorbing = False
     if gname_col is not None:
         sub = df[[unit, time, outcome, gname_col]].copy()
         sub[time] = pd.to_numeric(sub[time], errors="coerce")
@@ -178,6 +179,13 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
             summary.append("Callaway-Sant'Anna 失败：没有任何单位被处理。")
             return
         sub["_g"] = sub[unit].map(onset).fillna(0.0)
+        # CS assumes an ABSORBING treatment (once on, stays on). If the supplied 0/1
+        # indicator switches off again after onset, we coerce it to absorbing-from-onset
+        # and must disclose it (silent coercion would misrepresent switching treatments).
+        _g_map = sub[unit].map(onset)
+        nonabsorbing = bool(
+            ((sub[time] >= _g_map) & (sub[treatment] == 0) & _g_map.notna()).any()
+        )
         derived = True
 
     # need numeric unit ids for did (idname must be numeric); factorize stably
@@ -317,6 +325,8 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
     sig = "显著" if (se == se and se > 0 and abs(att / se) > 1.96) else "不显著"
     pt = "⚠ 检出前置期 ATT 显著(平行趋势存疑)" if pretrend_bad else "前置期 ATT 未见显著(支持平行趋势)"
     deriv = "（gname 由二值处理指示列推导：每单位首个 treatment==1 的时点，无则记 0=从未处理）" if derived else "（使用显式 gname 列）"
+    if nonabsorbing:
+        deriv += "⚠ 处理指示为**非吸收型(开关式：onset 后又回 0)**，已按「首次处理期起持续处理」当作吸收型——CS 假设处理一旦发生即持续，开关式处理的此结果须谨慎。"
     ci_txt = f"[{ci_low:.4f}, {ci_high:.4f}]" if ci_low == ci_low else "[NA]"
     summary.append(
         f"{entry.method} 完成（R did）：{n_cohorts} 个处理队列 / {treated_units} 个处理单位 / "

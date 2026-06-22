@@ -570,7 +570,9 @@ def _branch_latent_profile_analysis(ctx: Ctx) -> None:
             "3) k 是建模选择，已报告 BIC/AIC 曲线；不同准则可能选不同 k；\n"
             "4) 类别编号无意义（标签切换）——已按规模降序固定（类0 最大）；\n"
             f"5) EM 可能陷入局部最优，已用 n_init={n_init} + 固定 seed={seed} 缓解；\n"
-            "6) 指标已标准化（量纲差异敏感）；均值/方差已回算到原始量纲报告。\n",
+            "6) 指标已标准化（量纲差异敏感）；均值/方差已回算到原始量纲报告。\n"
+            "7) BIC/AIC 在标准化数据上计算，仅用于跨 k 选择（排序有效），其绝对值"
+            "不可与未标准化模型直接比较。\n",
             encoding="utf-8",
         )
         files.append("lpa_summary.txt")
