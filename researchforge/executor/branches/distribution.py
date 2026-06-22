@@ -286,13 +286,16 @@ def _branch_goodness_of_fit(ctx: Ctx) -> None:
                     warnings.simplefilter("ignore", FutureWarning)
                     ar = stats.anderson(x, dist=_AD_SUPPORTED[dist_name])
                 ad_stat = float(ar.statistic)
-                # critical value at 5% significance (significance_level is in PERCENT)
+                # critical value at 5% significance. scipy reports significance_level
+                # in PERCENT ([15,10,5,2.5,1]); guard in case a future scipy switches to
+                # fractions ([.15,.10,.05,...]) so we don't match the wrong slot.
                 sigs = list(ar.significance_level)
-                if 5.0 in sigs:
-                    ad_crit5 = float(ar.critical_values[sigs.index(5.0)])
+                target = 0.05 if (sigs and max(sigs) <= 1.0) else 5.0
+                if target in sigs:
+                    ad_crit5 = float(ar.critical_values[sigs.index(target)])
                 else:
-                    # nearest to 5%
-                    j = int(np.argmin([abs(s - 5.0) for s in sigs]))
+                    # nearest to the 5% level
+                    j = int(np.argmin([abs(s - target) for s in sigs]))
                     ad_crit5 = float(ar.critical_values[j])
                 ad_reject = bool(ad_stat > ad_crit5)
                 rows.append({"test": f"Anderson-Darling ({dist_name})",

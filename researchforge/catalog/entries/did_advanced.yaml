@@ -1,0 +1,106 @@
+- id: goodman_bacon
+  method: Goodman-Bacon (2021) — TWFE DiD decomposition (staggered-DiD diagnostic)
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    Decomposes the two-way fixed-effects (TWFE) difference-in-differences
+    coefficient under STAGGERED binary treatment timing into a weighted average
+    of all 2x2 DiD sub-comparisons: treated-vs-never-treated, earlier-treated-vs
+    -later-treated (later still untreated = a clean control), and the FORBIDDEN
+    later-treated-vs-earlier-treated comparison (an already-treated group acts as
+    control). Reports each comparison TYPE's Goodman-Bacon weight and estimate,
+    the total TWFE estimate (reconciled against a direct two-way within OLS
+    estimate), and especially the total weight on the BAD already-treated-as
+    -control comparisons — a large bad weight means TWFE is contaminated under
+    dynamic/heterogeneous effects, so prefer callaway_santanna or chaisemartin
+    _did. Pure Python (numpy/pandas). Roles — panel unit + time + continuous
+    outcome + first-treatment-period gname (0 = never treated), gname taken from
+    an explicit column else DERIVED from a 0/1 treatment indicator. Config
+    unit/time/outcome/gname (or treatment).
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 60
+  produces:
+    - per-comparison-type weight + estimate table (treated-vs-never / earlier-vs-later / later-vs-earlier BAD)
+    - full per-2x2 weight + estimate table
+    - Goodman-Bacon scatter (each 2x2 estimate vs its weight, colored by type)
+    - the exact TWFE coefficient (twfe_did_direct, two-way within OLS) alongside the Bacon decomposition sum (twfe_did_decomp); total weight on BAD comparisons
+  executor_ref: py::goodman_bacon
+  biases:
+    - a large weight on the BAD later-vs-earlier (already-treated-as-control) comparisons means the TWFE DiD is contaminated by forbidden controls under dynamic/heterogeneous effects -> prefer callaway_santanna / chaisemartin_did
+    - assumes staggered binary treatment timing on a (near) balanced panel; the panel is balanced by intersection and any dropped non-full-span units are disclosed
+    - Goodman-Bacon weights are (group-pair size x within-sub-window treated-share variance Dbar(1-Dbar)); this is a DIAGNOSTIC of the TWFE estimate, not a heterogeneity-robust estimator itself
+
+- id: honest_did
+  method: Rambachan & Roth (2023) — Honest DiD parallel-trends sensitivity
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    "Honest" sensitivity analysis for the parallel-trends assumption of an
+    event-study DiD. Estimates an event-study TWFE (leads + lags relative to
+    treatment onset, unit + time fixed effects, clustered-by-unit SEs), then —
+    under the relative-magnitudes (RM) restriction that any post-treatment
+    parallel-trends violation is at most Mbar times the largest pre-treatment
+    violation — widens the conventional confidence interval for a chosen post
+    period by the worst-case bias Mbar times the largest pre-period first-difference
+    of the event-study coefficients (the RR relative-magnitudes scale, matching the
+    HonestDiD package's Mbar). Reports the original CI, the
+    robust CI over an Mbar grid (0, 0.5, 1, 1.5, 2), and the breakdown Mbar at
+    which the robust CI first includes 0. Honest DiD does NOT fix bias, it BOUNDS
+    sensitivity. Pure Python (numpy/pandas/statsmodels). Roles — panel unit +
+    time + continuous outcome + treatment timing (gname or a 0/1 treatment
+    indicator). Config unit/time/outcome/treatment (or gname)/window/post_period.
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 60
+  produces:
+    - event-study point estimate + conventional 95% CI for the chosen post period
+    - Mbar grid (0, 0.5, 1, 1.5, 2) robust-CI bounds table
+    - breakdown Mbar (smallest Mbar whose robust CI includes 0) + max pre-trend violation
+    - robust-CI-vs-Mbar plot with the zero line and breakdown marked
+  executor_ref: py::honest_did
+  biases:
+    - honest DiD does NOT correct bias, it only BOUNDS how sensitive the conclusion is to parallel-trends violations; a small breakdown Mbar means the result is fragile
+    - needs >= 2 pre-treatment periods to gauge the maximum pre-trend violation; without them it degrades honestly
+    - implements the relative-magnitudes (RM) single-post-period bound (|bias| <= Mbar times the max pre-period first-difference |delta_s - delta_(s-1)|, matching the HonestDiD package's Mbar scale), the simplest Rambachan-Roth variant; the full polyhedral/FLCI and smoothness (second-difference) variants are deferred
+    - relies on event-study identification (unit + time fixed effects, clustered-by-unit SEs); a fully-staggered design with no never-treated group is refused honestly
+
+- id: chaisemartin_did
+  method: de Chaisemartin & D'Haultfoeuille (2020) — DID_M estimator
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    Heterogeneity-robust difference-in-differences (DID_M) that uses only not
+    -yet-switched stable groups as controls. For each pair of consecutive
+    periods (t-1, t) it identifies switchers (units whose treatment changes) and
+    estimates their effect by comparing their outcome change to that of stable
+    groups with the same period-(t-1) treatment (switchers-IN 0->1 vs stable-0,
+    switchers-OUT 1->0 vs stable-1). DID_M is the sample-size-weighted average of
+    these consecutive-period 2-group DiDs — valid under heterogeneous effects
+    because already-switched units are never used as controls. Reports DID_M, the
+    number of switchers, per-period-pair DiDs, and a unit-resample bootstrap (B
+    ~ 500, fixed seed) SE + 95% CI. DID_M targets the instantaneous effect of
+    switching among switchers (not a dynamic/cumulative ATT). Pure Python
+    (numpy/pandas). Roles — panel unit + time + continuous outcome + a 0/1
+    treatment indicator (or gname). Config unit/time/outcome/treatment (or
+    gname)/bootstrap.
+  preconditions:
+    is_panel: true
+    requires_treatment: true
+    min_rows: 60
+  produces:
+    - DID_M estimate + bootstrap SE + 95% CI
+    - number of switchers + number of consecutive-period pairs
+    - per-consecutive-period-pair DiD + #switchers table
+    - per-period-pair DiD plot with the pooled DID_M line
+  executor_ref: py::chaisemartin_did
+  biases:
+    - DID_M targets the INSTANTANEOUS effect of switching among switchers (not a dynamic or cumulative ATT) — read it accordingly
+    - needs treatment variation across consecutive periods plus stable comparison groups in each pair; without switchers + stable controls it degrades honestly
+    - heterogeneity-robust because it uses only not-yet-switched stable controls (avoids the TWFE forbidden-control bias), but is sensitive to the parallel-trends-in-changes assumption between switchers and their stable comparison group
+    - inference is a unit-resample bootstrap (B disclosed, fixed seed for reproducibility); with few units the bootstrap CI is wide/noisy

@@ -1,0 +1,87 @@
+# Survival-analysis completion entries — time-varying / stratified Cox + PH diagnostics.
+# (basic survival_analysis + joint_longitudinal_survival live in statistics.yaml;
+#  competing_risks / parametric_survival / rmst live in survival.yaml.)
+
+- id: time_varying_cox
+  method: Time-varying Cox PH (counting-process covariates)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Cox proportional-hazards regression with TIME-VARYING covariates via lifelines
+    CoxTimeVaryingFitter. Input is counting-process long data: one row per
+    (subject, time interval) with an id column, start (entry) + stop (exit) interval
+    columns, an event indicator that is 1 only on the interval where the event occurs,
+    and time-varying covariates that may change between a subject's intervals. Reports
+    hazard ratios exp(coef) with 95% CIs + p per covariate and the partial
+    log-likelihood, plus a hazard-ratio forest plot (log scale).
+  preconditions:
+    is_panel: true
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - hazard ratios exp(coef) with 95% CI and p per time-varying covariate
+    - partial log-likelihood (CoxTimeVaryingFitter exposes no concordance index)
+    - hazard-ratio forest plot (log scale)
+  executor_ref: py::time_varying_cox
+  biases:
+    - requires counting-process (start, stop, event) long format — wrong shape invalidates the fit
+    - time-varying covariates must be exogenous (their values not driven by the event hazard) or coefficients are biased
+    - proportional hazards is still assumed for the time-varying covariates
+    - the event must be 0/1 and equal 1 only on the interval where the event occurs
+
+- id: stratified_cox
+  method: Stratified Cox PH (per-stratum baseline hazards)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Cox proportional-hazards regression with strata via lifelines CoxPHFitter: each
+    stratum gets its own baseline hazard while covariate coefficients are common across
+    strata. This controls for a categorical confounder non-parametrically (no functional
+    form assumed for the stratum's effect). Reports hazard ratios exp(coef) with 95% CIs
+    + p, the number of strata, the partial log-likelihood, and the concordance index,
+    plus a hazard-ratio forest plot.
+  preconditions:
+    requires_binary_outcome: true
+    requires_group: true
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - hazard ratios exp(coef) with 95% CI and p per covariate (common across strata)
+    - number of strata + partial log-likelihood + concordance index
+    - hazard-ratio forest plot
+  executor_ref: py::stratified_cox
+  biases:
+    - stratification lets the baseline hazard differ across strata but assumes COMMON coefficients (no stratum x covariate interaction estimated)
+    - if a stratum x covariate interaction matters, an interaction model is needed instead
+    - duration and event columns are auto-detected by name — verify them
+    - censoring is assumed random and non-informative; event must be 0/1
+
+- id: cox_ph_diagnostics
+  method: Cox proportional-hazards diagnostics (Schoenfeld residuals)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Fits a Cox proportional-hazards model and TESTS the proportional-hazards assumption
+    via scaled Schoenfeld residuals (lifelines proportional_hazard_test, rank time
+    transform). Reports the per-covariate PH test statistic + p-value, flags which
+    covariates VIOLATE PH (p<0.05), and reports the global test where available. A
+    significant test means the hazard ratio is not constant over time. Outputs a
+    per-covariate PH table and a -log10(p) bar chart with the 0.05 threshold line.
+  preconditions:
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 30
+  produces:
+    - per-covariate PH test statistic + p-value + violation flag (p<0.05)
+    - global PH test (nan when lifelines gives only per-covariate)
+    - -log10(PH p) bar chart with the 0.05 threshold line
+  executor_ref: py::cox_ph_diagnostics
+  biases:
+    - a significant Schoenfeld test means the HR is NOT constant over time (PH violated) — consider stratified_cox, time_varying_cox, or time-interaction terms
+    - the test depends on the time transform (rank used here)
+    - lifelines gives a per-covariate test; no built-in global test (global_ph_p may be nan)
+    - duration and event columns are auto-detected by name — verify them

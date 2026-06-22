@@ -35,6 +35,10 @@ SLOW_MODULES = {
     # R-backed / EM-heavy additions (R subprocess startup + multi-fit selection)
     "test_callaway_santanna", "test_spatial_panel", "test_rda",
     "test_latent_class_analysis", "test_latent_profile_analysis",
+    # lifelines Cox fits (time-varying / stratified / Schoenfeld PH test)
+    "test_time_varying_cox", "test_stratified_cox", "test_cox_ph_diagnostics",
+    # unit-bootstrap DiD (de Chaisemartin DID_M runs replicate resamples)
+    "test_chaisemartin_did",
 }
 
 

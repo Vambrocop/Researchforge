@@ -1,0 +1,94 @@
+# Panel-econometrics completion (Mundlak CRE + Hausman FE-vs-RE + first-difference).
+# Auto-discovered (catalog loads every *.yaml here). Each id maps to a @register
+# handler in executor/branches/panel_extra.py. All resolve panel roles like
+# econometrics.random_effects (unit/time cols, outcome = first continuous,
+# predictors = remaining); config can override unit/time/outcome/predictors.
+# Pure Python via linearmodels (NO R). Complements panel_fixed_effects / random_effects.
+
+- id: mundlak
+  method: Mundlak correlated random effects (CRE)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Fit a Mundlak (1978) correlated-random-effects panel model: a random-effects
+    regression AUGMENTED with the entity means of the time-varying covariates
+    (y_it = alpha + beta*x_it + gamma*xbar_i + u_i + eps_it). The within (fixed-effects)
+    estimate is recovered as beta, while the joint Wald test that all entity-mean
+    coefficients gamma = 0 is the Mundlak FE-vs-RE test — equivalent to Hausman but
+    more robust (an auxiliary-regression form that avoids a non-positive-definite
+    covariance difference). Reports beta (within-consistent), gamma (the means'
+    coefficients), and the joint Wald chi-square + p on gamma = 0. Completes the panel
+    toolkit alongside fixed effects, random effects and DID.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - within beta + entity-mean gamma per predictor (CSV)
+    - Mundlak joint Wald chi-square + p (robust FE-vs-RE test)
+    - beta-vs-gamma coefficient plot with 95% CIs
+  executor_ref: py::mundlak
+  biases:
+    - a significant Mundlak test (p<0.05) means the entity effects correlate with the regressors, so RE is inconsistent and FE should be used; the reported beta is already the within-consistent estimate
+    - only time-varying covariates have a meaningful entity mean — time-invariant regressors are collinear with their mean and are dropped (disclosed)
+    - the Mundlak test is the robust equivalent of Hausman (auxiliary regression), avoiding a non-PSD covariance difference; clustered SE assume units are independent
+    - this is a model-specification estimate, not structural causation
+
+- id: hausman_test
+  method: Hausman specification test (FE vs RE)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Run the formal Hausman (1978) test of fixed effects versus random effects. Fits a
+    PanelOLS fixed-effects model and a RandomEffects model on the same specification,
+    then computes H = (b_FE - b_RE)' [V_FE - V_RE]^{-1} (b_FE - b_RE) ~ chi-square over
+    the k common (time-varying) coefficients, using the unadjusted (efficient)
+    covariances so V_FE - V_RE is positive-definite (a pseudo-inverse is used and
+    flagged when it is not, as can happen in small samples). Reports H, its degrees of
+    freedom, the p-value, the FE and RE coefficients side by side, and the recommended
+    model (p<0.05 -> FE; otherwise RE is both consistent and efficient). Pairs with the
+    more robust Mundlak test in this family.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - Hausman chi-square + df + p (FE-vs-RE decision)
+    - FE vs RE coefficients side by side + their difference (CSV)
+    - FE-vs-RE coefficient comparison plot with 95% CIs
+  executor_ref: py::hausman_test
+  biases:
+    - the test statistic uses the unadjusted (efficient) covariances so that V_FE - V_RE is positive-definite (its theoretical basis); the reported SEs are clustered-robust and only for reading
+    - a non-positive-definite V_FE - V_RE (small samples) makes H sensitive — a pseudo-inverse is used and flagged, and cross-checking the Mundlak test is advised
+    - Hausman assumes RE is efficient under H0; the Mundlak test (this family) is a more robust alternative
+    - time-invariant regressors are dropped under FE and excluded from the comparison; this is a specification test, not structural causation
+
+- id: first_difference
+  method: First-difference (FD) panel estimator
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Estimate panel coefficients by first-differencing consecutive periods within each
+    entity to remove the time-invariant entity effects (delta y_it = beta*delta x_it +
+    delta eps_it), via linearmodels FirstDifferenceOLS with clustered standard errors.
+    Reports beta, clustered SE, 95% CIs and p-values, and contrasts each coefficient
+    with the fixed-effects (within) estimate. FD and FE coincide when T=2 but differ for
+    T>2; FD is more efficient when the errors follow a random walk, FE when the errors
+    are serially uncorrelated. Complements panel_fixed_effects and random_effects.
+  preconditions:
+    is_panel: true
+    min_continuous: 2
+    min_rows: 12
+  produces:
+    - FD coefficients + clustered SE + 95% CIs + p (CSV)
+    - FE (within) coefficient contrast per predictor
+    - FD coefficient plot with 95% CIs
+  executor_ref: py::first_difference
+  biases:
+    - first-differencing removes only the entity (unit) effects, NOT time effects — common time shocks need separate time fixed effects
+    - needs at least 2 periods per entity and time-VARYING regressors; time-invariant variables difference out to zero and are dropped (disclosed)
+    - FD-vs-FE efficiency depends on the error serial correlation (FD under a random walk, FE under no serial correlation; they coincide at T=2)
+    - clustered SE assume units are independent; this is a model-specification estimate, not structural causation

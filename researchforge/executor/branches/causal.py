@@ -592,7 +592,12 @@ def _branch_rdd(ctx: Ctx) -> None:
 
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
     running = cfg.get("running") or cfg.get("running_var")
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else next((c for c in cont if c != running), None)
+    # guard: never accept the running variable as the outcome (regressing it on itself
+    # around the cutoff is meaningless) — same guard as fuzzy_rdd.
+    outcome = (
+        cfg["outcome"] if (cfg.get("outcome") in cont and cfg.get("outcome") != running)
+        else next((c for c in cont if c != running), None)
+    )
     try:
         cutoff = float(cfg.get("cutoff", 0.0))
     except (TypeError, ValueError):
