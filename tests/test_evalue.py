@@ -67,8 +67,11 @@ def test_evalue_strong_continuous_effect_large(tmp_path: Path) -> None:
 
 
 def test_evalue_near_null_is_about_one(tmp_path: Path) -> None:
+    # n=2000: at n=400 the sampled SMD swings ±0.1 (SE), and seed 1 drew d≈-0.18 → a
+    # legitimately non-null SAMPLED effect → E≈1.65 (handler correct, data just wasn't null).
+    # Larger n shrinks SE(d) so the sampled effect actually stays near 0 → E near 1.
     rng = np.random.default_rng(1)
-    n = 400
+    n = 2000
     expo = rng.integers(0, 2, n)
     y = 0.02 * expo + rng.normal(0, 1, n)  # negligible effect
     csv = tmp_path / "null.csv"

@@ -1,14 +1,16 @@
 """Branch handlers for the causal SENSITIVITY-ANALYSIS family.
 
 How robust is a causal claim to unmeasured confounding / assumption violations?
-Three hand-rolled methods (pure Python: statsmodels/scipy/numpy, no R):
+Hand-rolled methods (pure Python: statsmodels/scipy/numpy, no R):
 
   oster_delta       Oster (2019, JBES) coefficient-stability bound for
                     omitted-variable bias (δ + bias-adjusted β*).
   evalue            VanderWeele & Ding (2017) E-value — minimum confounder
                     strength (RR scale) needed to explain away an effect.
-  rosenbaum_bounds  Rosenbaum sensitivity bounds — hidden-bias odds ratio Γ
-                    at which a matched/observational effect loses significance.
+
+(rosenbaum_bounds deferred: the built version paired treated/control by OUTCOME
+rank — circular, inflates significance for any location shift; a correct version
+needs covariate-matched pairs or proper rank-sum Rosenbaum bounds. See deferred-log.)
 
 Convention choices (disclosed in summaries, logged in docs/loop-decisions.md):
   - oster_delta R_max default = min(1.3 * R̃, 1.0) (Oster's heuristic).
@@ -57,52 +59,6 @@ def _evalue_for_ci(estimate_rr: float, lo_rr: float, hi_rr: float) -> float:
     if hi_rr >= 1.0:
         return 1.0
     return _evalue_from_rr(hi_rr)
-
-
-def _rosenbaum_signed_rank_pvals(diffs, gamma: float):
-    """Rosenbaum (2002) sensitivity bounds for the Wilcoxon SIGNED-RANK statistic.
-
-    For n matched pairs with treated-minus-control differences `diffs`, the
-    signed-rank statistic W+ = sum of ranks (of |diff|) over pairs with diff>0.
-    Under a hidden bias of magnitude Γ (odds of differential assignment within a
-    pair bounded by 1/Γ .. Γ), each positive-rank indicator is Bernoulli with
-    success probability bounded between p- = 1/(1+Γ) and p+ = Γ/(1+Γ).  The
-    bounding null mean/variance over ranks q_k give a Normal approximation:
-
-        E± = sum_k q_k * p±,   Var± = sum_k q_k^2 * p± * (1 - p±)
-        Z±  = (W+ - E±) / sqrt(Var±)
-
-    The UPPER bound on the one-sided p-value (least favourable to significance)
-    uses the LARGER expectation E+ (p_hi = Γ/(1+Γ)); the LOWER bound uses E-
-    (p_lo = 1/(1+Γ)).  We test for a POSITIVE effect (right tail of W+).
-
-    Returns (p_plus, p_minus, w_plus, n_pairs).
-    """
-    import numpy as np
-    from scipy import stats as _st
-
-    d = np.asarray([x for x in diffs if x == x], dtype=float)
-    d = d[d != 0.0]  # zero differences carry no sign information (drop, per Wilcoxon)
-    n = d.size
-    if n < 1:
-        return float("nan"), float("nan"), float("nan"), 0
-    ranks = _st.rankdata(np.abs(d))  # average ranks for ties
-    w_plus = float(ranks[d > 0].sum())
-    p_lo = 1.0 / (1.0 + gamma)   # p-  (lower bound on assignment prob)
-    p_hi = gamma / (1.0 + gamma)  # p+  (upper bound)
-    sum_q = float(ranks.sum())
-    sum_q2 = float((ranks ** 2).sum())
-    # UPPER bound on p-value: largest expected W+ (p_hi) => smallest Z => largest p.
-    e_hi = sum_q * p_hi
-    var_hi = sum_q2 * p_hi * (1.0 - p_hi)
-    # LOWER bound on p-value: smallest expected W+ (p_lo) => largest Z => smallest p.
-    e_lo = sum_q * p_lo
-    var_lo = sum_q2 * p_lo * (1.0 - p_lo)
-    z_for_p_upper = (w_plus - e_hi) / math.sqrt(var_hi) if var_hi > 0 else float("nan")
-    z_for_p_lower = (w_plus - e_lo) / math.sqrt(var_lo) if var_lo > 0 else float("nan")
-    p_plus = float(_st.norm.sf(z_for_p_upper))   # largest plausible p-value
-    p_minus = float(_st.norm.sf(z_for_p_lower))  # smallest plausible p-value
-    return p_plus, p_minus, w_plus, n
 
 
 # ===========================================================================
@@ -460,173 +416,3 @@ def _branch_evalue(ctx: Ctx) -> None:
         summary.append(f"E-value 失败：{err}")
 
 
-# ===========================================================================
-# 3. Rosenbaum (2002) sensitivity bounds
-# ===========================================================================
-@register("rosenbaum_bounds")
-def _branch_rosenbaum_bounds(ctx: Ctx) -> None:
-    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
-    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
-    import pandas as pd
-
-    _excl = {fp.unit_col, fp.time_col}
-    cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    bins = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
-    treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
-    if treatment is None:
-        treatment = next((c for c in bins if c != outcome), None)
-
-    if outcome is None or treatment is None:
-        summary.append(
-            'Rosenbaum 界失败：需要 结果(连续) + 处理(二值) 两列。'
-            'config={"outcome":..,"treatment":..}。'
-        )
-        return
-
-    sub = df[[outcome, treatment]].apply(pd.to_numeric, errors="coerce").dropna()
-    tvals = set(pd.unique(sub[treatment].dropna()))
-    if not (tvals <= {0, 1} and len(tvals) == 2):
-        if len(tvals) == 2:  # map two arbitrary values -> 0/1 (higher = treated)
-            hi = sorted(tvals)[1]
-            sub[treatment] = (sub[treatment] == hi).astype(int)
-        else:
-            summary.append("Rosenbaum 界失败：处理变量必须是二值（0/1 或恰两类）。")
-            return
-    sub[treatment] = sub[treatment].astype(int)
-    treated = sub.loc[sub[treatment] == 1, outcome].to_numpy(dtype=float)
-    control = sub.loc[sub[treatment] == 0, outcome].to_numpy(dtype=float)
-    n_t, n_c = treated.size, control.size
-    if n_t < 3 or n_c < 3:
-        summary.append(f"Rosenbaum 界失败：处理组 {n_t}、对照组 {n_c}，样本太少（各需 ≥3）。")
-        return
-
-    try:
-        # Pair treated with controls (1:1, no replacement) by nearest outcome rank so
-        # we can apply the signed-rank sensitivity bound. If unequal sizes, pair as
-        # many as min(n_t,n_c) by sorted order (a transparent pairing; user can supply
-        # a matched dataset via psm/ipw and re-feed). Differences = treated - control.
-        m = min(n_t, n_c)
-        t_sorted = np.sort(treated)[:m]
-        c_sorted = np.sort(control)[:m]
-        diffs = t_sorted - c_sorted
-        # ensure the test is oriented toward a positive treatment effect: if the
-        # treated group median is lower, flip sign so "breakdown" is well-defined.
-        flipped = False
-        if np.median(diffs) < 0:
-            diffs = -diffs
-            flipped = True
-
-        alpha = 0.05
-        try:
-            g_max = float(cfg.get("gamma_max", 3.0))
-        except (TypeError, ValueError):
-            g_max = 3.0
-        g_max = min(max(g_max, 1.5), 10.0)
-        try:
-            g_step = float(cfg.get("gamma_step", 0.1))
-        except (TypeError, ValueError):
-            g_step = 0.1
-        g_step = min(max(g_step, 0.05), 0.5)
-        gammas = [round(1.0 + g_step * i, 4) for i in range(int((g_max - 1.0) / g_step) + 1)]
-        if gammas[-1] < g_max:
-            gammas.append(round(g_max, 4))
-
-        rows = []
-        breakdown_gamma = float("nan")
-        prev_below = None
-        for g in gammas:
-            p_plus, p_minus, w_plus, npairs = _rosenbaum_signed_rank_pvals(diffs, g)
-            rows.append({"gamma": g, "p_upper(p+)": round(p_plus, 5),
-                         "p_lower(p-)": round(p_minus, 5)})
-            below = (p_plus == p_plus) and (p_plus < alpha)
-            if prev_below is True and not below and breakdown_gamma != breakdown_gamma:
-                breakdown_gamma = g  # first Γ at which p+ crosses 0.05
-            prev_below = below
-        # if it was already non-significant at Γ=1, breakdown is essentially 1.0
-        if rows and rows[0]["p_upper(p+)"] >= alpha and breakdown_gamma != breakdown_gamma:
-            breakdown_gamma = 1.0
-        # never crossed within the grid
-        all_below = all(r["p_upper(p+)"] < alpha for r in rows if r["p_upper(p+)"] == r["p_upper(p+)"])
-
-        tab = pd.DataFrame(rows)
-        tab.to_csv(d / "rosenbaum_bounds.csv", index=False, encoding="utf-8")
-        files.append("rosenbaum_bounds.csv")
-        p_base = rows[0]["p_upper(p+)"]
-        estimates["p_value_gamma1"] = round(p_base, 5)
-        estimates["breakdown_gamma"] = (round(breakdown_gamma, 3) if breakdown_gamma == breakdown_gamma
-                                        else float("nan"))
-        estimates["n_pairs"] = float(len(diffs))
-        estimates["gamma_max_tested"] = round(gammas[-1], 3)
-
-        try:
-            import matplotlib
-
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-
-            fig, ax = plt.subplots(figsize=(6, 3.6))
-            ax.plot(tab["gamma"], tab["p_upper(p+)"], "o-", color="#C44E52", label="upper bound p+")
-            ax.plot(tab["gamma"], tab["p_lower(p-)"], "s-", color="#4C72B0", label="lower bound p-")
-            ax.axhline(alpha, color="grey", ls="--", lw=1, label="alpha=0.05")
-            if breakdown_gamma == breakdown_gamma and breakdown_gamma > 1.0:
-                ax.axvline(breakdown_gamma, color="green", ls=":", lw=1.2,
-                           label=f"breakdown Gamma={breakdown_gamma:.2f}")
-            ax.set_xlabel("Gamma (hidden-bias odds ratio)")
-            ax.set_ylabel("bounding p-value")
-            ax.set_title("Rosenbaum sensitivity bounds")
-            ax.legend(fontsize=8)
-            fig.tight_layout()
-            fig.savefig(d / "rosenbaum_bounds.png", dpi=150)
-            plt.close(fig)
-            files.append("rosenbaum_bounds.png")
-        except Exception:
-            pass
-
-        if all_below:
-            bd_txt = f"在测试范围 Γ≤{gammas[-1]:g} 内 p⁺ 始终 <0.05（极稳健，未触发崩溃 Γ）"
-            verdict = "极稳健"
-        elif breakdown_gamma == breakdown_gamma and breakdown_gamma <= 1.0:
-            bd_txt = "Γ=1（无隐藏偏倚）下结果已不显著"
-            verdict = "脆弱（基线即不显著）"
-        elif breakdown_gamma == breakdown_gamma:
-            bd_txt = f"崩溃 Γ ≈ {breakdown_gamma:.2f}"
-            verdict = ("稳健" if breakdown_gamma >= 2.0
-                       else ("中等" if breakdown_gamma >= 1.3 else "脆弱"))
-        else:
-            bd_txt = "未确定崩溃 Γ"
-            verdict = "需谨慎判读"
-        flip_txt = "；⚠ 处理组结果中位低于对照，已翻转符号使「正效应」检验有定义" if flipped else ""
-        pair_txt = (f"；按结果秩序 1:1 配对 {len(diffs)} 对（处理 {n_t}/对照 {n_c}）"
-                    if n_t != n_c else f"；1:1 配对 {len(diffs)} 对")
-
-        (d / "rosenbaum_summary.txt").write_text(
-            "Rosenbaum (2002) 敏感性界（隐藏偏倚 / 未观测混杂，Wilcoxon 符号秩）\n"
-            f"结果 {outcome}，处理 {treatment}{pair_txt}{flip_txt}\n"
-            f"Γ=1（无隐藏偏倚基线）单侧 p⁺ = {p_base:.5f}\n"
-            f"{bd_txt}\n"
-            f"判语：{verdict}\n"
-            "解读：Γ 是「一对内两单位接受处理几率之比」的隐藏偏倚上界。"
-            "Γ=1 即无隐藏偏倚；崩溃 Γ 是「一个未观测混杂需把对内分配几率拉开到多大倍数」"
-            "才能让结果失去显著（越大越稳健）。p⁺/p⁻ 是该 Γ 下 p 值的上/下界。\n"
-            "⚠ 界定隐藏偏倚的影响、非检验其是否存在；依赖配对/比较结构（此处按结果秩序配对，"
-            "理想应喂入 PSM/IPW 的匹配样本）；用符号秩统计量 + 正态近似（小样本偏保守）。\n\n"
-            + tab.to_string(index=False),
-            encoding="utf-8",
-        )
-        files.append("rosenbaum_summary.txt")
-        summary.append(
-            f"{entry.method} 完成：处理 {treatment} → {outcome}；"
-            f"Γ=1 时 p⁺={p_base:.4f}；{bd_txt}；判语：{verdict}。"
-            " ⚠ Rosenbaum 界**界定**隐藏偏倚影响、非检验其存在；依赖配对/比较结构"
-            "（此处按结果秩序 1:1 配对，理想喂入 PSM/IPW 匹配样本）；用 Wilcoxon 符号秩 + 正态近似。"
-            + flip_txt
-        )
-        code += [
-            "from scipy import stats  # Rosenbaum(2002) sensitivity bounds",
-            "# signed-rank W+ ; per Gamma: E+ = sum_q*Gamma/(1+Gamma); Z=(W+ - E+)/sqrt(Var+)",
-            "# breakdown Gamma = smallest Gamma where upper-bound p+ crosses 0.05",
-        ]
-    except Exception as err:
-        summary.append(f"Rosenbaum 界失败：{err}")
