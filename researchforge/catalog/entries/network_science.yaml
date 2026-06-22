@@ -1,0 +1,64 @@
+# Network-science catalog entries — graph methods over an edge list.
+# Auto-discovered (catalog loads every *.yaml in this directory). Each id maps to a
+# @register handler in executor/branches/network_science.py. All build a graph from
+# two node-identifier columns (config source/target, optional weight, directed).
+
+- id: community_detection
+  method: Community detection (Louvain modularity)
+  domain: network science
+  family: ml
+  goal: explore
+  description: Find clusters / modules in a network built from an edge list using the Louvain method (python-louvain) — assigns each node to a community by greedily maximising modularity. Reports the number of communities, the modularity Q (above 0.3 indicates meaningful structure), community sizes, a node-to-community table, and a network plot coloured by community; cross-checks against the networkx greedy-modularity heuristic. Seeded for reproducibility.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 3
+  produces:
+    - community count + modularity Q
+    - node-to-community assignment (CSV)
+    - community sizes + community-coloured network plot
+  executor_ref: python-louvain
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - Louvain greedily maximises modularity (a heuristic, runs vary slightly; random_state pinned here)
+    - modularity has a resolution limit (very small communities may be merged into larger ones)
+    - communities are structural partitions, not externally validated groups
+
+- id: centrality_suite
+  method: Centrality suite (degree / betweenness / closeness / eigenvector / PageRank)
+  domain: network science
+  family: ml
+  goal: explore
+  description: Identify the important nodes in a network built from an edge list by computing five centrality measures for every node — degree, betweenness, closeness, eigenvector, and PageRank. Reports the per-node centrality table, the top-N nodes by each measure, the Spearman correlation matrix among the five measures (how much they agree on importance), and a network plot sized by a chosen centrality (config size_by). Flags eigenvector non-convergence.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 3
+  produces:
+    - per-node centrality table (5 measures, CSV)
+    - top-N nodes by each measure + Spearman agreement matrix
+    - network plot sized by a chosen centrality
+  executor_ref: networkx
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - each centrality captures a different notion of importance (connections / brokerage / reach / influence) and they often disagree
+    - eigenvector centrality may fail to converge on some graphs (flagged and set NaN when so)
+    - centralities are structural / descriptive, not causal
+
+- id: epidemic_model
+  method: Network epidemic simulation (SIR / SIS diffusion)
+  domain: network science
+  family: ml
+  goal: explore
+  description: Simulate a stochastic SIR or SIS diffusion process directly on the contact network built from an edge list (network-based, not the mean-field ODE). Each step a susceptible node is infected with probability one minus (1 minus beta) to the power of its infected-neighbour count, and an infected node recovers with probability gamma. Reports the mean S/I/R epidemic curve over time, the peak infected and time-to-peak, the final attack rate, and a rough R0 proxy (beta times mean degree over gamma). Averaged over several seeded runs.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 3
+  produces:
+    - epidemic curve S/I/R over time (CSV + plot)
+    - peak infected + time-to-peak + final attack rate
+    - rough R0 proxy on the network
+  executor_ref: networkx
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - network SIR/SIS depends heavily on the contact structure (degree heterogeneity drives spread; hubs accelerate it)
+    - beta / gamma are assumptions (reported, not estimated); results are stochastic (averaged over seeded runs)
+    - the R0 proxy is rough; the true epidemic threshold depends on the degree-distribution variance
