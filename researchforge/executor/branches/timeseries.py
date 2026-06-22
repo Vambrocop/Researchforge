@@ -428,13 +428,14 @@ def _branch_garch(ctx: Ctx) -> None:
         no_arch = arch_lm_p == arch_lm_p and arch_lm_p > 0.05
         arch_note = "；⚠ ARCH-LM 不显著(p>0.05)：无明显波动聚集，GARCH 或非必要" if no_arch else ""
         pers_note = "；⚠ α+β≥1：波动近单位根(IGARCH)，无条件方差不存在" if persistence >= 1 else ""
-        scale_note = f"（拟合时已×{scale:g}，波动率已还原原尺度）" if scale != 1 else ""
+        omega_note = f"（在 ×{scale:g} 缩放序列的尺度上）" if scale != 1 else ""
+        scale_note = f"（拟合时已×{scale:g}，条件/无条件波动率已还原原尺度）" if scale != 1 else ""
         summary.append(
             f"{entry.method} 完成：{value} GARCH(1,1){scale_note}；"
-            f"ω={omega:.4g}、α₁={a:.3f}、β₁={b:.3f}；波动持续性 α+β={persistence:.3f}（越近 1 越持久）；"
+            f"ω={omega:.4g}{omega_note}、α₁={a:.3f}、β₁={b:.3f}；波动持续性 α+β={persistence:.3f}（越近 1 越持久）；"
             f"ARCH-LM p={arch_lm_p:.3g}（检波动聚集）；AIC={res.aic:.1f}。{conv_note}{arch_note}{pers_note}"
             " ⚠ GARCH 建模条件异方差（波动聚集），假定均值方程已设定、序列(弱)平稳；α+β<1 才有有限无条件方差；"
-            "正态新息默认（厚尾可换 t 分布）。"
+            "正态新息默认（厚尾可换 t 分布）；ω 是缩放序列上的方差截距（α/β 无量纲、波动率已还原，ω 未还原）。"
         )
         code += [
             "from arch import arch_model  # GARCH 条件波动率",

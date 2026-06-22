@@ -32,6 +32,9 @@ SLOW_MODULES = {
     "test_parametric_survival", "test_qca_necessity", "test_rdd", "test_rmst",
     "test_sem", "test_sfa", "test_spatial_regression",
     "test_survival_analysis", "test_xgboost",
+    # R-backed / EM-heavy additions (R subprocess startup + multi-fit selection)
+    "test_callaway_santanna", "test_spatial_panel", "test_rda",
+    "test_latent_class_analysis", "test_latent_profile_analysis",
 }
 
 
