@@ -221,9 +221,9 @@ def _branch_centrality_suite(ctx: Ctx) -> None:
             size_by = "betweenness"
         top_n = int(cfg.get("top_n", 5))
 
-        deg = nx.degree_centrality(G)
+        deg = nx.degree_centrality(G)  # NOTE: unweighted by construction (normalized degree)
         bet = nx.betweenness_centrality(G, weight=w, seed=0)
-        clo = nx.closeness_centrality(G)
+        clo = nx.closeness_centrality(G, distance=w)  # use weights as distance (consistent w/ betweenness)
         # eigenvector may fail to converge on some graphs -> flag & fall back to NaN
         eig_ok = True
         try:
@@ -332,6 +332,10 @@ def _branch_centrality_suite(ctx: Ctx) -> None:
             f"{round(mean_agreement, 4) if mean_agreement == mean_agreement else 'NaN'}"
             + ("" if eig_ok else "；⚠ 特征向量中心性未收敛")
             + "。⚠ 各中心性刻画不同的重要性，常不一致（见相关矩阵）；特征向量可能不收敛（已标记）。"
+            + ("" if not w else
+               "⚠ 权重语义：度中心性按构造**不计权重**；介数/接近度把权重当**距离/成本**"
+               "（值越大=越远，若你的权重是关系强度请先取倒数）；特征向量/PageRank 把权重当**连接强度**"
+               "（值越大=越强）——同一表里两种相反语义，解读注意。")
         )
         code += [
             "import networkx as nx",
