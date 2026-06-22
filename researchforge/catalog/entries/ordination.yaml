@@ -1,0 +1,81 @@
+# Ordination / dimension-reduction catalog entries (pure Python — scikit-learn / prince / scipy).
+
+- id: mds
+  method: Multidimensional scaling (MDS, metric)
+  domain: statistics
+  family: ml
+  goal: explore
+  description: >-
+    Metric multidimensional scaling — standardizes continuous features, computes
+    their pairwise Euclidean distance matrix, and places the points in a low-D map
+    (sklearn MDS, dissimilarity precomputed) so that low-D distances approximate the
+    high-D distances. Reports the 2D embedding, the Kruskal stress-1 goodness-of-fit
+    (lower is better, with an interpretation band), a Shepard-diagram correlation of
+    fitted vs original distances, plus a labelled 2D scatter and the Shepard diagram.
+  preconditions:
+    min_continuous: 2
+    min_rows: 4
+  produces:
+    - 2D embedding (rows x dim1/dim2)
+    - Kruskal stress-1 goodness-of-fit (lower is better) + interpretation band
+    - Shepard-diagram correlation (fitted vs original distances)
+    - 2D scatter + Shepard diagram
+  executor_ref: scikit-learn
+  biases:
+    - all continuous columns are the features by default — set config features/n_components/metric/label
+    - MDS places points so low-D distances approximate high-D distances; stress measures the distortion — high stress (>0.20) means 2D is a poor summary, try 3D
+    - metric MDS assumes interval-scale distances; for ordinal dissimilarities use non-metric MDS (set config metric false)
+    - features are standardized so no single variable dominates the distance
+
+- id: correspondence_analysis
+  method: Correspondence analysis (CA / MCA)
+  domain: statistics
+  family: ml
+  goal: explore
+  description: >-
+    Correspondence analysis for categorical variables — for exactly two categorical
+    columns runs CA on their contingency table; for three or more runs MCA (prince).
+    Reports the inertia (variance) explained per dimension and the total, the row and
+    column coordinates, the chi-square test of independence on the contingency table
+    (CA), and a 2D biplot of the row and column points using the symmetric map.
+  preconditions:
+    min_categorical_cols: 2
+    min_rows: 4
+  produces:
+    - inertia (variance) explained per dimension + total
+    - row and column coordinates
+    - chi-square test of independence (CA)
+    - 2D biplot of row + column points (symmetric map)
+  executor_ref: prince
+  biases:
+    - the lowest-cardinality categorical columns are chosen by default — set config columns
+    - CA/MCA visualizes association between categorical variables in a low-D map (proximity means association); inertia equals chi-square over n in CA
+    - only the first few dimensions are interpretable
+    - coordinates use the prince default symmetric map — row-to-column distances are not directly comparable across the two sets
+
+- id: pls_regression
+  method: Partial least squares regression (PLS)
+  domain: statistics
+  family: ml
+  goal: predict
+  description: >-
+    Partial least squares regression for high-dimensional or collinear predictors
+    (sklearn) — finds latent components that maximize covariance with the outcome,
+    so it works where OLS fails (p greater than n, multicollinearity). The number of
+    components is chosen by cross-validated R-squared. Reports per-component X- and
+    Y-variance explained, the VIP scores (Variable Importance in Projection), a CV
+    R-squared vs n_components curve, a fitted-vs-actual plot, and the coefficients.
+  preconditions:
+    min_continuous: 3
+    min_rows: 10
+  produces:
+    - per-component X-variance and Y-variance explained
+    - VIP scores (Variable Importance in Projection)
+    - CV R-squared vs n_components curve + fitted-vs-actual plot
+    - standardized and original-scale regression coefficients
+  executor_ref: scikit-learn
+  biases:
+    - first continuous column is the outcome by default — set config outcome/predictors/n_components
+    - PLS finds latent components maximizing covariance with Y (handles p greater than n and multicollinearity where OLS fails)
+    - the number of components is a choice (cross-validation selected here, with the curve reported)
+    - VIP greater than 1 flags an important predictor (a rule of thumb, not a significance test); predictors are standardized; PLS is predictive, not causal
