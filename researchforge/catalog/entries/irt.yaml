@@ -61,3 +61,93 @@
     - when equal discrimination holds, Rasch supports specific objectivity and interval-scale interpretation; if item slopes truly differ, those claims fail
     - same unidimensionality + local-independence assumptions as 2PL; needs binary 0/1 items (dichotomise polytomous data first)
     - the person-separation reliability is approximated from the test information (no exact LR chi-square is run); difficulties/abilities are anchored to the N(0,1) prior metric
+
+- id: irt_grm
+  method: Graded Response Model (Samejima) for ordinal polytomous items
+  domain: psychometrics
+  family: irt
+  goal: describe
+  description: >-
+    Samejima Graded Response Model on a respondents x ordinal(Likert 0..K) item
+    matrix, fitted by girth.grm_mml via marginal maximum likelihood. Each item
+    gets a discrimination a_j plus K ordered category boundary thresholds, with
+    cumulative-logit category probabilities P(X>=k)=1/(1+exp(-a(theta-thr_k)))
+    and adjacent differences giving each category probability. Reports the
+    per-item discrimination plus ordered-threshold table, EAP person abilities,
+    a category-boundary plot, and flags items whose thresholds are not ordered.
+    Ordinal items are recoded to contiguous integer codes 0..K-1 for girth.
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 20
+  produces:
+    - per-item discrimination plus ordered category-threshold table
+    - EAP person-ability (theta) scores per respondent
+    - category-boundary plot (ordered thresholds per item over theta)
+    - flags for items whose category thresholds are not ordered
+  executor_ref: girth (grm_mml + EAP quadrature scorer)
+  biases:
+    - all count/ordinal columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific scale; needs >=3 ordered categories per item, binary data should use irt_2pl/irt_rasch instead
+    - GRM is for ORDERED polytomous (Likert) responses; the category thresholds of each item must be ordered (monotone cumulative boundaries) and non-ordered thresholds are flagged as a model-fit concern
+    - assumes unidimensionality (one latent trait) and local independence (responses uncorrelated given theta); each category needs enough responses or the extreme thresholds are unstable
+    - discrimination a is the item slope; thresholds locate where the cumulative category probability crosses 50 percent on the ability metric
+    - theta is anchored to the N(0,1) prior metric and scored afterwards by EAP on a quadrature grid, not jointly estimated with the item parameters
+
+- id: irt_pcm
+  method: Generalized Partial Credit Model (GPCM) polytomous IRT
+  domain: psychometrics
+  family: irt
+  goal: describe
+  description: >-
+    Partial-credit polytomous IRT on a respondents x ordinal(0..K) item matrix,
+    fitted by girth.pcm_mml via marginal maximum likelihood. NOTE girth's pcm_mml
+    estimates a FREE per-item discrimination (it is a Generalized Partial Credit
+    Model, GPCM — NOT the classic equal-discrimination Masters PCM). Reports the
+    per-item discrimination + step-difficulty table, EAP person abilities, and a
+    step-difficulty plot. Ordinal items are recoded to contiguous integers 0..K-1.
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 20
+  produces:
+    - per-item discrimination + step-difficulty table
+    - EAP person-ability (theta) scores per respondent
+    - step-difficulty plot (steps per item over theta)
+    - discrimination mean + SD across items
+  executor_ref: girth (pcm_mml + EAP quadrature scorer)
+  biases:
+    - all count/ordinal columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific scale; needs >=3 ordered categories per item
+    - girth pcm_mml is GENERALIZED PCM — it freely estimates a per-item discrimination, NOT the classic Masters PCM equal-discrimination constraint; the reported discrimination_a is each item's own estimated slope
+    - step difficulties are the ability levels where adjacent categories are equiprobable and may be non-monotone (a different meaning from GRM ordered thresholds)
+    - same unidimensionality + local-independence assumptions; EAP abilities are scored with a GRM-cumulative-logit approximation (rank-faithful, EAP-shrunk SD); each category needs enough responses
+    - theta is anchored to the N(0,1) prior metric and scored afterwards by EAP, not jointly estimated with the item parameters
+
+- id: dif_detection
+  method: Differential Item Functioning (Mantel-Haenszel + logistic)
+  domain: psychometrics
+  family: irt
+  goal: explain
+  description: >-
+    Differential Item Functioning detection on a respondents x binary(0/1) item
+    matrix with a two-level group column (config group). Respondents are matched
+    on ability by their rest score (total minus the studied item), and for each
+    item the Mantel-Haenszel common odds ratio is pooled across score strata
+    with an MH chi-square test of OR=1, plus the ETS A/B/C delta-MH
+    classification (negligible/moderate/large). A logistic-regression DIF
+    (item ~ score + group) reports the group coefficient p-value for uniform
+    DIF. Items with significant DIF are flagged as a fairness/measurement-bias
+    concern. Reports the per-item DIF table and a delta-DIF bar plot by class.
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 40
+    requires_group: true
+  produces:
+    - per-item Mantel-Haenszel odds ratio, delta, chi-square and p-value table
+    - logistic-regression group-coefficient p-value (uniform DIF) per item
+    - ETS A/B/C DIF classification with flagged items
+    - delta-DIF bar plot coloured by ETS class
+  executor_ref: numpy/scipy Mantel-Haenszel + statsmodels logistic
+  biases:
+    - DIF is item bias remaining after matching respondents on ability, using the total/rest score as the matching variable (rest score avoids the studied item contaminating its own strata)
+    - Mantel-Haenszel detects UNIFORM DIF (a consistent group advantage across ability); a group-by-score interaction in the logistic model detects NON-uniform DIF (this implementation reports the uniform group main effect)
+    - significant DIF means the item measures differently across groups (a fairness concern that warrants item review or removal), not necessarily that one group is less able
+    - the ETS classification is A negligible, B moderate, C large from the delta-MH effect size combined with significance
+    - needs adequate n per group per score stratum or the stratified chi-square and pooled odds ratio are unstable; the group column must have exactly two levels (reference vs focal)
