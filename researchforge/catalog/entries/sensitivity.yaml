@@ -65,3 +65,39 @@
     - the E-value is the MINIMUM strength a confounder needs, not evidence one exists or is absent — a high E-value means the effect is hard to explain away, not that it is causal
     - a confounder weaker than the E-value cannot fully explain the effect; one stronger could — it bounds, it does not test
     - assumes the confounder acts on both exposure and outcome on the multiplicative (RR) scale
+
+- id: rosenbaum_bounds
+  method: Rosenbaum (2002) sensitivity bounds for the matched-pair signed-rank test
+  domain: statistics
+  family: causal
+  goal: explain
+  description: >-
+    How sensitive is a matched study to HIDDEN bias? Rosenbaum (2002) sensitivity
+    analysis for the Wilcoxon signed-rank test. The engine first forms 1:1
+    treated/control pairs by COVARIATE distance — nearest-neighbour on the
+    propensity-score logit with a 0.2·SD caliper (standardized-covariate distance
+    if the propensity model is unavailable), NEVER on the outcome — then computes
+    the pair outcome differences, orients them to the observed effect direction,
+    and reports the signed-rank statistic with its p-value at Gamma=1 (no hidden
+    bias). For a grid of the sensitivity parameter Gamma (the bound on the within-pair
+    odds ratio of treatment assignment) it gives the worst-case upper- and
+    lower-bound p-values, and the critical Gamma at which the upper-bound p first
+    exceeds 0.05. A large critical Gamma means only a strong unmeasured confounder
+    could overturn the finding (robust). Roles — binary treatment + continuous
+    outcome + at least one covariate to match on. Config treatment/outcome/covariates.
+    Pure Python (statsmodels propensity + scipy) — no external package needed.
+  preconditions:
+    requires_treatment: true
+    min_rows: 20
+    min_continuous: 1
+  produces:
+    - critical Gamma at which the effect becomes non-significant (hidden-bias robustness)
+    - signed-rank statistic + the p-value at Gamma=1 (no hidden bias)
+    - upper/lower bounding p-values across a grid of Gamma + sensitivity plot
+    - number of matched pairs, dropped (no caliper match), and the matching method used
+  executor_ref: py::rosenbaum_bounds
+  biases:
+    - pairs are matched on COVARIATES (propensity-score nearest neighbour with a caliper), never on the outcome — match quality drives credibility, and poor covariate overlap or residual imbalance distorts the bounds
+    - Rosenbaum bounds address HIDDEN (unmeasured) bias only; they do not correct residual imbalance on the observed covariates, nor test whether a confounder exists
+    - the signed-rank test assumes the matched-pair differences are symmetric; the bounding p-values use a normal approximation that is rough when the number of nonzero pairs is small
+    - Gamma is the bound on the within-pair odds ratio of treatment assignment (Gamma=1 = randomized); a large critical Gamma means greater robustness, not proof of no confounding

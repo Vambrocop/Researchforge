@@ -1,0 +1,61 @@
+# Contingency-table / categorical-data analysis catalog entries.
+
+- id: loglinear
+  method: Log-linear model (G-squared test of independence)
+  domain: statistics
+  family: categorical
+  goal: explain
+  description: Log-linear (Poisson GLM) independence model for a two-way r-by-c contingency table built from two categorical/binary columns. Reports the likelihood-ratio deviance statistic G-squared = 2 sum O ln(O/E) with df = (r-1)(c-1), the Pearson chi-square for contrast, the independence-model expected counts, and the adjusted (standardized) Pearson residuals (O-E)/sqrt(E*(1-row/n)*(1-col/n)) which are approximately N(0,1) under independence so cells with absolute residual above 2 pinpoint what drives any association. Cells with expected count below 5 are flagged. Pick the columns with config factors=[col1, col2].
+  preconditions:
+    min_categorical_cols: 2
+    min_rows: 4
+  produces:
+    - G-squared likelihood-ratio test of independence (with df + p) and Pearson chi-square
+    - per-cell observed / expected / standardized-Pearson-residual table (CSV)
+    - standardized-residual heatmap (PNG) + sparse-cell flag
+  executor_ref: empirical-analysis-python
+  biases:
+    - assumes Poisson / multinomial sampling of the cell counts
+    - the asymptotic chi-square approximation is unreliable when expected counts are small; cells with expected below 5 are counted and flagged (merge sparse categories or use an exact test)
+    - tests only the two-way independence (saturated vs main-effects model); higher-order interactions in 3-plus-way tables are not modelled here
+    - the first two categorical/binary columns are used by default; set config factors=[col1, col2] if wrong
+
+- id: cmh_test
+  method: Cochran-Mantel-Haenszel stratified test
+  domain: statistics
+  family: categorical
+  goal: explain
+  description: Cochran-Mantel-Haenszel test for a binary exposure by binary outcome association pooled across K strata, controlling stratum-level confounding. Reports the Mantel-Haenszel common odds ratio sum(a*d/n) over sum(b*c/n), the continuity-corrected CMH chi-square on 1 df, per-stratum odds ratios, and the Breslow-Day test of odds-ratio homogeneity (whether one common OR is reasonable). Pick the columns with config exposure / outcome / stratum.
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 4
+  produces:
+    - Mantel-Haenszel common odds ratio + continuity-corrected CMH chi-square (df 1) with p
+    - Breslow-Day test of OR homogeneity across strata (with p)
+    - per-stratum 2x2 counts + odds ratios (CSV) and a forest plot of per-stratum vs pooled OR (PNG)
+  executor_ref: empirical-analysis-python
+  biases:
+    - CMH assumes a single common odds ratio across strata; the Breslow-Day test checks this (the classic uncorrected form, without Tarone's correction, matching R mantelhaen/BreslowDayTest defaults and slightly anti-conservative since psi_MH is not the exact conditional MLE), and when bd_p is below 0.05 the pooled OR is questionable and effects should be reported per stratum
+    - requires a binary exposure and a binary outcome; the larger sorted label is taken as exposed / outcome-positive (disclosed) so verify the coding
+    - controls only for the measured stratifying variable; unmeasured confounders are not addressed
+    - two binary columns and one stratum column are chosen by default; set config exposure / outcome / stratum if wrong
+
+- id: ordinal_association
+  method: Ordinal association (gamma, Kendall tau-b, Somers D)
+  domain: statistics
+  family: categorical
+  goal: describe
+  description: Rank-based association between two ordinal columns from their contingency table, using concordant and discordant pairs. Reports Goodman-Kruskal gamma (C-D)/(C+D) which ignores ties, Kendall tau-b which adjusts for ties on both variables (with its p-value), and the asymmetric Somers D in both directions D(Y given X) and D(X given Y). Gamma also gets an asymptotic standard error and 95% confidence interval; the significance of association is read from tau-b's p-value (gamma and tau-b test the same concordance null, and gamma's ASE1 is a confidence-interval SE that must not be used as a null z-test). The category order is taken from the sorted labels and is disclosed so it can be checked against the real scale. Pick the columns with config var1 / var2.
+  preconditions:
+    min_categorical_cols: 2
+    min_rows: 4
+  produces:
+    - Goodman-Kruskal gamma (with asymptotic SE + 95% CI) and Kendall tau-b (with p; the significance test for association)
+    - Somers D in both directions (Y given X and X given Y)
+    - ordered contingency table (CSV) + measures table + contingency heatmap (PNG)
+  executor_ref: empirical-analysis-python
+  biases:
+    - these are ORDINAL measures; the category order is taken from sorted labels and is disclosed, so verify it matches the underlying scale before interpreting
+    - for nominal (unordered) variables these directional measures are not meaningful; use Cramers V or the chi-square test instead
+    - gamma ignores all tied pairs and so tends to be larger in absolute value than tau-b; Somers D is asymmetric (normalized by ties on only one variable)
+    - the first two ordinal/categorical columns are used by default; set config var1 / var2 if wrong

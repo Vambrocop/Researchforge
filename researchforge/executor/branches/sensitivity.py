@@ -7,15 +7,18 @@ Hand-rolled methods (pure Python: statsmodels/scipy/numpy, no R):
                     omitted-variable bias (δ + bias-adjusted β*).
   evalue            VanderWeele & Ding (2017) E-value — minimum confounder
                     strength (RR scale) needed to explain away an effect.
-
-(rosenbaum_bounds deferred: the built version paired treated/control by OUTCOME
-rank — circular, inflates significance for any location shift; a correct version
-needs covariate-matched pairs or proper rank-sum Rosenbaum bounds. See deferred-log.)
+  rosenbaum_bounds  Rosenbaum (2002) sensitivity bounds for the matched-pair
+                    Wilcoxon signed-rank test — how large a hidden bias Γ would
+                    have to be to make the effect non-significant.
 
 Convention choices (disclosed in summaries, logged in docs/loop-decisions.md):
   - oster_delta R_max default = min(1.3 * R̃, 1.0) (Oster's heuristic).
   - evalue RR conversion: logistic OR -> RR via sqrt(OR) (VanderWeele 2017
     common-outcome approximation); continuous d -> RR via exp(0.91 * d) (Chinn).
+  - rosenbaum_bounds forms pairs by COVARIATE distance (propensity-score nearest
+    neighbour, 0.2·SD caliper; standardized-Euclidean fallback) — NEVER by the
+    outcome — then applies Rosenbaum's signed-rank bias bounds. This fixes the
+    earlier withdrawn version, which paired on the outcome rank (circular).
 
 See executor/_branch_api.py and CLAUDE.md「引擎约定」.
 """
@@ -425,5 +428,269 @@ def _branch_evalue(ctx: Ctx) -> None:
         ]
     except Exception as err:
         summary.append(f"E-value 失败：{err}")
+
+
+# ===========================================================================
+# 3. Rosenbaum (2002) sensitivity bounds for the matched-pair signed-rank test
+# ===========================================================================
+def _greedy_nn_match(anchor_idx, pool_idx, score, caliper):
+    """Greedy 1:1 nearest-neighbour matching on a 1-D score, no replacement.
+
+    Pairs each anchor (smaller arm) to the closest unused pool unit whose
+    |score| distance is within `caliper` (None = no caliper).  Returns a list of
+    (anchor_position, pool_position) index pairs.  Deterministic: anchors are
+    processed in ascending-score order.
+    """
+    import numpy as np
+
+    pairs = []
+    used = np.zeros(len(pool_idx), dtype=bool)
+    pool_scores = score[pool_idx]
+    for a in sorted(anchor_idx, key=lambda i: score[i]):
+        dist = np.abs(pool_scores - score[a])
+        dist[used] = np.inf
+        j = int(np.argmin(dist))
+        if not np.isfinite(dist[j]):
+            break
+        if caliper is not None and dist[j] > caliper:
+            continue  # no acceptable match within caliper -> anchor dropped
+        used[j] = True
+        pairs.append((a, pool_idx[j]))
+    return pairs
+
+
+@register("rosenbaum_bounds")
+def _branch_rosenbaum_bounds(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    import numpy as np
+    import pandas as pd
+    from scipy import stats
+
+    _excl = {fp.unit_col, fp.time_col}
+    cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+    bins = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
+    numeric = [
+        c.name for c in fp.columns
+        if c.kind in {"continuous", "binary", "count"} and c.name not in _excl
+    ]
+    # treatment: config, else a binary column.  outcome: config, else first continuous.
+    treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
+    if treatment is None:
+        treatment = bins[0] if bins else None
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
+    if outcome is None:
+        outcome = next((c for c in cont if c != treatment), None)
+    if cfg.get("covariates"):
+        covs = [c for c in cfg["covariates"] if c in df.columns and c not in {outcome, treatment}]
+    else:
+        covs = [c for c in numeric if c not in {outcome, treatment}]
+
+    if treatment is None or outcome is None:
+        summary.append(
+            'Rosenbaum 边界失败：需要 二值处理 + 结果(连续) 两列。'
+            'config={"treatment":..,"outcome":..,"covariates":[..]}。'
+        )
+        return
+    if not covs:
+        summary.append(
+            "Rosenbaum 边界失败：需要 ≥1 个协变量按其匹配处理/对照对（绝不按结果配对）。"
+            'config={"covariates":[..]}。'
+        )
+        return
+
+    sub = df[[outcome, treatment, *covs]].apply(pd.to_numeric, errors="coerce").dropna()
+    z_vals = set(pd.unique(sub[treatment].dropna()))
+    if not (z_vals <= {0, 1} and len(z_vals) == 2):
+        # binarize a 2-value non-0/1 treatment; else fail.
+        if len(z_vals) == 2:
+            hi = sorted(z_vals)[1]
+            sub[treatment] = (sub[treatment] == hi).astype(int)
+        else:
+            summary.append("Rosenbaum 边界失败：处理列须为二值（0/1 或两类）。")
+            return
+    if len(sub) < 20:
+        summary.append(f"Rosenbaum 边界失败：去缺后样本 {len(sub)} 太少（需 ≥20）。")
+        return
+
+    sub = sub.reset_index(drop=True)
+    z = sub[treatment].to_numpy(dtype=float)
+    y = sub[outcome].to_numpy(dtype=float)
+    X = sub[covs].to_numpy(dtype=float)
+    idx_t = np.where(z == 1)[0]
+    idx_c = np.where(z == 0)[0]
+    if len(idx_t) < 3 or len(idx_c) < 3:
+        summary.append(
+            f"Rosenbaum 边界失败：处理组 {len(idx_t)} / 对照组 {len(idx_c)}，每组需 ≥3。")
+        return
+
+    try:
+        # --- 1. covariate matching score: propensity (logit), Euclidean fallback ---
+        match_kind = ""
+        score = None
+        try:
+            import statsmodels.api as sm
+
+            logit = sm.Logit(z, sm.add_constant(X)).fit(disp=0)
+            phat = np.clip(np.asarray(logit.predict()), 1e-6, 1 - 1e-6)
+            score = np.log(phat / (1 - phat))  # logit of propensity score
+            caliper = 0.2 * float(np.std(score, ddof=1))
+            match_kind = "倾向得分最近邻（logit，0.2·SD caliper）"
+        except Exception:
+            # standardized-covariate distance fallback (1-D summary = z-scored mean)
+            mu, sd = X.mean(axis=0), X.std(axis=0, ddof=1)
+            sd[sd < 1e-12] = 1.0
+            Xs = (X - mu) / sd
+            score = Xs.mean(axis=1)  # crude 1-D proxy; disclosed
+            caliper = None
+            match_kind = "标准化协变量均值最近邻（无 caliper；倾向模型不可用时的降级）"
+
+        # match the SMALLER arm into the larger arm (maximizes usable pairs).
+        if len(idx_t) <= len(idx_c):
+            anchor, pool = list(idx_t), idx_c
+        else:
+            anchor, pool = list(idx_c), idx_t
+        raw_pairs = _greedy_nn_match(anchor, pool, score, caliper)
+        n_anchor = len(anchor)
+        n_dropped = n_anchor - len(raw_pairs)
+
+        if len(raw_pairs) < 5:
+            summary.append(
+                f"Rosenbaum 边界失败：caliper 内仅匹配到 {len(raw_pairs)} 对（需 ≥5）。"
+                "协变量重叠太差或样本太小。")
+            return
+
+        # --- 2. pair outcome differences  d = y(treated) - y(control) ---
+        diffs = []
+        for a, b in raw_pairs:
+            t_unit, c_unit = (a, b) if z[a] == 1 else (b, a)
+            diffs.append(y[t_unit] - y[c_unit])
+        diffs = np.asarray(diffs, dtype=float)
+        median_diff = float(np.median(diffs))
+        # orient to the OBSERVED effect direction (test is one-sided in that dir).
+        increased = median_diff >= 0
+        oriented = diffs if increased else -diffs
+        nz = oriented[np.abs(oriented) > 1e-12]  # drop zero differences
+        S = nz.size
+        if S < 5:
+            summary.append(f"Rosenbaum 边界失败：非零配对差仅 {S} 个（需 ≥5）。")
+            return
+
+        # --- 3. signed-rank statistic + Rosenbaum Γ bounds (normal approx) ---
+        ranks = stats.rankdata(np.abs(nz))           # average ranks for ties
+        Sq = float(ranks.sum())
+        Sq2 = float((ranks ** 2).sum())
+        T = float(ranks[nz > 0].sum())               # rank sum on the positive side
+
+        def _bounds(gamma):
+            p_plus = gamma / (1.0 + gamma)
+            mu_plus = p_plus * Sq                     # worst-case (largest) mean
+            mu_minus = (1.0 - p_plus) * Sq            # best-case (smallest) mean
+            sd = math.sqrt(p_plus * (1.0 - p_plus) * Sq2)
+            if sd < 1e-12:
+                return float("nan"), float("nan")
+            p_up = float(stats.norm.sf((T - mu_plus) / sd))   # upper bound on p
+            p_lo = float(stats.norm.sf((T - mu_minus) / sd))  # lower bound on p
+            return p_lo, p_up
+
+        base_lo, base_p = _bounds(1.0)               # Γ=1: p_lo==p_up == base p
+        # critical Γ: smallest Γ whose UPPER-bound p exceeds 0.05 (effect breaks).
+        gamma_crit = float("nan")
+        if base_p <= 0.05:
+            for g in np.arange(1.0, 6.0001, 0.05):
+                if _bounds(float(g))[1] > 0.05:
+                    gamma_crit = round(float(g), 2)
+                    break
+
+        estimates["wilcoxon_T"] = round(T, 3)
+        estimates["p_value_gamma1"] = round(base_p, 5)
+        estimates["gamma_critical"] = gamma_crit
+        estimates["n_pairs"] = float(len(raw_pairs))
+        estimates["n_nonzero"] = float(S)
+        estimates["median_pair_diff"] = round(median_diff, 5)
+        estimates["n_dropped_no_match"] = float(n_dropped)
+
+        dir_txt = "提高" if increased else "降低"
+        if base_p > 0.05:
+            verdict = f"Γ=1 下效应已不显著（p={base_p:.3f}），敏感性分析不适用"
+        elif gamma_crit != gamma_crit:
+            verdict = "极稳健（Γ≤6 仍显著：需极大的隐性偏差才能推翻）"
+        elif gamma_crit >= 2.0:
+            verdict = f"稳健（需 Γ≥{gamma_crit:g} 的隐性偏差才能使结论不显著）"
+        elif gamma_crit >= 1.3:
+            verdict = f"中等（Γ≈{gamma_crit:g} 即可推翻——中度隐性偏差就敏感）"
+        else:
+            verdict = f"脆弱（Γ≈{gamma_crit:g} 的微弱隐性偏差即可推翻）"
+
+        grid = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0]
+        rows = [(g, *_bounds(g)) for g in grid]
+        pd.DataFrame(rows, columns=["Gamma", "p_lower", "p_upper"]).round(5).to_csv(
+            d / "rosenbaum_bounds.csv", index=False, encoding="utf-8")
+        files.append("rosenbaum_bounds.csv")
+
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            gs = np.arange(1.0, 6.0001, 0.05)
+            ups = [_bounds(float(g))[1] for g in gs]
+            los = [_bounds(float(g))[0] for g in gs]
+            fig, ax = plt.subplots(figsize=(6.2, 3.8))
+            ax.plot(gs, ups, color="#C44E52", label="upper-bound p")
+            ax.plot(gs, los, color="#4C72B0", lw=1, ls="--", label="lower-bound p")
+            ax.axhline(0.05, color="grey", ls=":", lw=1, label="alpha = 0.05")
+            if gamma_crit == gamma_crit:
+                ax.axvline(gamma_crit, color="black", lw=1)
+                ax.text(gamma_crit, 0.5, f" Gamma*={gamma_crit:g}", fontsize=8,
+                        rotation=90, va="center")
+            ax.set_xlabel("Gamma (hidden-bias magnitude)")
+            ax.set_ylabel("bounding p-value (one-sided)")
+            ax.set_title("Rosenbaum sensitivity bounds (signed-rank)")
+            ax.legend(fontsize=8)
+            fig.tight_layout()
+            fig.savefig(d / "rosenbaum_bounds.png", dpi=150)
+            plt.close(fig)
+            files.append("rosenbaum_bounds.png")
+        except Exception:
+            pass
+
+        gamma_txt = "未在 Γ≤6 内出现" if gamma_crit != gamma_crit else f"{gamma_crit:g}"
+        (d / "rosenbaum_summary.txt").write_text(
+            "Rosenbaum (2002) 隐性偏差敏感性边界（匹配对 Wilcoxon signed-rank）\n"
+            f"结果 {outcome}，处理 {treatment}，按 {len(covs)} 个协变量匹配；"
+            f"配对方式：{match_kind}\n"
+            f"匹配成功 {len(raw_pairs)} 对（caliper 外丢弃 {n_dropped}）；"
+            f"非零配对差 S={S}；处理使结果{dir_txt}（中位配对差={median_diff:.4f}）\n"
+            f"signed-rank T={T:.2f}；Γ=1 下 p={base_p:.4f}\n"
+            f"临界 Γ*（使上界 p 超过 0.05）= {gamma_txt}\n"
+            f"判语：{verdict}\n"
+            "解读：Γ 是「配对内两单位接受处理的几率之比」的上界——Γ=1 即无隐性偏差（随机化）。"
+            "Γ* 越大，越需要强的未观测混杂才能推翻当前显著结论 ⇒ 越稳健。\n"
+            "⚠ 关键前提：配对按【协变量】（倾向得分/标准化距离）而非结果——匹配质量决定可信度，"
+            "协变量重叠差或残余不均衡会使界失真；signed-rank 假定配对差对称；"
+            "用正态近似（S 较小时偏差大）；Rosenbaum 界只针对【隐性】（未观测）偏差，"
+            "不修正可观测协变量的残余不均衡，也非混杂存在性检验。\n",
+            encoding="utf-8",
+        )
+        files.append("rosenbaum_summary.txt")
+        summary.append(
+            f"{entry.method} 完成：按 {len(covs)} 协变量匹配 {len(raw_pairs)} 对"
+            f"（丢 {n_dropped}），处理使 {outcome} {dir_txt}；signed-rank T={T:.1f}，"
+            f"Γ=1 下 p={base_p:.4f}，临界 Γ*={gamma_txt}；判语：{verdict}。"
+            " ⚠ 配对按**协变量**（倾向得分/标准化距离）非结果，匹配质量决定可信度；"
+            "Γ 是配对内处理几率比的上界（Γ=1=无隐性偏差），Γ* 越大越稳健；"
+            "仅针对未观测偏差、用正态近似、非混杂存在性检验。"
+        )
+        code += [
+            "from scipy import stats  # Rosenbaum(2002) signed-rank sensitivity bounds",
+            "# 1) match treated/control by COVARIATE distance (propensity NN + caliper)",
+            "# 2) pair diffs d=y_t-y_c; signed-rank T=sum(rank|d| where d>0)",
+            "# 3) per Gamma: mu+=Gamma/(1+Gamma)*Sq, var=p(1-p)*Sq2; p_upper=norm.sf((T-mu+)/sd)",
+            "# Gamma* = smallest Gamma with upper-bound p > 0.05",
+        ]
+    except Exception as err:
+        summary.append(f"Rosenbaum 边界失败：{err}")
 
 

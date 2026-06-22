@@ -1,0 +1,41 @@
+# Conditional process analysis (Hayes-style moderated mediation + Johnson-Neyman).
+
+- id: moderated_mediation
+  method: First-stage moderated mediation (PROCESS model 7)
+  domain: statistics
+  family: conditional_process
+  goal: explain
+  description: First-stage moderated mediation in the style of Hayes PROCESS model 7 — the indirect path X to M is moderated by W, then M predicts Y controlling for X (all OLS via statsmodels). Reports the index of moderated mediation (a3 times b) and the conditional indirect effect at low/mid/high moderator (W = mean-SD, mean, mean+SD), each with a percentile bootstrap 95% CI from resampling rows and refitting both models. X and W are mean-centered before forming the product term to reduce collinearity. Set the four roles with config x/m/y/w.
+  preconditions:
+    min_continuous: 4
+    min_rows: 30
+  produces:
+    - index of moderated mediation a3*b with bootstrap 95% CI
+    - conditional indirect effect at W = mean-SD / mean / mean+SD with bootstrap CIs
+    - a3, b coefficients; bootstrap-summary CSV; conditional-effect-vs-W plot with CI band
+  executor_ref: empirical-analysis-python
+  biases:
+    - causal interpretation requires sequential ignorability (no unmeasured X-M, M-Y, or X-Y confounding); without it this is an associational decomposition, not a causal one
+    - X-M-W roles are auto-assigned by column order (first continuous is Y, then X, M, W) and the assignment is NOT symmetric; swapping roles fits a different model, so confirm with config x/m/y/w
+    - the index CI excluding zero means the indirect effect depends on W; CIs are percentile bootstrap (B resamples) and a fixed RNG seed is used for reproducibility
+    - first-stage moderation only (W moderates X to M); it does not test moderation of the M to Y or direct path
+
+- id: johnson_neyman
+  method: Johnson-Neyman probing of a two-way interaction
+  domain: statistics
+  family: conditional_process
+  goal: explain
+  description: Probe a two-way interaction of a focal predictor X and a continuous moderator W on outcome Y by OLS (Y on X, W, and X times W; X and W mean-centered for stability). Reports the conditional effect of X at any moderator value, theta(w)=b1+b3*w, with its analytic standard error from the OLS covariance matrix, and the Johnson-Neyman boundaries — the moderator values where the conditional effect turns significant — by solving the quadratic in w. Also reports the simple slopes of X at W = mean +/- SD with p-values. Set roles with config x/w/y.
+  preconditions:
+    min_continuous: 3
+    min_rows: 10
+  produces:
+    - Johnson-Neyman significance boundaries (lower/upper) on the original W scale
+    - interaction coefficient b3 with p-value; simple slopes at W = mean +/- SD with p-values
+    - theta(w) with SE and 95% CI across the observed W range (CSV); conditional-effect plot with shaded region of significance
+  executor_ref: empirical-analysis-python
+  biases:
+    - requires a continuous moderator W; with a categorical moderator use simple-slopes contrasts instead
+    - Johnson-Neyman regions can fall outside the observed W range, in which case they are extrapolation and are flagged as such
+    - a non-significant interaction (b3) makes the Johnson-Neyman region uninformative; probing is reported but caveated
+    - X, W, Y roles are auto-assigned by column order (first continuous is Y, then X, W); confirm with config x/w/y

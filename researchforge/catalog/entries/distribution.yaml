@@ -1,0 +1,61 @@
+# Probability-distribution fitting & goodness-of-fit catalog entries.
+
+- id: distribution_fit
+  method: Distribution fitting by maximum likelihood (AIC/BIC/KS ranking)
+  domain: statistics
+  family: distribution
+  goal: describe
+  description: "Fit candidate continuous distributions (norm, lognorm, gamma, weibull_min, expon) to one numeric column by maximum likelihood, then rank them by AIC (lower is better) with BIC and the Kolmogorov-Smirnov distance reported alongside. Positive-support distributions (lognorm/gamma/weibull/expon) are skipped automatically when the data contains non-positive values, and the gap in AIC to the second-best candidate is reported so you can judge whether the winner is decisive. Produces a per-distribution table of parameters/logL/AIC/BIC/KS plus a density histogram with the fitted PDFs overlaid. Pick the column by name with config column."
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - per-distribution params / logL / AIC / BIC / KS table
+    - best distribution by AIC + delta-AIC gap to the second-best
+    - density histogram with fitted PDFs overlaid (best highlighted)
+  executor_ref: empirical-analysis-python
+  biases:
+    - AIC/BIC rank RELATIVE fit among the candidates and do NOT prove the best one is adequate in an absolute sense -- confirm with goodness_of_fit
+    - positive-support distributions are skipped when the data has values <= 0 (which ones were skipped is reported)
+    - a small delta-AIC to the second-best means the choice of distribution is not robust
+    - the first continuous column is used by default -- set config column if wrong
+
+- id: goodness_of_fit
+  method: Goodness-of-fit tests (KS / Anderson-Darling / Cramer-von Mises / Shapiro-Wilk)
+  domain: statistics
+  family: distribution
+  goal: describe
+  description: "Test whether one numeric column follows a named distribution (default norm) using whichever tests apply -- the Kolmogorov-Smirnov test with fitted parameters, the Anderson-Darling test (defined for norm/expon/logistic/gumbel/weibull, reported against its 5% critical value), the Cramer-von Mises test with the fitted CDF, and the Shapiro-Wilk test when testing normality. Reports each test statistic, p-value (or critical value), and a reject-at-0.05 flag, plus an ECDF-vs-fitted-CDF plot. Choose the column and target distribution with config column and config dist."
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - per-test statistic / p-value / critical value + reject-at-0.05 flag
+    - ECDF vs fitted-CDF plot
+    - overall verdict (rejected vs not-contradicted)
+  executor_ref: empirical-analysis-python
+  biases:
+    - the KS and Cramer-von Mises tests use the FITTED-parameter CDF, so their p-values are conservative (the theory assumes known parameters; estimated from the same data the true p-value differs and is harder to reject) -- treat a non-rejection cautiously
+    - Anderson-Darling is only defined for specific distributions (norm/expon/logistic/gumbel/weibull)
+    - a non-significant p-value does NOT prove the data come from the distribution -- it only means there is not enough evidence to reject
+    - the first continuous column and the normal distribution are used by default -- set config column and config dist if wrong
+
+- id: qq_analysis
+  method: Q-Q and P-P probability-plot diagnostics (PPCC)
+  domain: statistics
+  family: distribution
+  goal: describe
+  description: "Quantile-quantile and probability-probability diagnostics for one numeric column against a theoretical distribution (default norm). Computes theoretical quantiles at the Hazen plotting positions (i-0.5)/n, the probability-plot correlation coefficient PPCC at those Hazen positions (the correlation between the ordered data and the theoretical quantiles; not Filliben's median-rank PPCC), and the least-squares Q-Q reference line (slope and intercept). Produces a 1x2 panel with a Q-Q plot plus reference line and a P-P plot. Choose the column and theoretical distribution with config column and config dist."
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - PPCC (Hazen positions) + Q-Q reference line (slope / intercept)
+    - order-stat / theoretical-quantile / empirical & theoretical CDF table
+    - 1x2 Q-Q + P-P diagnostic panel
+  executor_ref: empirical-analysis-python
+  biases:
+    - a PPCC near 1 indicates a good fit but is a VISUAL / heuristic diagnostic, not a formal test -- pair it with goodness_of_fit
+    - the probability-plot quantiles depend on the chosen plotting positions ((i-0.5)/n here)
+    - tail ppf values can be +/- infinity and are dropped from the PPCC and reference-line fit
+    - the first continuous column and the normal distribution are used by default -- set config column and config dist if wrong
