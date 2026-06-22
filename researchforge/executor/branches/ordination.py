@@ -275,20 +275,27 @@ def _branch_correspondence_analysis(ctx: Ctx) -> None:
         if is_ca:
             col_r, col_c = columns[0], columns[1]
             ct = pd.crosstab(sub[col_r], sub[col_c])
-            n_dim = max(1, min(2, min(ct.shape) - 1))
-            model = prince.CA(n_components=n_dim, n_iter=10, random_state=0)
-            model = model.fit(ct)
+            full_rank = max(1, min(ct.shape) - 1)
             fit_in = ct
+            def _make(nd):
+                return prince.CA(n_components=nd, n_iter=10, random_state=0).fit(ct)
         else:
             n_levels_total = sum(int(sub[c].nunique()) for c in columns)
-            n_dim = max(1, min(2, n_levels_total - len(columns)))
-            model = prince.MCA(n_components=n_dim, n_iter=10, random_state=0)
-            model = model.fit(sub)
+            full_rank = max(1, n_levels_total - len(columns))
             fit_in = sub
+            def _make(nd):
+                return prince.MCA(n_components=nd, n_iter=10, random_state=0).fit(sub)
 
-        # --- Inertia / eigenvalues (version-robust accessors) ---------------
-        eig = _prince_eigenvalues(model)
-        pov = _prince_pct_variance(model, eig)
+        n_dim = max(1, min(2, full_rank))          # dims KEPT for coordinates/plots
+        model = _make(n_dim)                         # coordinate/plot model (≤2 dims)
+        # Inertia accounting must use the FULL-RANK fit, else total_inertia sums only the 2
+        # retained eigenvalues and breaks the inertia=χ²/n identity on tables larger than 3×3
+        # (inference-reviewer MUST-FIX). Coordinates are identical in the first 2 dims either way.
+        eig_model = model if full_rank <= n_dim else _make(full_rank)
+
+        # --- Inertia / eigenvalues (full-rank, version-robust accessors) ----
+        eig = _prince_eigenvalues(eig_model)
+        pov = _prince_pct_variance(eig_model, eig)
         total_inertia = float(np.sum(eig)) if eig is not None and len(eig) else float("nan")
 
         n_eig = len(eig) if eig is not None else 0
