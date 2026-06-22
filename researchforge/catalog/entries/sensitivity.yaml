@@ -1,0 +1,67 @@
+- id: oster_delta
+  method: Oster (2019) coefficient-stability bound (omitted-variable bias)
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    How robust is a regression coefficient to UNOBSERVED confounding? Oster
+    (2019, JBES) formalises the coefficient-stability heuristic. Fit a SHORT
+    regression (outcome ~ treatment) for β° and R°, then a LONG regression
+    (outcome ~ treatment + controls) for β̃ and R̃. Given an assumed maximum
+    explainable R² (R_max, default min(1.3·R̃, 1) per Oster's heuristic) it
+    reports δ — the degree of selection on unobservables RELATIVE to observables
+    that would be needed to drive the treatment effect to zero — and β*, the
+    bias-adjusted coefficient under proportional selection (δ=1). δ>1 means
+    unobservables would have to be MORE important than all observed controls to
+    overturn the result (robust); β* keeping its sign and staying away from zero
+    is the bias-adjusted bound. Roles — outcome (continuous) + treatment + ≥1
+    control. Config outcome/treatment/controls/r_max. Pure Python (statsmodels
+    OLS) — no external package needed.
+  preconditions:
+    requires_treatment: true
+    min_rows: 20
+    min_continuous: 1
+  produces:
+    - delta (selection-on-unobservables relative to observables to nullify the effect)
+    - bias-adjusted beta* under proportional selection (delta=1)
+    - short/long coefficients (β°, β̃) + R² (R°, R̃, R_max) table + bar chart
+    - robustness verdict (delta>1 and sign-preserving beta* = robust)
+  executor_ref: py::oster_delta
+  biases:
+    - assumes PROPORTIONAL selection — unobservables relate to the treatment in proportion to how observables do (Oster's identifying assumption, untestable)
+    - R_max is the key sensitivity input; default 1.3·R̃ is Oster's heuristic, not a fact — the verdict moves with it (configurable via r_max)
+    - delta and beta* are BOUNDS, not proofs of robustness; they presume a linear-additive outcome model
+    - reports how hard it would be to overturn the effect, NOT whether unobserved confounding actually exists
+- id: evalue
+  method: VanderWeele & Ding (2017) E-value (unmeasured confounding)
+  domain: epidemiology
+  family: causal
+  goal: explain
+  description: >-
+    The E-value (VanderWeele & Ding, 2017) quantifies how strong an UNMEASURED
+    confounder would have to be — associated with BOTH the exposure and the
+    outcome on the risk-ratio scale — to fully explain away an observed
+    association. The engine computes an effect from data, converts it to a risk
+    ratio RR, then E = RR + sqrt(RR·(RR−1)) for RR≥1 (inverted for RR<1). A
+    binary outcome runs a logistic regression for an odds ratio, converted to RR
+    (RR≈OR for a rare outcome p0≤0.15, else the sqrt(OR) common-outcome
+    approximation). A continuous outcome forms a standardized mean difference d
+    converted via RR=exp(0.91·d) (Chinn). It reports the point E-value, the
+    E-value for the confidence limit nearest the null, and the RR used. Larger
+    E-value = more robust. Roles — outcome + exposure (+ optional controls).
+    Config outcome/exposure/controls. Pure Python (statsmodels) — no external
+    package needed.
+  preconditions:
+    requires_treatment: true
+    min_rows: 10
+  produces:
+    - point E-value (minimum confounder strength on the RR scale to explain away the effect)
+    - E-value for the CI limit nearest the null (strength to push the effect to non-significance)
+    - the risk ratio used + which RR approximation was applied + bar chart
+    - robustness verdict on the E-value magnitude
+  executor_ref: py::evalue
+  biases:
+    - the OR→RR and d→RR conversions are APPROXIMATIONS — the summary states which was used (rare-outcome RR≈OR, common-outcome sqrt(OR), or Chinn exp(0.91·d))
+    - the E-value is the MINIMUM strength a confounder needs, not evidence one exists or is absent — a high E-value means the effect is hard to explain away, not that it is causal
+    - a confounder weaker than the E-value cannot fully explain the effect; one stronger could — it bounds, it does not test
+    - assumes the confounder acts on both exposure and outcome on the multiplicative (RR) scale
