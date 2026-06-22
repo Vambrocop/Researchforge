@@ -740,13 +740,16 @@ def _branch_irt_pcm(ctx: Ctx) -> None:
         if thr.shape[0] != k:
             summary.append(f"PCM 失败：girth 返回步难度行数({thr.shape[0]})与题项数({k})不符。")
             return
-        shared_a = float(np.mean(disc))
+        disc_mean = float(np.mean(disc))
+        disc_sd = float(np.std(disc, ddof=1)) if k > 1 else 0.0
 
         theta = _poly_abilities(X_ip, disc, thr, n_cats)
 
         # --- step-difficulty table (one column per step boundary) ---
         n_thr = thr.shape[1]
-        item_cols = {"item": items, "discrimination_a_shared": np.round(disc, 4)}
+        # girth's pcm_mml estimates a FREE per-item discrimination (it is GPCM, not the
+        # equal-a Masters PCM) — report each item's own a, not a single "shared" value.
+        item_cols = {"item": items, "discrimination_a": np.round(disc, 4)}
         for t in range(n_thr):
             item_cols[f"step_{t + 1}"] = np.round(thr[:, t], 4)
         item_df = pd.DataFrame(item_cols)
@@ -762,48 +765,32 @@ def _branch_irt_pcm(ctx: Ctx) -> None:
 
         _plot_thresholds(
             d, files, items, disc, thr,
-            "PCM Step Difficulties (Rasch-family)", "irt_pcm_steps.png",
+            "GPCM Step Difficulties", "irt_pcm_steps.png",
         )
-
-        # Informal GRM comparison: GRM frees the equal-discrimination constraint,
-        # so a markedly more spread-out GRM a-vector hints PCM's equal-a is tight.
-        grm_a_spread = float("nan")
-        try:
-            res_g = girth.grm_mml(X_ip)
-            disc_g, _ = _poly_thresholds(res_g)
-            if disc_g.shape[0] == k:
-                grm_a_spread = float(np.std(disc_g, ddof=1)) if k > 1 else 0.0
-        except Exception:
-            grm_a_spread = float("nan")
 
         estimates["n_items"] = float(k)
         estimates["n_respondents"] = float(n_resp)
         estimates["n_categories"] = float(n_cats)
-        estimates["shared_discrimination"] = round(shared_a, 4)
-        estimates["grm_discrimination_spread"] = (
-            round(grm_a_spread, 4) if grm_a_spread == grm_a_spread else -1.0
-        )
+        estimates["discrimination_mean"] = round(disc_mean, 4)
+        estimates["discrimination_sd"] = round(disc_sd, 4)
         estimates["theta_mean"] = round(float(np.mean(theta)), 4)
         estimates["theta_sd"] = round(float(np.std(theta, ddof=1)), 4) if n_resp > 1 else 0.0
 
         stability = "" if n_resp >= _MIN_RESP_POLY else f"⚠ 被试仅 {n_resp}（<~{_MIN_RESP_POLY}），步难度估计偏不稳。"
-        cmp_txt = (
-            f"（对照 GRM 各题区分度 SD≈{grm_a_spread:.3f}，越大越提示等区分度假设偏紧）"
-            if grm_a_spread == grm_a_spread else "（GRM 对照拟合失败）"
-        )
         msg = (
             f"{entry.method} 完成：{k} 个有序多分题项（{n_cats} 类）× {n_resp} 个被试"
-            f"（girth pcm_mml MML，Rasch 族共享区分度 a={shared_a:.3f}）。"
+            f"（girth pcm_mml MML）；各题区分度 a 均值 {disc_mean:.3f}、SD {disc_sd:.3f}（每题见 CSV）。"
             f"每题 {n_thr} 个步难度(step difficulties)；能力 θ(EAP) 均值 {np.mean(theta):.2f}、"
-            f"SD {estimates['theta_sd']:.2f}。{cmp_txt}"
+            f"SD {estimates['theta_sd']:.2f}。"
         )
         if stability:
             msg += " " + stability
         msg += (
-            " ⚠ PCM(Masters 部分计分模型)=Rasch 族的多分推广：各题区分度相等(仅步难度变化)，"
-            "比 GRM 更严格——若各题斜率实际不同应改用 GRM(见上 GRM 区分度离散度对照)；"
-            "步难度=相邻类别等概率处的能力水平(可非单调，与 GRM 的有序阈值不同含义)；"
-            "同样假设单维 + 局部独立 + 有序多分作答；θ 以 N(0,1) 先验为尺度锚定、事后 EAP 评分。"
+            " ⚠ 注意：girth 的 pcm_mml 实为**广义部分计分模型(GPCM)**——每题区分度【自由估计】"
+            "（非经典 Masters PCM 的等区分度约束）；上表 discrimination_a 即各题估计斜率(SD 反映其离散)。"
+            "步难度=相邻类别等概率处的能力水平(可非单调，与 GRM 的有序累积阈值含义不同)；"
+            "若需严格等区分度的部分计分模型，需另行约束(girth 此函数不提供)；"
+            "假设单维 + 局部独立 + 有序多分作答；θ 以 N(0,1) 先验为尺度锚定、事后 EAP 评分(SD 因 EAP 向先验收缩而偏小)。"
         )
         summary.append(msg)
         code += [

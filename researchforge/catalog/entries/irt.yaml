@@ -93,33 +93,31 @@
     - theta is anchored to the N(0,1) prior metric and scored afterwards by EAP on a quadrature grid, not jointly estimated with the item parameters
 
 - id: irt_pcm
-  method: Partial Credit Model (Masters) Rasch-family polytomous IRT
+  method: Generalized Partial Credit Model (GPCM) polytomous IRT
   domain: psychometrics
   family: irt
   goal: describe
   description: >-
-    Masters Partial Credit Model on a respondents x ordinal(0..K) item matrix,
-    fitted by girth.pcm_mml via marginal maximum likelihood. PCM is the
-    Rasch-family generalisation to partial-credit/ordinal items, so all items
-    share ONE discrimination and only the per-item step difficulties vary.
-    Reports the per-item step-difficulty table, EAP person abilities, a
-    step-difficulty plot, and an informal comparison against the GRM
-    discrimination spread to check whether the equal-discrimination assumption
-    is tight. Ordinal items are recoded to contiguous integer codes 0..K-1.
+    Partial-credit polytomous IRT on a respondents x ordinal(0..K) item matrix,
+    fitted by girth.pcm_mml via marginal maximum likelihood. NOTE girth's pcm_mml
+    estimates a FREE per-item discrimination (it is a Generalized Partial Credit
+    Model, GPCM — NOT the classic equal-discrimination Masters PCM). Reports the
+    per-item discrimination + step-difficulty table, EAP person abilities, and a
+    step-difficulty plot. Ordinal items are recoded to contiguous integers 0..K-1.
   preconditions:
     min_categorical_cols: 3
     min_rows: 20
   produces:
-    - per-item step-difficulty table with the shared discrimination
+    - per-item discrimination + step-difficulty table
     - EAP person-ability (theta) scores per respondent
     - step-difficulty plot (steps per item over theta)
-    - informal GRM-discrimination-spread comparison for the equal-a assumption
-  executor_ref: girth (pcm_mml + grm_mml + EAP quadrature scorer)
+    - discrimination mean + SD across items
+  executor_ref: girth (pcm_mml + EAP quadrature scorer)
   biases:
     - all count/ordinal columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific scale; needs >=3 ordered categories per item
-    - PCM equals Rasch for partial-credit/ordinal items, assuming EQUAL discrimination across all items (more restrictive than GRM) — a markedly larger GRM discrimination spread signals the equal-a assumption is tight and GRM may fit better
+    - girth pcm_mml is GENERALIZED PCM — it freely estimates a per-item discrimination, NOT the classic Masters PCM equal-discrimination constraint; the reported discrimination_a is each item's own estimated slope
     - step difficulties are the ability levels where adjacent categories are equiprobable and may be non-monotone (a different meaning from GRM ordered thresholds)
-    - same unidimensionality + local-independence assumptions as the dichotomous Rasch model; each category needs enough responses
+    - same unidimensionality + local-independence assumptions; EAP abilities are scored with a GRM-cumulative-logit approximation (rank-faithful, EAP-shrunk SD); each category needs enough responses
     - theta is anchored to the N(0,1) prior metric and scored afterwards by EAP, not jointly estimated with the item parameters
 
 - id: dif_detection

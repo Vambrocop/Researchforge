@@ -85,9 +85,12 @@ def test_pcm_recovers_step_difficulties(tmp_path: Path) -> None:
     assert res.estimates["n_items"] == float(steps.shape[0])
     assert res.estimates["n_respondents"] == 1200.0
     assert res.estimates["n_categories"] == 4.0
-    assert "shared_discrimination" in res.estimates
+    # girth pcm_mml is GPCM (free per-item discrimination) — reports mean + SD, not "shared"
+    assert "discrimination_mean" in res.estimates
+    assert "discrimination_sd" in res.estimates
 
     params = pd.read_csv(Path(res.output_dir) / "irt_pcm_item_params.csv")
+    assert "discrimination_a" in params.columns
     assert list(params["item"]) == list(df.columns)
     step_cols = [c for c in params.columns if c.startswith("step_")]
     assert len(step_cols) == 3
