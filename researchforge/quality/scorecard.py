@@ -93,7 +93,10 @@ def _measure(catalog) -> tuple[dict, list[tuple[str, int]]]:
         "n_degrade": float(n_degrade),
         "n_modern": float(len(ids & _MODERN)),
         "max_module_lines": float(max_mod),
-        "has_web_ui": 1.0 if (_REPO / "researchforge" / "web" / "templates").exists() else 0.0,
+        # the web UI is a single-page app served from web/static/index.html by
+        # web/app.py (FastAPI), launchable via `cli web` — detect the real artifact
+        # (the old check looked for a templates/ dir that this app never used).
+        "has_web_ui": 1.0 if (_REPO / "researchforge" / "web" / "static" / "index.html").exists() else 0.0,
         "has_deferred_log": 1.0 if (_REPO / "docs" / "deferred-log.md").exists() else 0.0,
         "has_self_evolution": 1.0 if (_REPO / "researchforge" / "catalog" / "discover.py").exists() else 0.0,
         "has_inference_reviewer": 1.0 if (_REPO / ".claude" / "agents" / "inference-reviewer.md").exists() else 0.0,

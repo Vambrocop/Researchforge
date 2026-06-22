@@ -75,6 +75,38 @@ def test_app_imports_without_error():
     assert hasattr(web_app, "app"), "module must expose 'app'"
 
 
+def test_run_endpoint_forwards_config(monkeypatch):
+    """POST /api/run must forward the optional `config` override to the service
+    (needed for design-driven methods: rdd running/cutoff, synthetic_control, …)."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    captured = {}
+
+    def _fake_run(path, analysis_id, output_root="outputs", config=None):
+        captured["config"] = config
+        captured["analysis_id"] = analysis_id
+        return {"summary": "ok", "output_dir": "outputs/x", "files": [], "report": "", "estimates": {}}
+
+    monkeypatch.setattr("researchforge.web.service.run_for_path", _fake_run)
+
+    fid = "testcfgid_passthrough"
+    upload = web_app._WEB_UPLOADS / f"{fid}.csv"
+    upload.write_text("a,b\n1,2\n3,4\n", encoding="utf-8")
+    try:
+        client = TestClient(web_app.app)
+        resp = client.post(
+            "/api/run",
+            json={"file_id": fid, "analysis_id": "rdd", "config": {"running": "a", "cutoff": 2}},
+        )
+        assert resp.status_code == 200, resp.text
+        assert captured["config"] == {"running": "a", "cutoff": 2}, "config must reach the service"
+        assert captured["analysis_id"] == "rdd"
+    finally:
+        upload.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # Helpers for messy data
 # ---------------------------------------------------------------------------

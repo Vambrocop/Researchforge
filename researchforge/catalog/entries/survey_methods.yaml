@@ -1,0 +1,113 @@
+# Design-based survey estimation / weighting catalog entries (survey_methods family).
+# Pure Python (numpy/scipy/pandas); no R. Population targets are NEVER fabricated —
+# poststratification/raking REQUIRE user-supplied known population proportions/margins.
+
+- id: weighted_estimation
+  method: Design-weighted estimation (Horvitz-Thompson)
+  domain: statistics
+  family: survey_methods
+  goal: describe
+  description: >-
+    Horvitz-Thompson design-weighted estimation of a population mean and total for a
+    numeric variable using survey weights. Reports the weighted mean = Σwᵢyᵢ/Σwᵢ with a
+    design-based (ratio) 95% CI, the weighted total = Σwᵢyᵢ, the Kish design effect
+    deff = n·Σw²/(Σw)² and the effective sample size n_eff = (Σw)²/Σw², plus the
+    unweighted mean for contrast and (optionally) per-group weighted means. Pick the
+    value and weight columns with config value/weight (and an optional config group).
+  preconditions:
+    min_continuous: 2
+    min_rows: 3
+  produces:
+    - weighted mean + design-based 95% CI and weighted total
+    - Kish design effect (deff) and effective sample size (n_eff)
+    - unweighted-vs-weighted mean bar plot (95% CI) + optional per-group weighted means
+  executor_ref: py::weighted_estimation
+  biases:
+    - >-
+      the design-based SE always uses the Kish / with-replacement (ratio-estimator)
+      approximation and does NOT account for stratification or PSU clustering (a config
+      group only adds descriptive per-group means; it does not change this SE), so the
+      variance of a truly complex (stratified / multistage) design may be larger than reported
+    - >-
+      survey weights must be positive; non-positive or missing weights cause an honest skip
+      rather than a silent estimate
+    - >-
+      the weighted total assumes the weights are inflation weights (each unit represents a
+      known number of population units) — if they are only relative weights the total is not
+      a population count
+    - >-
+      the value column defaults to the first continuous column and the weight column to a
+      positive continuous column whose name hints weight/wt/pweight — set config value/weight
+      (and group) if the auto-pick is wrong
+
+- id: poststratification
+  method: Post-stratification weight calibration
+  domain: statistics
+  family: survey_methods
+  goal: describe
+  description: >-
+    Adjust sample weights so the weighted category proportions of ONE post-stratification
+    variable match KNOWN population proportions. The per-cell post-stratification factor =
+    population_prop / sample_prop and the new weight = base_weight · factor. Reports the
+    per-cell sample/target proportion, adjustment factor and adjusted weight, the Kish
+    weighting efficiency, and (if a value column is given) the unadjusted vs post-stratified
+    mean of that value. REQUIRES the known population proportions via config pop_props —
+    they cannot be invented. Pick the post-strat column with config strata (optional base
+    weight via config weight, optional value via config value).
+  preconditions:
+    min_categorical_cols: 1
+    min_rows: 3
+  produces:
+    - per-cell sample prop / target prop / adjustment factor / adjusted weight table
+    - weighting efficiency + min/max adjustment factors (sparse-cell flag)
+    - sample-vs-target proportion bar plot + optional adjusted value mean
+  executor_ref: py::poststratification
+  biases:
+    - >-
+      post-stratification REQUIRES external known population proportions (config pop_props)
+      — the engine will NOT fabricate population targets and skips honestly if they are absent
+      or if any sample level lacks a target
+    - >-
+      it corrects for ONE margin only; to calibrate several variables simultaneously use raking
+    - >-
+      extreme adjustment factors (>3 or <1/3) signal sparse post-strat cells and unstable,
+      high-variance weights — these are flagged
+    - >-
+      the post-strat column defaults to the first categorical column and the base weight to 1
+      — set config strata/weight/pop_props/value to control the calibration
+
+- id: raking
+  method: Raking (iterative proportional fitting)
+  domain: statistics
+  family: survey_methods
+  goal: describe
+  description: >-
+    Iterative proportional fitting (raking / IPF) calibrates weights so the weighted MARGINS
+    of TWO or more categorical variables match known population margins simultaneously. It
+    repeatedly rescales the weights variable-by-variable until every margin matches its target
+    within tolerance. Reports the iterations to converge, the converged flag, the final maximum
+    margin discrepancy, the per-variable target-vs-achieved margins, the weight distribution
+    before/after, and the design effect of the raked weights. REQUIRES known population margins
+    per variable via config margins — they cannot be invented. Pick the variables with config
+    rake_vars (optional base weight via config weight).
+  preconditions:
+    min_categorical_cols: 2
+    min_rows: 3
+  produces:
+    - per-variable target-vs-achieved margin table (with abs error)
+    - iterations / converged flag / max margin error and raked design effect
+    - weight summary (before vs after) + weight-distribution histogram
+  executor_ref: py::raking
+  biases:
+    - >-
+      raking REQUIRES known population margins for EACH variable (config margins) — the engine
+      will NOT fabricate population targets and skips honestly if any variable's margin is missing
+    - >-
+      convergence is not guaranteed when the supplied margins are mutually inconsistent or cells
+      are sparse — the converged flag and final max_margin_error are always reported, never hidden
+    - >-
+      calibration raises the design effect (variance) of the weights — the raked deff is reported
+      as the cost of the adjustment
+    - >-
+      the rake variables default to the first two categorical columns — set config rake_vars and
+      provide config margins={var:{level:prop}} for the variables you intend to calibrate

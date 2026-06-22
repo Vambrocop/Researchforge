@@ -54,6 +54,10 @@ app.mount("/outputs", StaticFiles(directory=str(_OUTPUTS_DIR)), name="outputs")
 class RunRequest(BaseModel):
     file_id: str
     analysis_id: str
+    # optional user overrides for the engine's substantive defaults (column roles,
+    # anchors, params) — needed for design-driven methods (rdd running/cutoff,
+    # synthetic_control treated_unit/time, …). The service already accepts this.
+    config: dict | None = None
 
 
 class FileRequest(BaseModel):
@@ -121,7 +125,9 @@ def api_run(body: RunRequest) -> JSONResponse:
 
     from researchforge.web.service import run_for_path
 
-    result = run_for_path(dest, body.analysis_id, output_root=str(_OUTPUTS_DIR))
+    result = run_for_path(
+        dest, body.analysis_id, output_root=str(_OUTPUTS_DIR), config=body.config
+    )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return JSONResponse(result)

@@ -879,14 +879,32 @@ def _branch_ordered_logit(ctx: Ctx) -> None:
             (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
             files.append("summary.txt")
             # OrderedResults lacks summary2(); build the table from arrays.
-            # Rows include predictor slopes plus threshold cutpoints (e.g. 1/2).
+            # Rows include predictor slopes plus threshold cutpoints. statsmodels
+            # OrderedModel stores thresholds in an unconstrained space ([c1, log(c2-c1), …]);
+            # transform the threshold rows to the TRUE ordered cutpoints (only the first
+            # raw value is a cutpoint, the rest are log-increments). Their library SE/z/p
+            # are increment-scale (not cutpoint-scale), so blank them out.
+            import numpy as np
+
+            _coef = model.params.astype(float).copy()
+            _se = model.bse.astype(float).copy()
+            _z = model.tvalues.astype(float).copy()
+            _p = model.pvalues.astype(float).copy()
+            _thr_keys = [i for i in _coef.index if i not in set(predictors)]
+            try:
+                _raw = np.asarray(model.params[_thr_keys], dtype=float)
+                _cuts = [c for c in np.asarray(
+                    model.model.transform_threshold_params(_raw), dtype=float) if np.isfinite(c)]
+                if len(_cuts) == len(_thr_keys):
+                    for _k, _c in zip(_thr_keys, _cuts):
+                        _coef[_k] = _c
+                        _se[_k] = np.nan
+                        _z[_k] = np.nan
+                        _p[_k] = np.nan
+            except Exception:
+                pass
             pd.DataFrame(
-                {
-                    "coef": model.params,
-                    "std_err": model.bse,
-                    "z": model.tvalues,
-                    "P>|z|": model.pvalues,
-                }
+                {"coef": _coef, "std_err": _se, "z": _z, "P>|z|": _p}
             ).to_csv(d / "coefficients.csv", encoding="utf-8")
             files.append("coefficients.csv")
             _coef_plot(model, predictors, d / "coefficients.png")

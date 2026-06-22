@@ -39,6 +39,8 @@ SLOW_MODULES = {
     "test_time_varying_cox", "test_stratified_cox", "test_cox_ph_diagnostics",
     # unit-bootstrap DiD (de Chaisemartin DID_M runs replicate resamples)
     "test_chaisemartin_did",
+    # ordinal regression (statsmodels OrderedModel bfgs + Brant per-cut logits)
+    "test_proportional_odds_logit", "test_ordered_probit", "test_brant_test",
 }
 
 

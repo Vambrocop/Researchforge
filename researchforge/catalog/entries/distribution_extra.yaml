@@ -1,0 +1,92 @@
+# Univariate density & tail estimation catalog entries (distribution_extra family).
+# DISTINCT from `distribution` (named-distribution MLE + goodness-of-fit) and from
+# multivariate `gaussian_mixture` clustering: these describe the SHAPE and the
+# upper-tail behaviour of ONE numeric column.
+
+- id: finite_mixture
+  method: Finite Gaussian mixture (EM) with BIC model selection
+  domain: statistics
+  family: distribution_extra
+  goal: describe
+  description: >-
+    Fit a one-dimensional finite Gaussian mixture to a single numeric column by the
+    EM algorithm (sklearn.mixture.GaussianMixture) for k = 1..K components and select
+    the number of components by BIC (lower is better; max_k defaults to 5). Reports the
+    chosen k, each component's weight / mean / standard deviation, the full BIC-by-k
+    table, and a multimodality verdict (k > 1 chosen, with delta-BIC versus k = 1 where
+    delta-BIC > 10 is strong evidence of multimodality). Produces a density histogram
+    overlaid with the fitted mixture pdf and each component, plus a BIC-by-k curve.
+    EM uses n_init = 5 restarts and a fixed random seed. This is a UNIVARIATE density /
+    latent-subpopulation tool, NOT multivariate clustering (use gaussian_mixture for
+    that). Pick the column with config column and the cap with config max_k.
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - chosen k + per-component weight / mean / sd table
+    - BIC-by-k table and delta-BIC versus k=1 (multimodality evidence)
+    - density histogram with fitted mixture pdf and components + BIC-by-k curve
+  executor_ref: py::finite_mixture
+  biases:
+    - EM is sensitive to initialization (mitigated with n_init restarts and a fixed seed, but the global optimum is not guaranteed)
+    - BIC selects the RELATIVE best k among the candidates, it does not prove the chosen k is the truth
+    - a one-dimensional mixture describes density shape / latent subpopulations, NOT clustering of multivariate data (use gaussian_mixture for that)
+    - the first continuous column is used by default and max_k defaults to 5 -- set config column and config max_k if wrong
+
+- id: kernel_density
+  method: Kernel density estimation with bandwidth rules and mode detection
+  domain: statistics
+  family: distribution_extra
+  goal: describe
+  description: >-
+    Estimate the probability density of a single numeric column with a Gaussian kernel
+    density estimate (scipy.stats.gaussian_kde). Reports the Silverman and Scott
+    rule-of-thumb bandwidths (in data units), detects modes as local maxima of the KDE
+    on a fine 1000-point grid (filtering ripples below 1% of the peak density), and
+    reports the number of modes plus their locations and the primary (highest) mode.
+    Produces a KDE curve drawn over a density histogram with mode markers, a grid of
+    x / density values, and a modes table. A numeric bandwidth can be supplied to
+    override the automatic rule. Pick the column with config column and the bandwidth
+    with config bandwidth.
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - Silverman and Scott rule-of-thumb bandwidths
+    - number of modes + their locations and the primary mode
+    - grid x / density table, modes table, and a KDE-over-histogram plot with mode markers
+  executor_ref: py::kernel_density
+  biases:
+    - the KDE shape depends on the bandwidth (both rules are reported; oversmoothing hides modes, undersmoothing invents them)
+    - the mode count is grid- and bandwidth-dependent (a fine grid plus a 1% height threshold is used as a heuristic, not a formal test)
+    - the first continuous column is used by default -- set config column or config bandwidth if wrong
+
+- id: tail_index
+  method: Heavy-tail / extreme-value tail estimation via the Hill estimator
+  domain: statistics
+  family: distribution_extra
+  goal: describe
+  description: >-
+    Estimate the heaviness of the upper (or lower) tail of a numeric column with the
+    Hill estimator. The chosen tail is reduced to positive values (the lower tail is
+    sign-flipped), sorted descending, and the Hill estimate alpha-hat(k) =
+    1 / [ (1/k) sum_{i=1..k} ln(X_(i) / X_(k+1)) ] is computed across a range of order
+    statistics k. Reports the full Hill plot (alpha-hat versus k), a stable-region
+    alpha-hat (the median over the central 20%-60% band of k -- a heuristic, not an
+    optimal threshold selector), the implied tail index xi = 1/alpha, and whether the
+    tail is heavy (alpha < ~4, where higher moments may not exist). Produces a Hill plot
+    with the stable-region band marked and a k / Hill-alpha table. Choose column / tail /
+    k fraction with config column, config tail (upper|lower), and config k_frac.
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 50
+  produces:
+    - stable-region alpha-hat + implied tail index xi = 1/alpha + heavy-tail flag
+    - k / Hill-alpha table
+    - Hill plot (alpha-hat versus k) with the stable-region band marked
+  executor_ref: py::tail_index
+  biases:
+    - the Hill estimator assumes a Pareto-type upper tail and POSITIVE data (the lower tail is sign-flipped; non-positive data degrade honestly rather than being silently shifted, which would change the tail)
+    - the estimate is highly sensitive to the choice of k (a stable-region median heuristic is used and disclosed, NOT an optimal selector such as Danielsson's bootstrap)
+    - a reasonable sample is needed (n >= 50) for the Hill estimate to be meaningful
+    - the first continuous column and the upper tail are used by default -- set config column / config tail / config k_frac if wrong

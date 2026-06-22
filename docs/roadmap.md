@@ -18,8 +18,8 @@
 
 ## 通往「厚 1.0」的路（B 方案,不赶,慢慢做）
 
-### 阶段 ① v0.8 — 产品壳（让人能用）
-- [ ] **Web 前端 MVP**:上传 → 推荐(🟢🟡🔴 + 6 维评分卡) → 跑 → 报告/图。已有 FastAPI 后端,缺前端。 → 可用性 58→~83。
+### 阶段 ① v0.8 — 产品壳（让人能用）✅ 达成 2026-06-23
+- [x] **Web 前端 MVP**:上传 → 推荐(🟢🟡🔴 + 6 维评分卡) → 跑 → 报告/图。`web/static/index.html` 单页应用 + `web/app.py`(analyze/clean/reanalyze/run/download) + `cli web` 启动 + test_web 9 绿；`/api/run` 已接 config 覆盖。**可用性 58→83、总分→93**（旧 scorecard 探测错路径 templates/→已改 static/index.html）。
 
 ### 阶段 ② v0.9 — 硬化 + 触达
 - [ ] **真实脏数据鲁棒**(编码/缺失/异常 dtype/高基数列)—— 1.0 隐形门槛(现测试多用合成数据)

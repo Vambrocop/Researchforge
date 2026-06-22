@@ -1,0 +1,94 @@
+# Ordinal-outcome regression catalog entries — methods for a small ordered scale
+# (Likert / satisfaction / adoption-intensity, 3..~10 ordered levels) as the outcome.
+# Auto-discovered (catalog loads every *.yaml in this directory). Each id maps to a
+# @register handler in executor/branches/ordinal_regression.py. Outcome = config
+# outcome else first count/categorical column with 3..10 ordered levels; predictors =
+# continuous/binary/count. PURE PYTHON (statsmodels OrderedModel); honest degrade.
+#
+# NOTE: the engine already ships a basic `ordered_logit` (branches/statistics.py), so
+# the richer proportional-odds odds-ratio version here is registered as
+# `proportional_odds_logit` to avoid a duplicate-handler collision.
+
+- id: proportional_odds_logit
+  method: Proportional-odds ordinal logistic regression
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Model an ordinal outcome (Likert scale, satisfaction or adoption-intensity
+    levels) on covariates via the proportional-odds cumulative logit (statsmodels
+    OrderedModel, logit link). Reports per-predictor log-odds and odds ratios
+    exp(coef) with 95% CIs and p-values, the K-1 threshold cutpoints,
+    log-likelihood, McFadden pseudo-R-squared, and an overall likelihood-ratio test
+    versus the null. Forest plot of odds ratios on a log scale.
+  preconditions:
+    requires_ordinal: true
+    min_rows: 30
+  produces:
+    - per-predictor odds ratios with 95% CI + p (CSV)
+    - threshold cutpoints + log-likelihood + McFadden pseudo-R-squared + LR test
+    - odds-ratio forest plot (log scale)
+  executor_ref: py::proportional_odds_logit
+  biases:
+    - >-
+      the proportional-odds (parallel lines) assumption — one common slope across all
+      thresholds — may not hold; run brant_test to check it
+    - outcome level order is taken in sorted order (assumed, not externally verified)
+    - sparse top/bottom categories destabilize the threshold estimates
+
+- id: ordered_probit
+  method: Ordered probit regression
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Model an ordinal outcome on covariates via the ordered probit (statsmodels
+    OrderedModel, probit link / latent-normal). Reports per-predictor coefficients on
+    the latent-normal scale (coef + 95% CI + p — NOT odds ratios), the K-1 threshold
+    cutpoints, log-likelihood, McFadden pseudo-R-squared, and an overall
+    likelihood-ratio test versus the null. Coefficient plot on the latent scale.
+  preconditions:
+    requires_ordinal: true
+    min_rows: 30
+  produces:
+    - per-predictor latent-scale coefficients with 95% CI + p (CSV)
+    - threshold cutpoints + log-likelihood + McFadden pseudo-R-squared + LR test
+    - latent-scale coefficient plot
+  executor_ref: py::ordered_probit
+  biases:
+    - >-
+      probit coefficients are on the latent-normal scale (interpret sign/significance,
+      not as odds ratios or marginal effects directly)
+    - the same proportional/parallel-lines assumption applies — use brant_test
+    - outcome level order is taken in sorted order (assumed, not verified)
+
+- id: brant_test
+  method: Brant test of the proportional-odds (parallel lines) assumption
+  domain: statistics
+  family: statistics
+  goal: explain
+  description: >-
+    Test the proportional-odds / parallel-lines assumption behind ordinal logit using
+    the approximate Brant (1990) approach via separate binary logits: for each cut
+    point k fit a binary logit of 1[y > level_k] on the predictors; proportional odds
+    implies the per-predictor slopes are equal across cut points. Reports the
+    per-predictor slope spread across cut points, a per-predictor chi-square test, and
+    an omnibus chi-square test of the assumption (small p means the assumption is
+    VIOLATED). Plot of per-predictor slopes across cut points.
+  preconditions:
+    requires_ordinal: true
+    min_rows: 30
+  produces:
+    - per-predictor slopes by cut point + per-predictor chi-square p (CSV)
+    - omnibus chi-square test of proportional odds (global stat + p + df)
+    - per-predictor slopes-across-cut-points plot
+  executor_ref: py::brant_test
+  biases:
+    - >-
+      this is the binary-logit Brant approximation (separate per-cut logits with a
+      diagonal/independent-fit variance), not the exact Brant joint covariance
+    - it needs enough observations in each cut's two groups (sparse cuts are skipped and flagged)
+    - >-
+      a significant test means proportional odds is violated — use a non-proportional /
+      generalized ordinal logit (partial/generalized) or multinomial logit instead
+    - outcome level order is taken in sorted order

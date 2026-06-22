@@ -146,7 +146,7 @@ def _branch_vif_multicollinearity(ctx: Ctx) -> None:
 
     finite_vif = vif_arr[np.isfinite(vif_arr)]
     max_vif = float(vif_arr.max()) if vif_arr.size else float("nan")
-    mean_vif = float(finite_vif.mean()) if finite_vif.size else float("inf")
+    mean_vif = float(finite_vif.mean()) if finite_vif.size else float("nan")
     n_high_vif = float(int(np.sum(vif_arr > 10)))  # severe
     n_moderate = int(np.sum((vif_arr > 5) & (vif_arr <= 10)))
 
