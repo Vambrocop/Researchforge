@@ -159,13 +159,23 @@ def _branch_oster_delta(ctx: Ctx) -> None:
         estimates["n"] = float(len(sub))
 
         sign_kept = (beta_star == beta_star) and (np.sign(beta_star) == np.sign(betaT)) and abs(betaT) > 0
-        # δ>1 => unobservables must be MORE important than observables to overturn => robust.
-        robust_delta = (delta == delta) and (delta > 1.0)
-        verdict = (
-            "稳健" if (robust_delta and sign_kept)
-            else ("脆弱（很小的未观测选择即可推翻）" if (delta == delta and delta < 1.0)
-                  else "需谨慎判读")
+        # |δ|≥1 => unobservables must be AT LEAST as important as observables to overturn => robust.
+        # δ<0 has TWO cases: (a) SUPPRESSOR — controls moved β FURTHER from 0 (|β̃|>|β°|, same sign):
+        # unobserved selection would have to run OPPOSITE to observed to nullify => robust; (b) the
+        # long β̃ crossed through ~0 to the opposite sign of β° (|β̃|<|β°|): the effect is ~null/fragile,
+        # NOT a suppressor. So only (a) counts as robust.
+        suppressor = (
+            delta == delta and delta < 0
+            and abs(betaT) > abs(beta0) and np.sign(betaT) == np.sign(beta0)
         )
+        if delta != delta:
+            verdict = "需谨慎判读（δ 不可估，R̃≈R° 或 β°≈β̃）"
+        elif suppressor and sign_kept:
+            verdict = "稳健（加控制后效应反而增强，δ<0 抑制子：未观测需与可观测反向选择才能推翻）"
+        elif abs(delta) >= 1.0 and sign_kept:
+            verdict = "稳健（|δ|≥1：未观测混杂需≥所有可观测控制的重要性才能归零）"
+        else:
+            verdict = "脆弱（很小的未观测选择即可推翻）"
 
         pd.DataFrame({
             "quantity": ["beta_short(β°)", "beta_long(β̃)", "R2_short(R°)", "R2_long(R̃)",
@@ -212,11 +222,12 @@ def _branch_oster_delta(ctx: Ctx) -> None:
             f"β*（δ=1 比例选择下的偏差校正系数）= {beta_star:.6f}\n"
             "  β* = β̃ − (β°−β̃)·(R_max−R̃)/(R̃−R°)\n"
             f"判语：{verdict}\n"
-            "解读：δ>1 表示未观测混杂需比所有可观测控制「更重要」才能把效应归零（→稳健）；"
-            "δ<1 表示很小的未观测选择即可推翻。β* 若仍保号、远离 0 则结论稳健。\n"
+            "解读：|δ|≥1 表示未观测混杂需≥所有可观测控制的重要性才能把效应归零（→稳健）；"
+            "|δ|<1 表示很小的未观测选择即可推翻。δ<0（抑制子情形）=加控制后效应反而增强，"
+            "未观测需与可观测【反向】选择才能推翻（→更稳健）。β* 若仍保号、远离 0 则结论稳健。\n"
             "⚠ 假定：比例选择（未观测与可观测的选择结构成比例）；R_max 是关键敏感参数"
-            "（默认 1.3·R̃，可用 config['r_max'] 调）；δ 与 β* 是界、非证明，"
-            "且依赖线性可加模型设定。\n",
+            "（默认 1.3·R̃，可用 config['r_max'] 调）；β* 用 Oster 简化(线性)界，与 psacalc 精确三次解"
+            "在处理-控制相关较强时可有差异；δ 与 β* 是界、非证明，且依赖线性可加模型设定。\n",
             encoding="utf-8",
         )
         files.append("oster_summary.txt")
