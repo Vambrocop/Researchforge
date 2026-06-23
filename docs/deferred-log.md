@@ -116,6 +116,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+**设计感知田间试验冷审（2026-06-23，field_trials：rcbd/latin_square/split_plot）—— ZERO MUST-FIX：**
+- 冷启动 inference-reviewer **逐位核验**：split-plot SS 分解对齐 statsmodels 全模型 Type-II（<1e-6，含 m=2 行洗牌→证明 map/merge 按标签对齐非行序）、误差层路由（主区 A 对区组×A 误差、df=(a-1,(r-1)(a-1))，非裸 MS_A/MS_sub）、latin 残差 df=(t-1)(t-2)、RCBD 相对效率 Fisher 公式、角色集合运算优先级——全对。
+- ✅ **SHOULD-FIX 已修**：latin_square 原仅校验边际(t==row==col、n≥t²)，非真正拉丁方(如处理混叠到列、n==t²)会被静默当正交分析。已加真拉丁方校验（t² 不重复单元/每单元一次/每处理每行每列各一次，否则诚实跳过）+ 测试。
+- ✅ **NICE 已做**：split-plot summary 加复合对称假定披露（裂区水平>2 指向 MixedLM/GG）。
+- **NICE 待办**：rcbd/latin 报 η²/偏η² 未标小样本上偏（ω²/ε² 偏差更小）——可加一句或补 ω²。split-plot 不平衡已诚实跳过指向 MixedLM；将来可接 MixedLM 通用协方差版裂区。
+
 **v0.9 config schema（2026-06-23）—— infra 已做 + 回填 backlog：**
 - ✅ **已做**：`ParamSpec` 模型 + `AnalysisEntry.params`；`catalog/config_schema.py` `validate_config`（未知键/坏 choice/列不存在/类型错，**非阻塞**警告）；`run_analysis` 接入（⚠ 进 summary）；`cli params <id>`；recommend payload 带 `params`；correlation_suite/effect_sizes 两族填好范例；`tests/test_config_schema.py`。
 - **回填 backlog（~30 族 params 待声明）**：逐族在 yaml 加 `params:` 块。**方法**：审 `@register` handler **及其调用的 helper** 的全部 `cfg.get` 键（共享 resolver 的键，如 forecasting 的 column/value、effect_sizes 的 outcome/group，常在 helper 里、单看 handler 体会漏）；**宁可不填也别 under-declare**（漏键会对合法 config 发假"未知参数"警告）。数据源 = loop-decisions 各行「config 键」列。可写个一次性脚本：正则抽每族每 handler+helper 的 cfg.get 键 → 生成 params 草稿 → 人核类型/描述。

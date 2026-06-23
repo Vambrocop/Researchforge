@@ -1,0 +1,142 @@
+# Field-trials catalog entries — DESIGN-AWARE experimental-design ANALYSIS (pure
+# Python: statsmodels/scipy/numpy/pandas, no R). The analysis counterparts to the
+# `cli design` layout generators (rcbd / factorial / latin_square): design → collect
+# → analyze, with the blocking structure DECLARED (config) not guessed. Each id maps
+# to a @register handler in executor/branches/field_trials.py.
+#
+# NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
+
+- id: rcbd_anova
+  method: Randomized complete block design ANOVA
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Analyze a Randomized Complete Block Design: y ~ C(treatment) + C(block) by
+    Type-II ANOVA. Blocks absorb a known nuisance gradient (field position, day,
+    batch) so the treatment effect is tested against the reduced residual error.
+    Reports the treatment F-test and effect size (η² / partial η²), the block
+    F-test, the relative efficiency of blocking versus a completely randomized
+    design (>1 means blocking paid off), treatment means, and Tukey HSD pairwise
+    comparisons. Roles are config-declared (response / treatment / block) and
+    otherwise inferred from column-name hints + cardinality.
+  preconditions:
+    min_continuous: 1
+    min_categorical_cols: 2
+    min_rows: 6
+  produces:
+    - treatment F + p + η²/partial η², block F + p
+    - relative efficiency of blocking vs a CRD
+    - treatment means (CSV) + Tukey HSD pairwise table (CSV) + means-with-95%CI plot (PNG)
+    - full RCBD ANOVA table (CSV)
+  executor_ref: py::rcbd_anova
+  biases:
+    - assumes treatment×block additivity (no interaction) — blocks remove only an additive block effect
+    - assumes treatments were randomized within each block, and approximately normal, homoscedastic residuals
+    - blocking spends error degrees of freedom; if the block effect is weak the relative efficiency can fall below 1 (blocking did not help)
+    - an unreplicated RCBD cannot separate a treatment×block interaction from error
+  params:
+    - name: response
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理因子
+      default: 名称含 treatment/trt/variety… 的因子，否则最低基数因子
+    - name: block
+      type: column
+      description: 区组因子（重复/田块位置/批次）
+      default: 名称含 block/rep… 的因子
+
+- id: latin_square_anova
+  method: Latin square design ANOVA
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Analyze a Latin square design (two-way blocking): y ~ C(treatment) + C(row) +
+    C(col) by Type-II ANOVA. A t×t Latin square controls TWO orthogonal nuisance
+    directions (e.g. soil gradient across rows and columns) with only t² runs. The
+    treatment is tested against the residual; reports the treatment F + effect size,
+    the row and column block F-tests, treatment means, and Tukey HSD. Requires a
+    complete t×t square (treatment, row, col each with t equal levels). Roles are
+    config-declared (response / treatment / row / col) else inferred.
+  preconditions:
+    min_continuous: 1
+    min_categorical_cols: 3
+    min_rows: 9
+  produces:
+    - treatment F + p + η²/partial η²; row and column block F + p
+    - treatment means (CSV) + Tukey HSD pairwise table (CSV) + means-with-95%CI plot (PNG)
+    - full Latin-square ANOVA table (CSV)
+  executor_ref: py::latin_square_anova
+  biases:
+    - requires a complete t×t square; treatment must be orthogonal to both row and column blocks
+    - assumes NO treatment×row or treatment×column interaction (only additive nuisance removal)
+    - residual df is only (t-1)(t-2), so small squares (t=3,4) have low power — use replicated Latin squares
+    - approximately normal, homoscedastic residuals
+  params:
+    - name: response
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理因子（t 水平）
+      default: 名称含 treatment/trt… 的因子
+    - name: row
+      type: column
+      description: 行区组（t 水平）
+      default: 名称含 row 的因子
+    - name: col
+      type: column
+      description: 列区组（t 水平）
+      default: 名称含 col/column 的因子
+
+- id: split_plot_anova
+  method: Split-plot design ANOVA
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Analyze a balanced split-plot design with the TWO correct error strata. A
+    whole-plot factor A (hard to randomize finely — irrigation, tillage) is applied
+    to whole plots within replicate blocks, and a sub-plot factor B is applied to
+    sub-plots within each whole plot. The whole-plot factor A is tested against the
+    WHOLE-PLOT error (Block×A), while the sub-plot factor B and the A×B interaction
+    are tested against the SUB-PLOT (residual) error. A naive two-way ANOVA tests A
+    against the wrong (sub-plot) error and is badly anticonservative — this handler
+    builds the classical balanced sum-of-squares decomposition with both error lines
+    explicit. Roles config-declared (response / block / whole_plot / sub_plot).
+  preconditions:
+    min_continuous: 1
+    min_categorical_cols: 3
+    min_rows: 8
+  produces:
+    - whole-plot A F + p (tested vs whole-plot error), sub-plot B and A×B F + p (tested vs sub-plot error)
+    - full split-plot ANOVA table with both error strata explicit (CSV)
+    - whole-plot × sub-plot cell means (CSV) + A×B interaction plot (PNG)
+  executor_ref: py::split_plot_anova
+  biases:
+    - requires a BALANCED design — every (block × whole-plot × sub-plot) cell with equal observations; unbalanced data needs a mixed model (MixedLM) instead
+    - the whole-plot factor is tested with fewer error df, so it has inherently lower power — put the higher-priority factor in the sub-plot
+    - using an ordinary two-factor ANOVA here tests the whole-plot factor against the wrong error and grossly overstates its significance
+    - assumes approximately normal, homoscedastic residuals in both strata
+  params:
+    - name: response
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: block
+      type: column
+      description: 区组 / 重复
+      default: 名称含 block/rep… 的因子
+    - name: whole_plot
+      type: column
+      description: 主区因子 A（粗尺度、难细分随机）
+      default: 名称含 whole/main/irrigation… 的因子
+    - name: sub_plot
+      type: column
+      description: 裂区因子 B（细尺度，功效更高）
+      default: 名称含 sub/split 的因子
