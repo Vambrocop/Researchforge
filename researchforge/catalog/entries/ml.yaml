@@ -13,6 +13,23 @@
     - in-sample R-squared / RMSE / residual sigma
     - variable importance (posterior split share) + plot
   executor_ref: dbarts
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
+    - name: ntree
+      type: int
+      description: 树的数量
+      default: dbarts 默认
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
   biases:
     - first continuous column is the outcome by default — set config outcome/predictors
     - in-sample R-squared is optimistic (no cross-validation); split-share importance is rough and splits credit among correlated predictors
@@ -32,6 +49,23 @@
     - target vs empirical coverage + mean interval width
     - coverage plot
   executor_ref: scikit-learn
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
+    - name: alpha
+      type: float
+      description: 误覆盖率（区间覆盖为 1-alpha）
+      default: "0.1"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
   biases:
     - first continuous column is the outcome by default — set config outcome/predictors/alpha
     - coverage is MARGINAL (averaged over the population), not conditional on x; intervals are equal-width (non-adaptive)
@@ -52,6 +86,23 @@
     - node centralities (degree / betweenness / closeness / eigenvector)
     - communities (Louvain) + modularity + network plot
   executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列
+      default: 无（无权图）
+    - name: directed
+      type: bool
+      description: 是否有向图
+      default: "false"
   biases:
     - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
     - metrics are structural/descriptive, not causal; treats the data as a single static graph

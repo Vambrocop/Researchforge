@@ -15,6 +15,23 @@
     - sample skewness & excess kurtosis (drives the Cornish-Fisher correction)
     - return-distribution plot with VaR threshold lines
   executor_ref: scipy
+  params:
+    - name: column
+      type: column
+      description: 收益（或价格）序列列
+      default: 第一个连续列
+    - name: returns
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: is_returns
+      type: bool
+      description: 输入是否已是收益率（否则价格自动转对数收益）
+      default: 自动判断
+    - name: alpha
+      type: str
+      description: 置信水平（单值或列表，如 [0.95, 0.99]）
+      default: "0.95 与 0.99"
   biases:
     - VaR is a quantile, NOT a coherent risk measure (it can violate sub-additivity / diversification); ES (CVaR) is coherent and is also reported
     - parametric Gaussian VaR underestimates tail risk for fat-tailed returns; Cornish-Fisher only PARTIALLY corrects this via skewness/kurtosis
@@ -36,6 +53,31 @@
     - EVT-based VaR / return levels at extreme alphas (e.g. 99%, 99.9%)
     - mean-excess plot + GPD-fit-to-exceedances plot
   executor_ref: scipy
+  params:
+    - name: column
+      type: column
+      description: 收益（或价格）序列列
+      default: 第一个连续列
+    - name: returns
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: is_returns
+      type: bool
+      description: 输入是否已是收益率
+      default: 自动判断
+    - name: threshold
+      type: float
+      description: POT 绝对损失阈值 u
+      default: 损失 95 分位
+    - name: threshold_quantile
+      type: float
+      description: 用分位选阈值（当未给 threshold）
+      default: "0.95"
+    - name: evt_alpha
+      type: str
+      description: 极端置信水平（单值或列表，如 [0.99, 0.999]）
+      default: "0.99 与 0.999"
   biases:
     - threshold choice is the key sensitivity — too low biases the GPD fit, too high inflates its variance; the mean-excess plot's linear segment guides selection
     - needs enough exceedances (>=~30) above the threshold for a stable GPD fit (the engine fails honestly otherwise)
@@ -57,6 +99,27 @@
     - maximum drawdown + Calmar ratio + total/cumulative return
     - cumulative-wealth & drawdown plot + per-period metrics table
   executor_ref: numpy
+  params:
+    - name: column
+      type: column
+      description: 收益（或价格）序列列
+      default: 第一个连续列
+    - name: returns
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: is_returns
+      type: bool
+      description: 输入是否已是收益率
+      default: 自动判断
+    - name: periods_per_year
+      type: int
+      description: 年化周期数（日=252）
+      default: "252"
+    - name: rf
+      type: float
+      description: 每期无风险利率
+      default: "0"
   biases:
     - the Sharpe ratio assumes approximately normal returns; Sortino (downside) and Calmar (drawdown) address downside / drawdown risk that Sharpe ignores
     - annualization assumes iid returns — the sqrt(T) volatility scaling breaks down under serial autocorrelation

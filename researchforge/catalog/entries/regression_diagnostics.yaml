@@ -27,6 +27,15 @@
     - condition number + condition indices (CSV)
     - VIF bar chart with the 5 and 10 threshold lines (PNG)
   executor_ref: py::vif_multicollinearity
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - VIF needs >= 2 predictors; the outcome is the first continuous column unless config overrides it
     - high VIF / high condition number inflate SEs and destabilise coefficients but do NOT bias OLS estimates
@@ -54,6 +63,15 @@
     - Breusch-Pagan + White LM/p/df + F-form (CSV)
     - residuals-vs-fitted scatter (PNG)
   executor_ref: py::heteroskedasticity_test
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - a significant test means OLS SEs are biased (point estimates stay unbiased) -> use robust (HC) SEs or WLS
     - White is more general (no functional-form assumption) but lower-powered and consumes df quickly with many predictors
@@ -80,6 +98,15 @@
     - per-observation leverage / studentized resid / Cook's D / DFFITS + flag (CSV)
     - influence plot (leverage vs studentized residual, size proportional to Cook's D) (PNG)
   executor_ref: py::influence_diagnostics
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - the flags (4/n, 2*sqrt(p/n), 2p/n) are heuristics, NOT proof a point is an error — inspect flagged points, do not auto-delete
     - high leverage is not the same as high influence; Cook's D combines leverage and residual and is the more complete measure

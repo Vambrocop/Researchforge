@@ -19,6 +19,15 @@
     - Levene homogeneity-of-variance test + Welch's robust ANOVA F (unequal-variance fallback)
     - group means/sd/n table + Tukey HSD pairwise comparisons + means (95% CI) plot
   executor_ref: py::anova_oneway
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组因子
+      default: 低基数分类列
   biases:
     - classic ANOVA assumes normal residuals and equal variances across groups
     - Levene flags unequal variances; when violated prefer the reported Welch F
@@ -50,6 +59,23 @@
     - homogeneity-of-regression-slopes (factor×covariate interaction) check
     - covariate-vs-outcome scatter colored by group with per-group fit lines
   executor_ref: py::ancova
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组因子
+      default: 低基数分类列
+    - name: covariates
+      type: columns
+      description: 连续协变量（控制变量）
+      default: 其余连续列
+    - name: covariate
+      type: column
+      description: 单个协变量（covariates 的别名）
+      default: 其余连续列
   biases:
     - assumes homogeneity of regression slopes (parallel slopes); the interaction check flags violation
     - assumes a linear covariate–outcome relationship
@@ -79,6 +105,23 @@
     - Mauchly sphericity test + Greenhouse-Geisser / Huynh-Feldt epsilon + GG-corrected p
     - condition means table + RM-ANOVA table + per-condition means plot (within-subject error bars)
   executor_ref: py::repeated_measures_anova
+  params:
+    - name: subject
+      type: column
+      description: 受试者标识列（长格式）
+      default: 自动推断
+    - name: within
+      type: column
+      description: 重复条件列（长格式）
+      default: 自动推断
+    - name: outcome
+      type: column
+      description: 结果变量（长格式）
+      default: 第一个连续列
+    - name: measures
+      type: columns
+      description: 宽格式的重复测量列
+      default: 自动检测的数值重复列
   biases:
     - assumes sphericity; Mauchly checks it and when violated the reported GG-corrected p should be used
     - needs at least 2 conditions and a balanced design — subjects missing any condition are dropped and disclosed

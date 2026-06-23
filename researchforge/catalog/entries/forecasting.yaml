@@ -27,6 +27,31 @@
     - in-sample fit (AIC, SSE)
     - h-step forecast table with 95% prediction interval (CSV) + fitted/forecast plot
   executor_ref: py::exponential_smoothing
+  params:
+    - name: column
+      type: column
+      description: 要预测的数值序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: h
+      type: int
+      description: 预测步数（horizon）
+      default: "10"
+    - name: trend
+      type: str
+      description: 趋势成分（additive/multiplicative/none）
+      default: 自动（有明显斜率则 additive）
+    - name: seasonal
+      type: str
+      description: 季节成分（additive/none）
+      default: 自动（周期图检测）
+    - name: seasonal_periods
+      type: int
+      description: 季节周期（月=12/季=4/周=7）
+      default: 周期图自动检测
   biases:
     - assumes the smoothing structure is stable and that the historical trend/seasonal pattern continues into the forecast horizon
     - the prediction interval widens the residual sd by sqrt(step) (an approximate SES-style interval) and may be too narrow, especially for the trend/seasonal model
@@ -55,6 +80,27 @@
     - optimized SES alpha + estimated linear drift
     - optional multiplicative deseasonalization (period auto-detected)
   executor_ref: py::theta_method
+  params:
+    - name: column
+      type: column
+      description: 要预测的数值序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: h
+      type: int
+      description: 预测步数（horizon）
+      default: "10"
+    - name: seasonal
+      type: str
+      description: 去季节化（none 关闭）
+      default: 自动（乘法分解）
+    - name: seasonal_periods
+      type: int
+      description: 季节周期
+      default: 自动检测
   biases:
     - the Theta forecast extrapolates the estimated linear drift — it assumes the drift continues over the horizon
     - this implementation produces point forecasts only (no analytic prediction interval)
@@ -84,6 +130,23 @@
     - percentage of zeros + mean inter-arrival interval
     - intermittent-demand plot with the forecast demand levels
   executor_ref: py::croston
+  params:
+    - name: column
+      type: column
+      description: 要预测的间歇需求序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: alpha
+      type: float
+      description: 指数平滑系数
+      default: "0.1"
+    - name: h
+      type: int
+      description: 预测步数（horizon）
+      default: "10"
   biases:
     - Croston is designed for intermittent / zero-heavy demand — on a non-intermittent series (low %zero) it offers no advantage and ordinary exponential smoothing / Theta is preferable (the engine flags this)
     - the original Croston estimator is positively biased — the SBA (1 - alpha/2) correction is reported and generally preferred

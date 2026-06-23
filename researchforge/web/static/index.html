@@ -76,6 +76,27 @@
   summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
   .bias{font-size:13px;color:#7a5a2a;background:#fdf7ea;border:1px solid #f0e2bf;border-radius:8px;padding:10px 12px;margin-top:9px;line-height:1.6}
   .bias li{margin:2px 0}
+  /* config form */
+  .cfg-form{margin-top:11px;border-top:1px dashed var(--line);padding-top:12px}
+  .cfg-hint{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+  .cfg-field{margin-bottom:11px}
+  .cfg-field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
+  .cfg-field .req{color:var(--red);margin-left:3px}
+  .cfg-field .desc{font-weight:400;color:var(--muted);font-size:12.5px;margin-left:6px}
+  .cfg-field .def{display:block;font-weight:400;color:#a4a49c;font-size:11.5px;margin-top:3px}
+  .cfg-field select,.cfg-field input[type=text],.cfg-field input[type=number]{
+    width:100%;max-width:320px;font:inherit;font-size:13.5px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fdfdfc;color:var(--ink)}
+  .cfg-field select[multiple]{height:auto;min-height:80px}
+  .cfg-field input[type=checkbox]{width:auto;transform:translateY(1px);margin-right:6px}
+  .cfg-field .checks{display:flex;flex-wrap:wrap;gap:5px 16px}
+  .cfg-field .checks label{display:inline-flex;align-items:center;font-weight:400;font-size:13px;margin:0}
+  .cfg-field .checks label input{margin-right:5px}
+  .cfg-actions{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .cfg-run{font-size:13px;border:1px solid var(--accent);color:#fff;background:var(--accent);padding:7px 18px}
+  .cfg-run:hover{background:#27543d}
+  .cfg-run:disabled{opacity:.5;cursor:wait}
+  .cfg-cancel{font-size:13px;border:1px solid var(--line);color:var(--muted);background:#fff;padding:7px 14px}
+  .cfg-cancel:hover{border-color:#cfcfc8}
   /* result */
   .sumtext{border-left:3px solid var(--accent);padding:4px 0 4px 14px;font-size:14px;line-height:1.65;white-space:pre-wrap}
   .report{font-size:13.5px;line-height:1.6}
@@ -163,8 +184,10 @@
 let currentFileId = null;
 let cleanedFileId = null;
 let lastRecs = [];
+let lastColumns = [];        // [{name,kind}] from the fingerprint — feeds column/columns selectors
 let goalList = [];            // [{key,label}] supplied by the backend (mirrors goals.py, no drift)
 let activeGoal = 'all';
+let openCfgId = null;         // id of the rec whose inline config form is currently expanded
 
 const DOTS = { green: 'green', yellow: 'yellow', red: 'red' };
 const SC_DIMS = [
@@ -214,9 +237,10 @@ async function doAnalyze(){
   currentFileId=data.file_id;
   renderProfile(data.fingerprint);
   renderIssues(data.fingerprint.issues||[]);
+  lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
   lastRecs=data.recommendations||[];
   goalList=data.goals||[];
-  activeGoal='all';
+  activeGoal='all';openCfgId=null;
   renderGoals();renderRecs();
   document.getElementById('profile-section').style.display='';
 }
@@ -272,19 +296,140 @@ function renderRecs(){
     const biasBlock=biases?`<details><summary>⚠ 偏差披露 / 假定（知情覆盖）</summary><div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
     const btnCls=r.feasible?'run':'run override';
     const btnLabel=r.feasible?'运行 →':'知情覆盖 →';
+    const idAttr=escHtml(r.id);
     return `<div class="rec${r.feasible?'':' infeasible'}">
       <div class="top">
         <span class="light ${DOTS[r.light]||'red'}"></span>
         <span class="mname">${escHtml(r.method)}</span>
         <span class="fam">${escHtml(r.family)}</span>
         <span class="fit-badge">契合 ${r.score}</span>
-        <button class="${btnCls}" onclick="doRun('${r.id}',this)">${btnLabel}</button>
+        <button class="${btnCls}" onclick="clickRun('${idAttr}',this)">${btnLabel}</button>
       </div>
       <div class="why">${escHtml(r.note||'')}</div>
       <div class="sc">${bars}</div>
       ${biasBlock}
+      <div class="cfg-form" id="cfg-${idAttr}" style="display:none"></div>
     </div>`;
   }).join('');
+  // re-open a config form if one was expanded before a re-render
+  if(openCfgId){const rec=lastRecs.find(r=>r.id===openCfgId);if(rec)renderCfgForm(rec);}
+}
+
+// --------------------------------------------------------------------------
+// Per-analysis config form (rendered from rec.params; single source of truth)
+// --------------------------------------------------------------------------
+function colOptions(selected){
+  // a blank "auto/default" option + every dataset column name
+  const blank=`<option value="">（自动 / 默认）</option>`;
+  const opts=lastColumns.map(c=>`<option value="${escHtml(c.name)}"${selected===c.name?' selected':''}>${escHtml(c.name)}${c.kind?' · '+escHtml(c.kind):''}</option>`).join('');
+  return blank+opts;
+}
+
+function paramFieldHtml(p,idx){
+  const fid=`cfgp-${idx}`;
+  const req=p.required?'<span class="req" title="必填">*</span>':'';
+  const desc=p.description?`<span class="desc">${escHtml(p.description)}</span>`:'';
+  const def=p.default?`<span class="def">默认：${escHtml(p.default)}</span>`:'';
+  const t=p.type||'column';
+  let control='';
+  if(t==='column'){
+    control=`<select id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="column">${colOptions('')}</select>`;
+  }else if(t==='columns'){
+    const checks=lastColumns.map(c=>
+      `<label><input type="checkbox" value="${escHtml(c.name)}">${escHtml(c.name)}</label>`).join('');
+    control=`<div id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="columns" class="checks">${checks||'<span class="meta">无可选列</span>'}</div>`;
+  }else if(t==='choice'){
+    const opts=`<option value="">（自动 / 默认）</option>`+
+      (p.choices||[]).map(ch=>`<option value="${escHtml(ch)}">${escHtml(ch)}</option>`).join('');
+    control=`<select id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="choice">${opts}</select>`;
+  }else if(t==='int'){
+    control=`<input type="number" step="1" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="int" placeholder="${escHtml(p.default||'留空用默认')}">`;
+  }else if(t==='float'){
+    control=`<input type="number" step="any" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="float" placeholder="${escHtml(p.default||'留空用默认')}">`;
+  }else if(t==='bool'){
+    control=`<label style="font-weight:400"><input type="checkbox" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="bool"> 启用</label>`;
+  }else{ // str (and any unknown type) -> text input
+    control=`<input type="text" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="str" placeholder="${escHtml(p.default||'留空用默认')}">`;
+  }
+  return `<div class="cfg-field">
+    <label for="${fid}">${escHtml(p.name)}${req}${desc}</label>
+    ${control}
+    ${def}
+  </div>`;
+}
+
+function renderCfgForm(rec){
+  const box=document.getElementById(`cfg-${rec.id}`);
+  if(!box)return;
+  const params=rec.params||[];
+  if(!params.length){
+    box.innerHTML=`<div class="cfg-hint">此分析未声明可配置参数（按自动默认运行）。</div>
+      <div class="cfg-actions">
+        <button class="cfg-run" onclick="submitRun('${escHtml(rec.id)}',this)">运行 →</button>
+        <button class="cfg-cancel" onclick="closeCfgForm()">取消</button>
+        <span class="spinner" id="cfg-spin-${escHtml(rec.id)}">处理中…</span>
+      </div>`;
+  }else{
+    const fields=params.map((p,i)=>paramFieldHtml(p,i)).join('');
+    box.innerHTML=`<div class="cfg-hint">配置参数（全部可留空 → 引擎用自动默认；<span class="req">*</span> 为关键参数）。</div>
+      ${fields}
+      <div class="cfg-actions">
+        <button class="cfg-run" onclick="submitRun('${escHtml(rec.id)}',this)">运行 →</button>
+        <button class="cfg-cancel" onclick="closeCfgForm()">取消</button>
+        <span class="spinner" id="cfg-spin-${escHtml(rec.id)}">处理中…</span>
+      </div>`;
+  }
+  box.style.display='';
+}
+
+function clickRun(analysisId,btn){
+  // toggle: clicking Run again on an open form closes it
+  if(openCfgId===analysisId){closeCfgForm();return;}
+  closeCfgForm();
+  const rec=lastRecs.find(r=>r.id===analysisId);
+  if(!rec)return;
+  openCfgId=analysisId;
+  renderCfgForm(rec);
+  const box=document.getElementById(`cfg-${analysisId}`);
+  if(box)box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function closeCfgForm(){
+  if(openCfgId){const box=document.getElementById(`cfg-${openCfgId}`);if(box){box.style.display='none';box.innerHTML='';}}
+  openCfgId=null;
+}
+
+// Collect a config object from the open form: only non-blank fields are included
+// so the engine falls back to its auto defaults for anything left blank.
+function collectConfig(analysisId){
+  const box=document.getElementById(`cfg-${analysisId}`);
+  if(!box)return {};
+  const cfg={};
+  // single-value controls (column / choice / int / float / str / bool)
+  box.querySelectorAll('[data-pname]').forEach(el=>{
+    const name=el.getAttribute('data-pname');
+    const type=el.getAttribute('data-ptype');
+    if(type==='columns'){
+      const picked=[...el.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+      if(picked.length)cfg[name]=picked;
+      return;
+    }
+    if(type==='bool'){
+      if(el.checked)cfg[name]=true;   // unchecked => omit, engine uses its default
+      return;
+    }
+    const raw=(el.value||'').trim();
+    if(raw==='')return;               // blank => omit
+    if(type==='int'){const n=parseInt(raw,10);if(!Number.isNaN(n))cfg[name]=n;}
+    else if(type==='float'){const n=parseFloat(raw);if(!Number.isNaN(n))cfg[name]=n;}
+    else cfg[name]=raw;               // column / choice / str
+  });
+  return cfg;
+}
+
+async function submitRun(analysisId,btn){
+  const cfg=collectConfig(analysisId);
+  await doRun(analysisId,btn,Object.keys(cfg).length?cfg:null);
 }
 
 async function doClean(){
@@ -323,21 +468,25 @@ async function doReanalyze(){
   document.getElementById('clean-section').style.display='none';
   document.getElementById('result-section').style.display='none';
   renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);
-  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';renderGoals();renderRecs();
+  lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
+  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;renderGoals();renderRecs();
   document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});
 }
 
-async function doRun(analysisId,btn){
+async function doRun(analysisId,btn,config){
   if(!currentFileId)return;clearError();
   document.getElementById('result-section').style.display='none';
   if(btn){btn._o=btn.textContent;btn.textContent='…处理中';btn.disabled=true;}
+  const payload={file_id:currentFileId,analysis_id:analysisId};
+  if(config&&Object.keys(config).length)payload.config=config;  // omit entirely when empty
   let data;
   try{
-    const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:currentFileId,analysis_id:analysisId})});
+    const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     data=await res.json();
     if(!res.ok){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError(data.detail||'运行失败');return;}
   }catch(e){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError('网络错误：'+e.message);return;}
   if(btn){btn.textContent=btn._o;btn.disabled=false;}
+  closeCfgForm();
   renderResult(data);
   document.getElementById('result-section').style.display='';
   document.getElementById('result-section').scrollIntoView({behavior:'smooth'});

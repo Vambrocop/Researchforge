@@ -20,6 +20,15 @@
     - corrected item-total correlations + alpha-if-item-dropped table
     - alpha-if-item-dropped bar chart (red = removal raises alpha)
   executor_ref: numpy / scipy
+  params:
+    - name: items
+      type: columns
+      description: 量表题目列
+      default: 全部连续/计数列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部连续/计数列
   biases:
     - all continuous/count columns (excluding unit/time) are treated as the scale's items by default — set config items/columns for a specific subscale
     - alpha assumes tau-equivalence (equal loadings) and unidimensionality; it UNDER-estimates reliability when these are violated — prefer McDonald's omega then
@@ -47,6 +56,15 @@
     - per-item loadings / communalities / residual variances table
     - omega-vs-alpha contrast and a loadings bar chart
   executor_ref: factor_analyzer
+  params:
+    - name: items
+      type: columns
+      description: 量表题目列
+      default: 全部连续/计数列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部连续/计数列
   biases:
     - all continuous/count columns (excluding unit/time) are the items by default — set config items/columns for a specific subscale
     - omega relaxes alpha's tau-equivalence to a congeneric (unequal-loading) model and is generally the preferred reliability index
@@ -73,6 +91,15 @@
     - two-way ANOVA mean-squares table (MSR/MSC/MSE/MSW)
     - F-test p-value + ICC-forms bar chart
   executor_ref: numpy / scipy
+  params:
+    - name: items
+      type: columns
+      description: 评分者/测量列（宽格式 subject × rater）
+      default: 全部连续/计数列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部连续/计数列
   biases:
     - the data must be the wide subject x rater layout — all continuous/count columns are taken as raters by default; set config items/columns to the rater columns
     - which ICC form to report depends on the design — random vs fixed raters (type 2 vs 3), single vs average rating ((.,1) vs (.,k)), absolute agreement vs consistency (type 2 vs 3)

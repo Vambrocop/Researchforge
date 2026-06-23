@@ -15,6 +15,37 @@
     - permutation p-value
     - distance-distance scatter
   executor_ref: scipy
+  params:
+    - name: community
+      type: columns
+      description: 群落（物种计数）列
+      default: 计数列
+    - name: species
+      type: columns
+      description: community 的别名
+      default: 计数列
+    - name: env
+      type: columns
+      description: 环境/空间变量列
+      default: 连续列
+    - name: spatial
+      type: columns
+      description: env 的别名
+      default: 连续列
+    - name: metric
+      type: choice
+      choices: [braycurtis, euclidean]
+      description: 群落矩阵的距离度量
+      default: braycurtis
+    - name: corr
+      type: choice
+      choices: [pearson, spearman]
+      description: Mantel 相关类型
+      default: pearson
+    - name: n_perm
+      type: int
+      description: 置换次数
+      default: "999"
   biases:
     - tests correlation between distance matrices, not causation
     - distance-metric choice (Bray-Curtis vs Euclidean) changes the conclusion
@@ -35,6 +66,23 @@
     - per-taxon IndVal / best group / p-value table
     - indicator-value bar chart
   executor_ref: numpy
+  params:
+    - name: group
+      type: column
+      description: 分组列
+      default: 第一个分组列
+    - name: species
+      type: columns
+      description: 物种/丰度列
+      default: 计数列
+    - name: abundance
+      type: columns
+      description: species 的别名
+      default: 计数列
+    - name: n_perm
+      type: int
+      description: 置换次数
+      default: "999"
   biases:
     - permutation-based — p-values depend on sampling and the permutation null
     - the group definition drives the result (different groupings yield different indicators)
@@ -56,6 +104,23 @@
     - global / axis / term significance table
     - RDA triplot
   executor_ref: R vegan
+  params:
+    - name: community
+      type: columns
+      description: 群落（物种）矩阵列
+      default: 计数列
+    - name: species
+      type: columns
+      description: community 的别名
+      default: 计数列
+    - name: predictors
+      type: columns
+      description: 约束的环境预测变量
+      default: 连续列
+    - name: env
+      type: columns
+      description: predictors 的别名
+      default: 连续列
   biases:
     - linear constrained ordination — assumes a linear species response to gradients; long gradients (unimodal response) prefer CCA
     - constrained-variance fraction inflates with more predictors (overfitting; inspect adjusted R-squared)

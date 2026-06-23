@@ -17,6 +17,23 @@
     - node-to-community assignment (CSV)
     - community sizes + community-coloured network plot
   executor_ref: python-louvain
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列
+      default: 无（无权图）
+    - name: directed
+      type: bool
+      description: 是否有向图
+      default: "false"
   biases:
     - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
     - Louvain greedily maximises modularity (a heuristic, runs vary slightly; random_state pinned here)
@@ -37,6 +54,31 @@
     - top-N nodes by each measure + Spearman agreement matrix
     - network plot sized by a chosen centrality
   executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列
+      default: 无（无权图）
+    - name: directed
+      type: bool
+      description: 是否有向图
+      default: "false"
+    - name: size_by
+      type: str
+      description: 用于节点大小的中心性指标名
+      default: degree
+    - name: top_n
+      type: int
+      description: 各指标显示的 Top-N 节点数
+      default: 自动
   biases:
     - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
     - each centrality captures a different notion of importance (connections / brokerage / reach / influence) and they often disagree
@@ -57,6 +99,52 @@
     - peak infected + time-to-peak + final attack rate
     - rough R0 proxy on the network
   executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列
+      default: 无（无权图）
+    - name: directed
+      type: bool
+      description: 是否有向图
+      default: "false"
+    - name: model
+      type: choice
+      choices: [sir, sis]
+      description: 传播模型
+      default: sir
+    - name: beta
+      type: float
+      description: 每接触感染概率
+      default: "0.05"
+    - name: gamma
+      type: float
+      description: 康复概率
+      default: "0.1"
+    - name: initial_infected
+      type: int
+      description: 初始感染节点数
+      default: "1"
+    - name: steps
+      type: int
+      description: 模拟步数
+      default: "60"
+    - name: n_runs
+      type: int
+      description: 重复模拟次数（取平均）
+      default: "10"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "0"
   biases:
     - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
     - network SIR/SIS depends heavily on the contact structure (degree heterogeneity drives spread; hubs accelerate it)

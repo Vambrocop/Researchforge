@@ -25,6 +25,19 @@
     - Item Characteristic Curves (ICC) plot over theta
     - model log-likelihood + low-discrimination / extreme-difficulty item-fit flags
   executor_ref: girth (twopl_mml + ability_eap)
+  params:
+    - name: items
+      type: columns
+      description: 题目列（二值 0/1）
+      default: 全部二值列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部二值列
+    - name: model
+      type: str
+      description: IRT 模型（接受 2pl）
+      default: 2pl
   biases:
     - all binary 0/1 columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific test form, and config model accepts 2pl (default)
     - 2PL assumes unidimensionality (one latent ability), local independence (responses uncorrelated given theta) and monotonicity (P rises with theta) — violations bias every parameter
@@ -55,6 +68,15 @@
     - parallel Item Characteristic Curves plot
     - person-separation reliability + Rasch-vs-2PL log-likelihood comparison
   executor_ref: girth (rasch_mml + twopl_mml + ability_eap)
+  params:
+    - name: items
+      type: columns
+      description: 题目列（二值 0/1）
+      default: 全部二值列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部二值列
   biases:
     - all binary 0/1 columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific test form
     - Rasch assumes EQUAL discrimination across all items (more restrictive than 2PL) — a markedly higher 2PL log-likelihood signals the equal-a assumption is violated, in which case prefer 2PL
@@ -85,6 +107,15 @@
     - category-boundary plot (ordered thresholds per item over theta)
     - flags for items whose category thresholds are not ordered
   executor_ref: girth (grm_mml + EAP quadrature scorer)
+  params:
+    - name: items
+      type: columns
+      description: 题目列（有序 Likert 0..K）
+      default: 全部计数/有序列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部计数/有序列
   biases:
     - all count/ordinal columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific scale; needs >=3 ordered categories per item, binary data should use irt_2pl/irt_rasch instead
     - GRM is for ORDERED polytomous (Likert) responses; the category thresholds of each item must be ordered (monotone cumulative boundaries) and non-ordered thresholds are flagged as a model-fit concern
@@ -113,6 +144,19 @@
     - step-difficulty plot (steps per item over theta)
     - discrimination mean + SD across items
   executor_ref: girth (pcm_mml + EAP quadrature scorer)
+  params:
+    - name: group
+      type: column
+      description: DIF 分组变量
+      default: 无（设置才做 DIF）
+    - name: items
+      type: columns
+      description: 题目列（有序 0..K）
+      default: 全部计数/有序列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部计数/有序列
   biases:
     - all count/ordinal columns (excluding unit/time) are taken as the items by default — set config items/columns for a specific scale; needs >=3 ordered categories per item
     - girth pcm_mml is GENERALIZED PCM — it freely estimates a per-item discrimination, NOT the classic Masters PCM equal-discrimination constraint; the reported discrimination_a is each item's own estimated slope
@@ -145,6 +189,19 @@
     - ETS A/B/C DIF classification with flagged items
     - delta-DIF bar plot coloured by ETS class
   executor_ref: numpy/scipy Mantel-Haenszel + statsmodels logistic
+  params:
+    - name: items
+      type: columns
+      description: 题目列（二值 0/1）
+      default: 全部二值列
+    - name: columns
+      type: columns
+      description: items 的别名
+      default: 全部二值列
+    - name: group
+      type: column
+      description: 两水平分组列（参照 vs 焦点）
+      default: 第一个两水平分类列
   biases:
     - DIF is item bias remaining after matching respondents on ability, using the total/rest score as the matching variable (rest score avoids the studied item contaminating its own strata)
     - Mantel-Haenszel detects UNIFORM DIF (a consistent group advantage across ability); a group-by-score interaction in the logistic model detects NON-uniform DIF (this implementation reports the uniform group main effect)

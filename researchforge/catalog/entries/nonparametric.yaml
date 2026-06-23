@@ -18,6 +18,23 @@
     - per-group means table
     - permutation-null histogram with observed stat marked
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组列
+      default: 第一个分组列
+    - name: n_perm
+      type: int
+      description: 置换次数
+      default: "9999"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "0"
   biases:
     - exchangeability assumption — under H0 only the group labels are exchangeable; confounded assignment breaks the null
     - tests the chosen statistic (mean difference / F-ratio), not differences in the distributions in general
@@ -37,6 +54,32 @@
     - point estimate + BCa confidence interval table (z0, acceleration, n_boot)
     - bootstrap-distribution histogram with estimate and CI marked
   executor_ref: empirical-analysis-python
+  params:
+    - name: statistic
+      type: choice
+      choices: [mean, median, std, correlation]
+      description: 要做区间的统计量
+      default: mean
+    - name: column
+      type: column
+      description: 主数值列
+      default: 第一个连续列
+    - name: column2
+      type: column
+      description: 第二列（statistic=correlation 时）
+      default: 第二个连续列
+    - name: n_boot
+      type: int
+      description: 自助重采样次数
+      default: "9999"
+    - name: ci
+      type: float
+      description: 置信水平（0-1）
+      default: "0.95"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "0"
   biases:
     - BCa corrects bias and skewness of the bootstrap distribution but still assumes the resample mimics the original sampling
     - breaks down for very small n or heavily dependent data (time series / clustered samples)
@@ -56,6 +99,19 @@
     - robust vs OLS coefficient comparison table (robust SE, coef diff, Theil-Sen slope)
     - scatter plot with robust / OLS / Theil-Sen fitted lines (1-predictor case)
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续列
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "0"
   biases:
     - M-estimators (Huber) downweight outliers in Y but not high-leverage points in X — use MM-estimators or Theil-Sen for that
     - Theil-Sen has a ~29% breakdown point but is reported only for the single-predictor case

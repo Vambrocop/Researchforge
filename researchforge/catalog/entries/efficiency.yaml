@@ -13,6 +13,15 @@
     - CCR / BCC / scale efficiency scores
     - efficiency ranking
   executor_ref: scipy
+  params:
+    - name: inputs
+      type: columns
+      description: 投入指标列
+      default: 除第一列外的数值列
+    - name: outputs
+      type: columns
+      description: 产出指标列
+      default: 第一个数值列
   biases:
     - input/output designation is assumed (first numeric column = output, the rest = inputs) — verify it matches reality
     - deterministic frontier (no noise) — outliers / measurement error are read as "efficient"; SFA is the stochastic alternative
@@ -32,6 +41,15 @@
     - technical efficiency per unit
     - inefficiency variance ratio gamma = sigma_u^2/(sigma_u^2+sigma_v^2) + one-sided LR test of no inefficiency
   executor_ref: frontier (R)
+  params:
+    - name: inputs
+      type: columns
+      description: 投入指标列
+      default: 除第一列外的数值列
+    - name: outputs
+      type: columns
+      description: 产出指标列
+      default: 第一个数值列
   biases:
     - assumes a functional form (Cobb-Douglas, logs) and a half-normal inefficiency distribution
     - needs strictly positive inputs/outputs and a moderate sample for stable ML
@@ -51,6 +69,19 @@
     - per-unit Malmquist TFP index
     - efficiency-change / technical-change decomposition
   executor_ref: scipy
+  params:
+    - name: inputs
+      type: columns
+      description: 投入指标列
+      default: 除第一列外的数值列
+    - name: outputs
+      type: columns
+      description: 产出指标列
+      default: 第一个数值列
+    - name: periods
+      type: str
+      description: 比较的起止两期 [start, end]
+      default: 首期 vs 末期
   biases:
     - input/output designation is assumed (first numeric column = output, rest = inputs)
     - deterministic frontier (no noise); sensitive to outliers and to having few units

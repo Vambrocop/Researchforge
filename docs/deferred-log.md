@@ -116,6 +116,11 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+**中介/调节扩展 + Web 表单 + config 回填（2026-06-23，方法波 + 2 subagent）：**
+- **mediation_extra 冷审 ZERO MUST-FIX**（serial/parallel/moderated_moderation）：reviewer 逐位核 path index/serial 分解 a1·d21·b2/3 阶条件斜率 L 向量+解析 SE/df/中心化。**NICE 待办**：bootstrap 改 BCa（现百分位、已披露）；B=2000→5000（Hayes 建议、已披露）；serial/parallel 可报 c' 的 CI。
+- **Web 动态 config 表单（subagent A，已集成）**：`web/static/index.html` 据 recommend payload 的 `params` 渲染表单（column→列下拉、columns→多选、choice→选择、int/float→数字、bool→勾选），空字段省略→回退默认，空 params 提示按默认跑。仅前端，test_web 9 绿。
+- **config params 回填（subagent B，已集成）**：47 文件/165 entry 加 `params:`（共 177 entry 有 params）。主脑集成时**修了 2 个未引号化的 `{}` 描述 YAML 崩**（categorical_tests `{类别:概率}`、survey_methods `{var:{level:prop}}`）+ **补 12 个 under-declare 真键**（field_trials outcome 别名、MCDA 6 个 weights、power_analysis environment/genotype、irt_pcm group、kruskal within/subject/conditions）防假警告；写了 within-file 完整性校验脚本（declared⊇read，仅剩 croston seasonal_periods 一个确认的假阳=模块广播但不实读）。**回填 backlog**：跨文件 resolver 键（_helpers 的 _regression/_io_names 等）未逐一校验，残留少量假警告风险（非阻塞）；可把完整性校验做成 CI guard。
+
 **设计感知田间试验冷审（2026-06-23，field_trials：rcbd/latin_square/split_plot）—— ZERO MUST-FIX：**
 - 冷启动 inference-reviewer **逐位核验**：split-plot SS 分解对齐 statsmodels 全模型 Type-II（<1e-6，含 m=2 行洗牌→证明 map/merge 按标签对齐非行序）、误差层路由（主区 A 对区组×A 误差、df=(a-1,(r-1)(a-1))，非裸 MS_A/MS_sub）、latin 残差 df=(t-1)(t-2)、RCBD 相对效率 Fisher 公式、角色集合运算优先级——全对。
 - ✅ **SHOULD-FIX 已修**：latin_square 原仅校验边际(t==row==col、n≥t²)，非真正拉丁方(如处理混叠到列、n==t²)会被静默当正交分析。已加真拉丁方校验（t² 不重复单元/每单元一次/每处理每行每列各一次，否则诚实跳过）+ 测试。

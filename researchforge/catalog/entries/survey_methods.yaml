@@ -22,6 +22,19 @@
     - Kish design effect (deff) and effective sample size (n_eff)
     - unweighted-vs-weighted mean bar plot (95% CI) + optional per-group weighted means
   executor_ref: py::weighted_estimation
+  params:
+    - name: value
+      type: column
+      description: 待估计的数值变量列
+      default: 第一个连续列
+    - name: weight
+      type: column
+      description: 抽样权重列
+      default: 名称含 weight/wt/pweight 的正连续列
+    - name: group
+      type: column
+      description: 可选分组列（描述性分组均值）
+      default: 不分组
   biases:
     - >-
       the design-based SE always uses the Kish / with-replacement (ratio-estimator)
@@ -62,6 +75,31 @@
     - weighting efficiency + min/max adjustment factors (sparse-cell flag)
     - sample-vs-target proportion bar plot + optional adjusted value mean
   executor_ref: py::poststratification
+  params:
+    - name: strata
+      type: column
+      description: 后分层变量列
+      default: 第一个分类列
+    - name: stratum
+      type: column
+      description: strata 的别名
+      default: 第一个分类列
+    - name: pop_props
+      type: str
+      description: "已知总体比例 {类别: 比例}"
+      default: 无（必须提供，否则诚实跳过）
+    - name: pop_proportions
+      type: str
+      description: pop_props 的别名
+      default: 无
+    - name: weight
+      type: column
+      description: 基础权重列
+      default: "1"
+    - name: value
+      type: column
+      description: 可选数值列（报告调整前后均值）
+      default: 不报告
   biases:
     - >-
       post-stratification REQUIRES external known population proportions (config pop_props)
@@ -98,6 +136,31 @@
     - iterations / converged flag / max margin error and raked design effect
     - weight summary (before vs after) + weight-distribution histogram
   executor_ref: py::raking
+  params:
+    - name: rake_vars
+      type: columns
+      description: 参与校准的分类变量列
+      default: 前两个分类列
+    - name: rake_variables
+      type: columns
+      description: rake_vars 的别名
+      default: 前两个分类列
+    - name: margins
+      type: str
+      description: "各变量已知总体边际 {var: {level: prop}}"
+      default: 无（必须提供，否则诚实跳过）
+    - name: weight
+      type: column
+      description: 基础权重列
+      default: "1"
+    - name: max_iter
+      type: int
+      description: IPF 最大迭代次数
+      default: 自动
+    - name: tol
+      type: float
+      description: 收敛容差
+      default: 自动
   biases:
     - >-
       raking REQUIRES known population margins for EACH variable (config margins) — the engine

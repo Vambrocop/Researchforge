@@ -31,6 +31,27 @@
     - Dunn post-hoc pairwise z / Bonferroni-adjusted p table
     - per-group boxplot
   executor_ref: scipy
+  params:
+    - name: subject
+      type: column
+      description: 被试/区组 id（用于检测重复测量误用→建议 friedman）
+      default: 无
+    - name: within
+      type: column
+      description: 被试内条件列（误用检测）
+      default: 无
+    - name: conditions
+      type: str
+      description: 重复测量条件（误用检测）
+      default: 无
+    - name: outcome
+      type: column
+      description: 连续/有序结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组列（3..~12 水平）
+      default: 第一个多水平分类列
   biases:
     - >-
       tests stochastic dominance / a distribution shift across groups, NOT just a
@@ -66,6 +87,27 @@
     - Nemenyi post-hoc pairwise critical-difference table
     - per-condition mean-rank bar chart
   executor_ref: scipy
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（长格式时）
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组列（长格式时）
+      default: 第一个分组列
+    - name: subject
+      type: column
+      description: 受试者标识列（长格式）
+      default: 自动
+    - name: within
+      type: column
+      description: 重复条件列（长格式）
+      default: 自动
+    - name: conditions
+      type: columns
+      description: 宽格式的重复测量列
+      default: 全部数值重复测量列
   biases:
     - >-
       requires COMPLETE blocks — subjects missing any condition are dropped (the
@@ -103,6 +145,19 @@
     - per-group median / mean / n table + test-statistics table
     - two-group boxplot with jittered strip overlay
   executor_ref: scipy
+  params:
+    - name: outcome
+      type: column
+      description: 连续/有序结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 两水平分组列
+      default: 第一个两水平分类列
+    - name: hl_max_pairs
+      type: int
+      description: Hodges-Lehmann 估计的最大配对数（限内存）
+      default: 自动上限
   biases:
     - >-
       tests stochastic dominance — it reduces to a comparison of medians only when

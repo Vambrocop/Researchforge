@@ -14,6 +14,11 @@
     - per-cell observed / expected / standardized-Pearson-residual table (CSV)
     - standardized-residual heatmap (PNG) + sparse-cell flag
   executor_ref: empirical-analysis-python
+  params:
+    - name: factors
+      type: columns
+      description: 两个分类/二值列 [col1, col2]
+      default: 前两个分类/二值列
   biases:
     - assumes Poisson / multinomial sampling of the cell counts
     - the asymptotic chi-square approximation is unreliable when expected counts are small; cells with expected below 5 are counted and flagged (merge sparse categories or use an exact test)
@@ -34,6 +39,19 @@
     - Breslow-Day test of OR homogeneity across strata (with p)
     - per-stratum 2x2 counts + odds ratios (CSV) and a forest plot of per-stratum vs pooled OR (PNG)
   executor_ref: empirical-analysis-python
+  params:
+    - name: exposure
+      type: column
+      description: 二值暴露列
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 二值结果列
+      default: 第二个二值列
+    - name: stratum
+      type: column
+      description: 分层（混杂控制）列
+      default: 第一个分层列
   biases:
     - CMH assumes a single common odds ratio across strata; the Breslow-Day test checks this (the classic uncorrected form, without Tarone's correction, matching R mantelhaen/BreslowDayTest defaults and slightly anti-conservative since psi_MH is not the exact conditional MLE), and when bd_p is below 0.05 the pooled OR is questionable and effects should be reported per stratum
     - requires a binary exposure and a binary outcome; the larger sorted label is taken as exposed / outcome-positive (disclosed) so verify the coding
@@ -54,6 +72,15 @@
     - Somers D in both directions (Y given X and X given Y)
     - ordered contingency table (CSV) + measures table + contingency heatmap (PNG)
   executor_ref: empirical-analysis-python
+  params:
+    - name: var1
+      type: column
+      description: 第一个有序/分类列
+      default: 第一个有序/分类列
+    - name: var2
+      type: column
+      description: 第二个有序/分类列
+      default: 第二个有序/分类列
   biases:
     - these are ORDINAL measures; the category order is taken from sorted labels and is disclosed, so verify it matches the underlying scale before interpreting
     - for nominal (unordered) variables these directional measures are not meaningful; use Cramers V or the chi-square test instead

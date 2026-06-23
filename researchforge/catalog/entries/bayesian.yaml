@@ -30,6 +30,43 @@
     - P(B greater than A), lift posterior with credible interval, decision-theoretic expected loss
     - two Beta posterior density curves
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 二值结果列（1=成功）
+      default: 第一个二值列
+    - name: group
+      type: column
+      description: 两水平分组列（A/B 两臂）
+      default: 第一个二值/两水平分类列
+    - name: successes_a
+      type: int
+      description: A 臂成功数（与列输入二选一，直接给计数）
+      default: 由 outcome×group 列汇总
+    - name: trials_a
+      type: int
+      description: A 臂试验总数
+      default: 由 outcome×group 列汇总
+    - name: successes_b
+      type: int
+      description: B 臂成功数
+      default: 由 outcome×group 列汇总
+    - name: trials_b
+      type: int
+      description: B 臂试验总数
+      default: 由 outcome×group 列汇总
+    - name: prior_a
+      type: float
+      description: Beta 先验 α
+      default: "1.0（均匀 Beta(1,1)）"
+    - name: prior_b
+      type: float
+      description: Beta 先验 β
+      default: "1.0（均匀 Beta(1,1)）"
+    - name: ci
+      type: float
+      description: 可信区间水平（0-1）
+      default: "0.95"
   biases:
     - priors are stated (default uniform Beta(1,1)) and matter at small n — report the prior
     - P(B greater than A) is a posterior probability, NOT a frequentist p-value
@@ -58,6 +95,39 @@
     - posterior summary table (mean/median/mode, credible interval, P(theta greater than ref))
     - Beta posterior density with mean, credible interval and reference marked
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 二值结果列（1=成功）
+      default: 第一个二值列
+    - name: group
+      type: column
+      description: 可选两水平分组列
+      default: 不分组（单一比例）
+    - name: prior
+      type: str
+      description: 先验快捷选择（jeffreys=Beta(0.5,0.5)，其余=均匀）
+      default: uniform（Beta(1,1)）
+    - name: prior_a
+      type: float
+      description: Beta 先验 α（覆盖 prior 快捷选择）
+      default: "1.0"
+    - name: prior_b
+      type: float
+      description: Beta 先验 β
+      default: "1.0"
+    - name: ci
+      type: float
+      description: 可信区间水平（0-1）
+      default: "0.95"
+    - name: ref
+      type: float
+      description: 比较参考值，报告 P(θ > ref)
+      default: "0.5"
+    - name: interval
+      type: str
+      description: 可信区间类型（hpd=最高后验密度，其余=等尾）
+      default: equal_tail（等尾）
   biases:
     - prior choice matters at small n (uniform Beta(1,1) vs Jeffreys Beta(0.5,0.5) shifts the estimate) — report the prior
     - a credible interval is a direct probability statement about theta, NOT a confidence interval
@@ -87,6 +157,39 @@
     - optional rate-ratio posterior with credible interval and P(ratio greater than 1)
     - Gamma posterior rate density curve
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 计数结果列
+      default: 第一个计数列
+    - name: exposure
+      type: column
+      description: 暴露/偏移列（events per exposure）
+      default: 无（默认每行暴露为 1）
+    - name: group
+      type: column
+      description: 可选两水平分组列（报告率比）
+      default: 不分组
+    - name: prior_a
+      type: float
+      description: Gamma 先验形状 α0
+      default: "0.001（弱信息）"
+    - name: prior_shape
+      type: float
+      description: Gamma 先验形状 α0（prior_a 的别名）
+      default: "0.001"
+    - name: prior_b
+      type: float
+      description: Gamma 先验率 β0
+      default: "0.001（弱信息）"
+    - name: prior_rate
+      type: float
+      description: Gamma 先验率 β0（prior_b 的别名）
+      default: "0.001"
+    - name: ci
+      type: float
+      description: 可信区间水平（0-1）
+      default: "0.95"
   biases:
     - conjugate Gamma-Poisson assumes Poisson counts (constant rate, no overdispersion)
     - the prior is weakly informative by default (Gamma(0.001,0.001)) and is stated — report it

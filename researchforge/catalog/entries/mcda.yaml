@@ -13,6 +13,15 @@
     - ranked closeness scores
     - entropy weights per indicator
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 等权/客观
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
   biases:
     - assumes every indicator is benefit-type (higher is better) unless told otherwise — cost indicators must be reversed
     - entropy weights reflect data dispersion, not substantive importance
@@ -31,6 +40,15 @@
     - CRITIC weights per indicator
     - composite scores and ranking
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 客观计算
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
   biases:
     - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
     - weights reflect dispersion and correlation structure, not substantive importance
@@ -49,6 +67,15 @@
     - membership matrix
     - composite scores and ranking
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 等权
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
   biases:
     - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
     - equal weights treat all indicators as equally important
@@ -66,6 +93,15 @@
   produces:
     - grey relational grade and ranking
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 等权
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
   biases:
     - assumes every indicator is benefit-type (higher is better); cost indicators must be reversed
     - the distinguishing coefficient rho (default 0.5) affects the grades
@@ -84,6 +120,15 @@
     - entropy weights per indicator
     - composite scores and ranking
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 客观计算
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
   biases:
     - entropy weights reward indicators with high dispersion, NOT substantive importance
     - sensitive to the normalisation method (uses min-max to non-negative)
@@ -103,6 +148,19 @@
     - S / R / Q scores and ranking
     - compromise solution or compromise set with acceptance-condition checks
   executor_ref: numpy
+  params:
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 等权
+    - name: v
+      type: float
+      description: 策略权重（群体效用 vs 个体后悔）
+      default: "0.5"
   biases:
     - gives a compromise (closeness to the ideal), not a simple weighted sum
     - the strategy weight v (default 0.5) shifts between majority utility and minimum regret
@@ -122,6 +180,23 @@
     - leaving / entering / net flows per alternative
     - complete ranking by net flow
   executor_ref: numpy
+  params:
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 等权
+    - name: q
+      type: str
+      description: 无差异阈值（标量或按指标的列表）
+      default: "q=0"
+    - name: p
+      type: str
+      description: 偏好阈值（标量或按指标的列表）
+      default: 各指标极差
   biases:
     - the preference function and its thresholds (q/p) drive the results
     - net flow can mask incomparabilities that PROMETHEE I (partial preorder) would reveal
@@ -141,6 +216,19 @@
     - AHP criteria weights, lambda_max, CI and consistency ratio (CR)
     - composite scores and ranking
   executor_ref: numpy
+  params:
+    - name: weights
+      type: str
+      description: 指标权重（与指标对齐的列表，自动归一）
+      default: 由判断矩阵导出
+    - name: cost_criteria
+      type: columns
+      description: 成本型指标列（越小越好，自动反向）
+      default: 无（全部按效益型）
+    - name: pairwise
+      type: str
+      description: 专家两两比较矩阵（n×n 互反矩阵）
+      default: 数据代理（指标均值之比）
   biases:
     - AHP weights encode subjective expert pairwise judgments (here, a data proxy if none given)
     - CR > 0.1 means the pairwise judgments are inconsistent and weights are unreliable

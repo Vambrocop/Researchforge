@@ -29,6 +29,15 @@
     - horizontal bar chart of general dominance
     - decomposition sum check (sums to the full-model R²)
   executor_ref: py::dominance_analysis
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - general dominance is a variance partition for LINEAR ADDITIVE models — not causal importance
     - with correlated predictors it fairly splits shared variance, but a misspecified model (omitted variables / nonlinearity / interactions) can still mislead the ranking
@@ -59,6 +68,15 @@
     - bar chart of each predictor's % of R²
     - decomposition sum check (weights sum to the full-model R²)
   executor_ref: py::relative_weights
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - relative weights approximate the dominance variance partition via orthogonalization (no subset enumeration, so it scales to many predictors)
     - same LINEAR / variance-partition caveat — not causal importance
@@ -90,6 +108,15 @@
     - total unique / total common / largest pairwise common
     - bar chart of unique contribution per predictor
   executor_ref: py::commonality_analysis
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
   biases:
     - commonality coefficients can be NEGATIVE (suppression) — disclosed, not an error
     - the number of components explodes as 2^p − 1, so it is capped at 6 predictors — pick predictors via config above that

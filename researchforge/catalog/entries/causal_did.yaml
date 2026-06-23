@@ -29,6 +29,37 @@
     - per-cohort ATT table (did aggte group)
     - cohort / treated / never-treated counts + pre-trend flag
   executor_ref: R::did
+  params:
+    - name: unit
+      type: column
+      description: 面板单元标识列（idname）
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列（tname）
+      default: 面板时间列
+    - name: outcome
+      type: column
+      description: 连续结果变量（yname）
+      default: 第一个连续列
+    - name: gname
+      type: column
+      description: 首次处理期分组列（0=从未处理）
+      default: 由处理指示列推断
+    - name: treatment
+      type: column
+      description: 0/1 处理指示列（用于推断 gname）
+      default: 第一个二值列
+    - name: control_group
+      type: choice
+      choices: [nevertreated, notyettreated, not_yet_treated, notyet]
+      description: 对照组类型
+      default: nevertreated（无则自动改用 notyettreated）
+    - name: est_method
+      type: choice
+      choices: [dr, ipw, reg]
+      description: 估计方法（双稳健/逆概率加权/回归）
+      default: dr（双稳健）
   biases:
     - the CS estimator's whole point — it avoids the negative-weighting / forbidden-comparison bias of two-way FE under staggered adoption with heterogeneous effects (already-treated units are never controls)
     - identification rests on (conditional) parallel trends + no anticipation; pre-treatment event-study coefficients are reported as EVIDENCE, not a guarantee

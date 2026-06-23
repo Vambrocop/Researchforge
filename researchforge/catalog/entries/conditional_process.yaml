@@ -14,6 +14,23 @@
     - conditional indirect effect at W = mean-SD / mean / mean+SD with bootstrap CIs
     - a3, b coefficients; bootstrap-summary CSV; conditional-effect-vs-W plot with CI band
   executor_ref: empirical-analysis-python
+  params:
+    - name: x
+      type: column
+      description: 自变量 X
+      default: 第二个连续列
+    - name: m
+      type: column
+      description: 中介变量 M
+      default: 第三个连续列
+    - name: y
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列
+    - name: w
+      type: column
+      description: 调节变量 W（调节 X→M）
+      default: 第四个连续列
   biases:
     - causal interpretation requires sequential ignorability (no unmeasured X-M, M-Y, or X-Y confounding); without it this is an associational decomposition, not a causal one
     - X-M-W roles are auto-assigned by column order (first continuous is Y, then X, M, W) and the assignment is NOT symmetric; swapping roles fits a different model, so confirm with config x/m/y/w
@@ -34,6 +51,19 @@
     - interaction coefficient b3 with p-value; simple slopes at W = mean +/- SD with p-values
     - theta(w) with SE and 95% CI across the observed W range (CSV); conditional-effect plot with shaded region of significance
   executor_ref: empirical-analysis-python
+  params:
+    - name: x
+      type: column
+      description: 焦点预测变量 X
+      default: 第二个连续列
+    - name: w
+      type: column
+      description: 连续调节变量 W
+      default: 第三个连续列
+    - name: y
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列
   biases:
     - requires a continuous moderator W; with a categorical moderator use simple-slopes contrasts instead
     - Johnson-Neyman regions can fall outside the observed W range, in which case they are extrapolation and are flagged as such

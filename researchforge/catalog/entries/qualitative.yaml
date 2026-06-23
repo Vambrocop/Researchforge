@@ -15,6 +15,27 @@
     - per-term pooled / between / within consistency decomposition
     - between & within distances (clustered heterogeneity flags)
   executor_ref: SetMethods (R)
+  params:
+    - name: outcome
+      type: column
+      description: 结果条件列
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 前因条件列
+      default: 其余连续列
+    - name: conditions
+      type: columns
+      description: predictors 的别名
+      default: 其余连续列
+    - name: anchors
+      type: str
+      description: 模糊校准的三个百分位锚点（排除/交叉/纳入）
+      default: "[0.1, 0.5, 0.9]"
+    - name: incl_cut
+      type: float
+      description: 原始一致性切点
+      default: "0.8"
   biases:
     - results hinge on calibration anchors and the consistency cutoff (config anchors/incl_cut)
     - clusters by the panel unit; large between/within distances mean the pooled solution masks subpopulation differences
@@ -32,6 +53,23 @@
     - atomic solution formulas (per outcome) with consistency / coverage
     - count of complex (multi-outcome) causal structures
   executor_ref: cna (R)
+  params:
+    - name: outcome
+      type: column
+      description: 指定结果条件（CNA 可不指定）
+      default: 不指定（多结果搜索）
+    - name: con
+      type: float
+      description: 一致性阈值
+      default: "0.8"
+    - name: cov
+      type: float
+      description: 覆盖度阈值
+      default: "0.8"
+    - name: anchors
+      type: str
+      description: 连续因子的模糊校准锚点
+      default: "[0.1, 0.5, 0.9]"
   biases:
     - configurational causation is not a net/average effect; solutions depend on the con/cov thresholds and calibration anchors
     - limited diversity (unobserved configurations) can make solutions unstable or model-ambiguous (many equally-good structures)
@@ -50,6 +88,15 @@
     - sufficient configurations (solution)
     - consistency and coverage
   executor_ref: QCA (R)
+  params:
+    - name: anchors
+      type: str
+      description: 模糊校准的三个百分位锚点（排除/交叉/纳入）
+      default: "[0.1, 0.5, 0.9]"
+    - name: incl_cut
+      type: float
+      description: 原始一致性切点
+      default: "0.8"
   biases:
     - results hinge on calibration anchors — the auto percentile anchors (crossover at the median is mechanical) are only a starting point; set them from theory
     - reports the complex solution (no counterfactuals/remainders); parsimonious/intermediate may differ
@@ -69,6 +116,11 @@
     - sufficient configurations (solution)
     - consistency and coverage
   executor_ref: QCA (R)
+  params:
+    - name: incl_cut
+      type: float
+      description: 原始一致性切点
+      default: "0.8"
   biases:
     - median dichotomisation discards information — for continuous conditions fsQCA is usually preferable
     - on skewed/discrete data the median split can be very unbalanced (mass at the median ties to 0), making a condition near-constant
@@ -88,6 +140,15 @@
     - necessary conditions / expressions
     - inclusion (consistency), RoN, coverage
   executor_ref: QCA (R)
+  params:
+    - name: anchors
+      type: str
+      description: 模糊校准的三个百分位锚点（排除/交叉/纳入）
+      default: "[0.1, 0.5, 0.9]"
+    - name: incl_cut
+      type: float
+      description: 必要性纳入（一致性）切点
+      default: "0.9"
   biases:
     - high inclusion but low RoN = trivial necessity (a condition that is almost always high)
     - results hinge on calibration anchors (auto percentile, mechanical crossover)

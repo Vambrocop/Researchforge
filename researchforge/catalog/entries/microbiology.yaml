@@ -14,6 +14,12 @@
     - per-taxon log2FC / p / q table
     - volcano plot
   executor_ref: scipy
+  params:
+    - name: da_method
+      type: choice
+      choices: [clr_mw, clr_welch, aldex2, ancombc]
+      description: 差异丰度方法（R 法不可用时诚实降级）
+      default: clr_mw（CLR+Mann-Whitney）
   biases:
     - compositional data — relative abundances are sum-constrained; CLR mitigates but is not a full fix (ALDEx2 / ANCOM-BC are the gold standard)
     - per-taxon tests treat taxa as independent; FDR controls false discoveries, not compositional bias

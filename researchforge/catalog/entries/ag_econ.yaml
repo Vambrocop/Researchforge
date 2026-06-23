@@ -42,6 +42,15 @@
     - regression table
     - coefficient plot
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量（自变量）
+      default: 其余连续/计数/二值列
   biases:
     - omitted variable bias
     - heteroskedasticity
@@ -58,6 +67,15 @@
   produces:
     - fixed-effects regression table
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量（自变量）；单元/时间自动作固定效应
+      default: 其余连续/计数/二值列
   biases:
     - time-varying confounders
     - serial correlation
@@ -76,6 +94,40 @@
     - CATE distribution + share with significant effect
     - heterogeneity drivers (feature importances) + CATE plots
   executor_ref: econml
+  params:
+    - name: treatment
+      type: column
+      description: 处理变量
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: effect_modifiers
+      type: columns
+      description: 异质性效应调节变量（CATE 维度）
+      default: 其余数值列
+    - name: controls
+      type: columns
+      description: 控制变量（用于残差化）
+      default: 其余数值列
+    - name: predictors
+      type: columns
+      description: controls 的别名
+      default: 其余数值列
+    - name: n_folds
+      type: int
+      description: 交叉拟合折数
+      default: "5"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
+    - name: fdr_method
+      type: choice
+      choices: [fdr_bh, fdr_by]
+      description: 多重检验校正方法
+      default: fdr_bh
   biases:
     - same causal assumptions as DML — unconfoundedness + overlap; not auto-satisfied
     - CATE is exploratory — subgroup / effect-modifier findings risk false positives and need pre-registration or external validation
@@ -96,6 +148,31 @@
     - propensity-overlap warning
     - ATE point + CI plot
   executor_ref: doubleml
+  params:
+    - name: treatment
+      type: column
+      description: 处理变量
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: controls
+      type: columns
+      description: 控制变量（混杂）
+      default: 其余数值列
+    - name: predictors
+      type: columns
+      description: controls 的别名
+      default: 其余数值列
+    - name: n_folds
+      type: int
+      description: 交叉拟合折数
+      default: "5"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
   biases:
     - causal ATE only under unconfoundedness (all confounders measured + included as controls) and overlap/positivity — not auto-satisfied
     - treatment auto-detected as a binary column / set via config treatment; controls default to the other numeric columns
@@ -115,6 +192,19 @@
     - covariate balance table (SMD before vs after matching)
     - propensity overlap (common support) plot
   executor_ref: statsmodels
+  params:
+    - name: treatment
+      type: column
+      description: 二值处理变量
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: covariates
+      type: columns
+      description: 倾向得分协变量
+      default: 其余数值列
   biases:
     - causal ATT only under ignorability / selection-on-observables (no unobserved confounding) — untestable; PSM cannot fix unobserved confounding
     - estimates ATT (effect on the treated), not the ATE; requires common support + post-matching balance (both reported)
@@ -135,6 +225,19 @@
     - positivity diagnostics (effective sample size, max weight, extreme-propensity fraction)
     - propensity overlap plot
   executor_ref: statsmodels
+  params:
+    - name: treatment
+      type: column
+      description: 二值处理变量
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: covariates
+      type: columns
+      description: 倾向得分协变量
+      default: 其余数值列
   biases:
     - causal ATE only under ignorability (no unobserved confounding) AND positivity/overlap (propensities away from 0/1) — both untestable / flagged
     - extreme weights from poor overlap inflate variance and bias; effective sample size + extreme-propensity fraction are reported
@@ -156,6 +259,27 @@
     - pre-trends check (are pre-treatment leads ≈ 0?)
     - post-treatment average effect
   executor_ref: statsmodels
+  params:
+    - name: unit
+      type: column
+      description: 单元（个体）标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: treatment
+      type: column
+      description: 处理指示列（处理开启）
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: window
+      type: int
+      description: 事件时间窗口（相对处理的前后期数）
+      default: 自动（数据可及范围）
   biases:
     - identification rests on parallel trends — the pre-treatment lead coefficients are reported as a check, not a proof
     - with staggered onset, two-way fixed effects can be biased under heterogeneous effects (negative weighting) — use Callaway-Sant'Anna / de Chaisemartin
@@ -178,6 +302,27 @@
     - overall post-treatment ATT + delta-method SE (cluster-robust)
     - pre-trends check + cohort / treated / never-treated counts
   executor_ref: statsmodels
+  params:
+    - name: unit
+      type: column
+      description: 单元（个体）标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: treatment
+      type: column
+      description: 处理指示列
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: window
+      type: int
+      description: 事件时间窗口（相对处理的前后期数）
+      default: 自动（数据可及范围）
   biases:
     - requires a never-treated control group — if every unit is eventually treated the engine fails honestly and points to R did (Callaway-Sant'Anna, which can use not-yet-treated controls)
     - identification still rests on parallel trends — the pre-treatment lead ATTs are reported as a check, not a proof; assumes no anticipation
@@ -199,6 +344,31 @@
     - quantile treatment effects (QTE) across the distribution + CIs
     - QTE-by-quantile plot
   executor_ref: qte
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理组指示列（二值）
+      default: 第一个二值列
+    - name: time
+      type: column
+      description: 时间列（两期，数值）
+      default: 时间列
+    - name: periods
+      type: str
+      description: 前后两期 [pre, post] 的时间取值
+      default: 最后两个不同的时间值
+    - name: probs
+      type: str
+      description: 分位点列表（0-1）
+      default: "0.1, 0.2, …, 0.9"
+    - name: treated_group
+      type: str
+      description: 处理组在指示列中的取值（决定符号方向）
+      default: "{0,1} 约定或字典序（披露方向）"
   biases:
     - needs a treated-group indicator + a numeric 2-period time column (group coding auto-normalized to 0/1; verify the direction)
     - relaxes parallel-trends to monotonicity / rank-invariance of the outcome — still assumes no anticipation and stable group composition
@@ -218,6 +388,23 @@
     - MSE-optimal bandwidth + effective sample size
     - binned RD plot
   executor_ref: rdrobust
+  params:
+    - name: running
+      type: column
+      description: 驱动/分配变量（连续）
+      default: 无（需用户指定）
+    - name: running_var
+      type: column
+      description: running 的别名
+      default: 无（需用户指定）
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: cutoff
+      type: float
+      description: 断点阈值
+      default: "0"
   biases:
     - requires config running (assignment variable) + cutoff — the engine cannot infer the design
     - sharp design only — assumes treatment probability jumps 0 to 1 at the cutoff (full compliance); a fuzzy threshold (take-up < 100%) needs fuzzy RDD (not enabled) or the estimate is biased
@@ -238,6 +425,27 @@
     - first-stage treatment-probability jump at the cutoff (weak-instrument check)
     - MSE-optimal bandwidth + effective sample size + binned RD plot
   executor_ref: rdrobust
+  params:
+    - name: running
+      type: column
+      description: 驱动/分配变量（连续）
+      default: 无（需用户指定）
+    - name: running_var
+      type: column
+      description: running 的别名
+      default: 无（需用户指定）
+    - name: treatment
+      type: column
+      description: 实际接受的处理列（0/1）
+      default: 无（需用户指定）
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: cutoff
+      type: float
+      description: 断点阈值
+      default: "0"
   biases:
     - requires config running (assignment variable) + cutoff + treatment (the actually-received 0/1 treatment) — the engine cannot infer the design
     - LATE identifies the effect ONLY for compliers local to the cutoff (limited external validity)
@@ -260,6 +468,23 @@
     - number of latent factors (CV) + treated/control counts
     - dynamic ATT-by-time plot
   executor_ref: gsynth
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理指示列（0/1，1=该期受处理）
+      default: 第一个二值列
+    - name: nboots
+      type: int
+      description: 参数自助次数（推断）
+      default: "200"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
   biases:
     - treatment must be a 0/1 indicator (1 = that unit is under treatment that period); set config treatment if auto-detect is wrong
     - assumes time-varying confounding is captured by a low-dimensional factor structure and donor units are unaffected by spillovers
@@ -283,6 +508,23 @@
     - pre-treatment RMSPE (fit quality)
     - gaps plot
   executor_ref: pysyncon
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: treated_unit
+      type: str
+      description: 处理单元的取值（单元列中的标签）
+      default: 由处理列推断
+    - name: treatment_time
+      type: str
+      description: 干预开始的时间取值
+      default: 由处理列推断
+    - name: predictors
+      type: columns
+      description: 用于匹配预处理路径的预测变量
+      default: 其余连续列
   biases:
     - one treated unit only; treated unit / intervention time auto-detected from the treatment column or set via config
     - validity hinges on close pre-treatment fit (low RMSPE) and donors not themselves affected by the intervention
@@ -303,6 +545,15 @@
     - DID estimate
     - event-study plot
   executor_ref: empirical-analysis-python
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量；处理与单元/时间固定效应自动加入
+      default: 自动（处理候选 + 单元/时间固定效应）
   biases:
     - parallel-trends violation
     - anticipation effects

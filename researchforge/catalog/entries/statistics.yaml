@@ -82,6 +82,19 @@
     - log-rank test (if a 2-level group)
     - Cox hazard ratios + PH assumption test (if covariates)
   executor_ref: lifelines
+  params:
+    - name: duration
+      type: column
+      description: 时长（time-to-event）列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（1=事件/0=删失）
+      default: 名称匹配自动
+    - name: group
+      type: column
+      description: 两水平分组（log-rank）列
+      default: 第一个两水平分类列
   biases:
     - duration and event columns are auto-detected by name — verify they are correct
     - censoring is assumed random and non-informative (informative censoring biases estimates)
@@ -100,6 +113,15 @@
     - factor loadings
     - fit indices (CFI / TLI / RMSEA)
   executor_ref: semopy
+  params:
+    - name: model_spec
+      type: str
+      description: 测量/结构模型设定（lavaan/semopy 语法）
+      default: 单潜因子探索性模板
+    - name: sem_spec
+      type: str
+      description: model_spec 的别名
+      default: 单潜因子探索性模板
   biases:
     - the single-factor template is exploratory, not your hypothesized model
     - SEM requires a theory-driven structure; auto-spec is only a starting point
@@ -193,6 +215,19 @@
     - random-intercept variance + ICC
     - AIC + overdispersion (Poisson)
   executor_ref: lme4
+  params:
+    - name: outcome
+      type: column
+      description: 非高斯结果变量（二值或计数）
+      default: 第一个二值列，否则第一个计数列
+    - name: predictors
+      type: columns
+      description: 固定效应预测变量
+      default: 其余连续/计数/二值列
+    - name: group
+      type: column
+      description: 随机截距分组变量
+      default: 面板单元，否则有真实聚类的分类/id 列
   biases:
     - outcome family auto-set (binary to binomial, count to Poisson) and the random-intercept grouping is auto-picked — set config outcome/group if wrong
     - assumes random effects are normally distributed and the link is correct; Poisson assumes no overdispersion (flagged if >1.5, approximate for mixed models)
@@ -214,6 +249,24 @@
     - random-intercept SD
     - deviance explained / adjusted R-squared + partial-effect plots
   executor_ref: mgcv
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量（连续项作平滑）
+      default: 其余数值列
+    - name: group
+      type: column
+      description: 随机截距分组变量
+      default: 面板单元/重复分类
+    - name: family
+      type: choice
+      choices: [gaussian, binomial, poisson]
+      description: 结果分布族
+      default: 按结果类型自动
   biases:
     - grouping variable for the random intercept is auto-picked (panel unit / repeated category) — set config group if wrong
     - outcome may be Gaussian (identity), binary (logit) or count (log) — family auto-detected from the outcome type, override via config family; random intercepts assumed normal on the link scale; non-Gaussian smooth effects are on the link scale (deviance explained is the primary fit metric)
@@ -234,6 +287,15 @@
     - deviance explained / adjusted R-squared
     - partial-effect smooth plots
   executor_ref: mgcv
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量（连续项作平滑）
+      default: 其余数值列
   biases:
     - first continuous column is the outcome by default — set config outcome/predictors
     - assumes a Gaussian / identity-link continuous outcome; bounded [0,1] proportions, counts, or strongly skewed outcomes need betar / Poisson / Gamma (not auto-switched)
@@ -255,6 +317,39 @@
     - longitudinal-trajectory + survival submodel tables
     - AIC, subjects, events
   executor_ref: JM
+  params:
+    - name: id
+      type: column
+      description: 受试者标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 纵向测量的访视时间列
+      default: 面板时间列
+    - name: marker
+      type: column
+      description: 纵向生物标志物列（随时间变化的连续变量）
+      default: 随时间变化的连续列
+    - name: event_time
+      type: column
+      description: 每受试者事件时间列
+      default: 每受试者恒定的连续列
+    - name: event
+      type: column
+      description: 事件指示列（0/1）
+      default: 每受试者 0/1 列
+    - name: duration
+      type: column
+      description: event_time 的别名
+      default: 名称匹配自动
+    - name: group
+      type: column
+      description: 分组列
+      default: 第一个分组列
+    - name: covariates
+      type: columns
+      description: 生存子模型协变量
+      default: 其余数值列
   biases:
     - roles auto-detected (varying continuous = marker, per-subject constant continuous = event time, per-subject 0/1 = event) — set config marker/event_time/event if wrong
     - assumes normal random effects, association via the current true marker value, and random (MAR) censoring
@@ -274,6 +369,39 @@
     - omnibus moderator test (QM) + R-squared (heterogeneity explained)
     - residual heterogeneity + bubble plot
   executor_ref: metafor
+  params:
+    - name: measure
+      type: str
+      description: 效应量类型（如 SMD/OR）
+      default: 自动（按输入格式）
+    - name: method
+      type: str
+      description: 合并方法（REML/DL 随机；FE 固定）
+      default: REML
+    - name: study
+      type: column
+      description: 研究标识列
+      default: 名称匹配自动
+    - name: effect
+      type: column
+      description: 效应量列 yi
+      default: 名称匹配自动
+    - name: variance
+      type: column
+      description: 效应量方差列 vi
+      default: 名称匹配自动
+    - name: se
+      type: column
+      description: 效应量标准误列 sei
+      default: 名称匹配自动
+    - name: moderators
+      type: columns
+      description: 研究层面调节变量
+      default: 其余研究层面列
+    - name: predictors
+      type: columns
+      description: moderators 的别名
+      default: 其余研究层面列
   biases:
     - meta-regression is observational at the study level — associations, not individual-level causation (ecological fallacy risk)
     - few studies relative to moderators overfits / inflates false positives (rule of thumb >=10 studies per moderator)
@@ -293,6 +421,31 @@
     - heterogeneity (I-squared / tau-squared / Q)
     - forest plot + funnel plot + Egger's test
   executor_ref: metafor
+  params:
+    - name: measure
+      type: str
+      description: 效应量类型（如 SMD/OR）
+      default: 自动（按输入格式）
+    - name: method
+      type: str
+      description: 合并方法（REML/DL 随机；FE 固定）
+      default: REML
+    - name: study
+      type: column
+      description: 研究标识列
+      default: 名称匹配自动
+    - name: effect
+      type: column
+      description: 效应量列 yi
+      default: 名称匹配自动
+    - name: variance
+      type: column
+      description: 效应量方差列 vi
+      default: 名称匹配自动
+    - name: se
+      type: column
+      description: 效应量标准误列 sei
+      default: 名称匹配自动
   biases:
     - meta-analysis inherits the biases of the primary studies it pools (garbage in, garbage out)
     - high heterogeneity (I-squared > 50%) means a single pooled effect can mislead — investigate moderators

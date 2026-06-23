@@ -34,6 +34,15 @@
     - Sargan overidentification test
     - AR(1) / AR(2) serial-correlation tests
   executor_ref: plm (R)
+  params:
+    - name: endogenous
+      type: columns
+      description: 内生协变量（用滞后水平作工具）
+      default: 无（仅滞后被解释变量内生）
+    - name: gmm_lags
+      type: str
+      description: 工具滞后区间 [lo, hi]
+      default: "[2, 4]"
   biases:
     - instrument proliferation overfits and can INFLATE (weaken) the Sargan test — instruments are capped at lags 2-4 to mitigate; reported overid test is Sargan (not heteroskedasticity-robust Hansen J)
     - needs enough time periods (T >= 3) and units; small-T dynamics are fragile
@@ -55,6 +64,36 @@
     - spatial autoregressive coefficient (rho lag / lambda error)
     - direct / indirect (spillover) / total impacts (SAR/SDM) + LM lag-vs-error tests
   executor_ref: splm (R)
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续列
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: lon
+      type: column
+      description: 经度坐标列
+      default: 名称含 lon/经度 的列
+    - name: lat
+      type: column
+      description: 纬度坐标列
+      default: 名称含 lat/纬度 的列
+    - name: model
+      type: choice
+      choices: [lag, error, sdm]
+      description: 空间模型（SAR/SEM/SDM）
+      default: lag（SAR）
   biases:
     - assumes spatial dependence exists (contemporaneous correlation among neighbouring units); if W is mis-specified the spatial term is meaningless
     - the spatial weights matrix W (here k-nearest-neighbour, k≈6, row-standardised) is a MODELLING CHOICE that drives results — changing k / the distance metric / the neighbour definition can change rho/lambda and the spillovers; confirm against theory

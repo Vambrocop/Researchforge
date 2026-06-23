@@ -22,6 +22,23 @@
     - CIF plot (Aalen-Johansen, per group + per event type)
     - Gray's test p-value for between-group CIF equality (if R cmprsk)
   executor_ref: lifelines
+  params:
+    - name: duration
+      type: column
+      description: 时长列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 多状态事件列（0=删失/1=关注事件/>=2=竞争事件）
+      default: 名称匹配自动
+    - name: group
+      type: column
+      description: 分组列
+      default: 第一个分组列
+    - name: event_of_interest
+      type: int
+      description: 关注事件的编码值
+      default: "1"
   biases:
     - CIF is NOT 1-KM — treating competing events as censoring biases incidence upward
     - the competing event must be explicitly coded (>=2); a binary event is not competing risks
@@ -48,6 +65,23 @@
     - acceleration factors (exp(coef)) with 95% CI and p-values
     - fitted survival-curve plot
   executor_ref: lifelines
+  params:
+    - name: duration
+      type: column
+      description: 时长列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（1=事件/0=删失）
+      default: 名称匹配自动
+    - name: group
+      type: column
+      description: 分组列
+      default: 第一个分组列
+    - name: covariates
+      type: columns
+      description: AFT 协变量
+      default: 其余数值列
   biases:
     - AFT reports acceleration factors (time-scale), not hazard ratios — AF>1 = longer survival
     - distribution choice matters — the AIC comparison is reported, but all are parametric assumptions
@@ -75,6 +109,23 @@
     - RMST table
     - KM curves with the restricted [0, tau] area shaded
   executor_ref: lifelines
+  params:
+    - name: duration
+      type: column
+      description: 时长列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（1=事件/0=删失）
+      default: 名称匹配自动
+    - name: group
+      type: column
+      description: 两水平分组列
+      default: 第一个两水平分类列
+    - name: tau
+      type: float
+      description: 限制时间界 tau
+      default: 各组共同的最大时间
   biases:
     - RMST = mean event-free time within [0, tau]; not extrapolated beyond tau
     - tau must be common to all groups (reported) — different tau gives different conclusions

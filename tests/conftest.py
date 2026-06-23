@@ -46,6 +46,8 @@ SLOW_MODULES = {
     # forecasting (statsmodels ETS/theta) + dimensionality (t-SNE / FA / LDA-CV)
     "test_exponential_smoothing", "test_theta_method", "test_croston",
     "test_tsne", "test_factor_analysis", "test_linear_discriminant",
+    # bootstrap-heavy mediation extensions (serial/parallel refit B=2000)
+    "test_mediation_extra",
 }
 
 

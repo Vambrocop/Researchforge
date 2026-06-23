@@ -19,6 +19,19 @@
     - Monte-Carlo CSR envelope (2.5-97.5 percentiles)
     - centred-L plot vs CSR band
   executor_ref: py::ripleys_k
+  params:
+    - name: x
+      type: column
+      description: X / 经度坐标列
+      default: 名称匹配的坐标列
+    - name: y
+      type: column
+      description: Y / 纬度坐标列
+      default: 名称匹配的坐标列
+    - name: n_sim
+      type: int
+      description: CSR 蒙特卡洛模拟次数
+      default: 自动
   biases:
     - edge correction is approximate (bounding-box circle-fraction, not a true isotropic correction)
     - the CSR envelope is Monte-Carlo (a fixed seed is disclosed); few simulations widen it
@@ -44,6 +57,19 @@
     - global G statistic with z and p-value
     - Gi* hotspot map
   executor_ref: py::getis_ord
+  params:
+    - name: x
+      type: column
+      description: X / 经度坐标列
+      default: 名称匹配的坐标列
+    - name: y
+      type: column
+      description: Y / 纬度坐标列
+      default: 名称匹配的坐标列
+    - name: value
+      type: column
+      description: 要找热点的数值变量列
+      default: 第一个连续列
   biases:
     - the local Gi* applies to any real-valued variable, but the GLOBAL G is defined ONLY for a non-negative variable (it measures concentration of high positive values); for a variable with negative values the global G is skipped and disclosed (use moran_i for global autocorrelation of a centered variable)
     - Gi* depends on the spatial weights spec (k-NN k is disclosed)
@@ -70,6 +96,19 @@
     - BB and BW z-scores and p-values
     - observed-vs-expected bar chart
   executor_ref: py::join_count
+  params:
+    - name: x
+      type: column
+      description: X / 经度坐标列
+      default: 名称匹配的坐标列
+    - name: y
+      type: column
+      description: Y / 纬度坐标列
+      default: 名称匹配的坐标列
+    - name: value
+      type: column
+      description: 二值属性列
+      default: 第一个二值列
   biases:
     - free-sampling (CSR) assumption for the expected counts and variances
     - weights come from k-NN (k disclosed, symmetrised) — result depends on the spec

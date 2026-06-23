@@ -28,6 +28,27 @@
     - Goodman-Bacon scatter (each 2x2 estimate vs its weight, colored by type)
     - the exact TWFE coefficient (twfe_did_direct, two-way within OLS) alongside the Bacon decomposition sum (twfe_did_decomp); total weight on BAD comparisons
   executor_ref: py::goodman_bacon
+  params:
+    - name: unit
+      type: column
+      description: 面板单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: gname
+      type: column
+      description: 首次处理期分组列（0=从未处理）
+      default: 由处理指示列推断
+    - name: treatment
+      type: column
+      description: 0/1 处理指示列（用于推断 gname）
+      default: 第一个二值列
   biases:
     - a large weight on the BAD later-vs-earlier (already-treated-as-control) comparisons means the TWFE DiD is contaminated by forbidden controls under dynamic/heterogeneous effects -> prefer callaway_santanna / chaisemartin_did
     - assumes staggered binary treatment timing on a (near) balanced panel; the panel is balanced by intersection and any dropped non-full-span units are disclosed
@@ -63,6 +84,35 @@
     - breakdown Mbar (smallest Mbar whose robust CI includes 0) + max pre-trend violation
     - robust-CI-vs-Mbar plot with the zero line and breakdown marked
   executor_ref: py::honest_did
+  params:
+    - name: unit
+      type: column
+      description: 面板单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: gname
+      type: column
+      description: 首次处理期分组列（0=从未处理）
+      default: 由处理指示列推断
+    - name: treatment
+      type: column
+      description: 0/1 处理指示列
+      default: 第一个二值列
+    - name: window
+      type: int
+      description: 事件研究窗口（前后期数）
+      default: "5"
+    - name: post_period
+      type: int
+      description: 选作敏感性分析的处理后相对期 e
+      default: 第一个处理后期
   biases:
     - honest DiD does NOT correct bias, it only BOUNDS how sensitive the conclusion is to parallel-trends violations; a small breakdown Mbar means the result is fragile
     - needs >= 2 pre-treatment periods to gauge the maximum pre-trend violation; without them it degrades honestly
@@ -99,6 +149,31 @@
     - per-consecutive-period-pair DiD + #switchers table
     - per-period-pair DiD plot with the pooled DID_M line
   executor_ref: py::chaisemartin_did
+  params:
+    - name: unit
+      type: column
+      description: 面板单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: gname
+      type: column
+      description: 首次处理期分组列（0=从未处理）
+      default: 由处理指示列推断
+    - name: treatment
+      type: column
+      description: 0/1 处理指示列
+      default: 第一个二值列
+    - name: bootstrap
+      type: int
+      description: 单元重抽样自助次数（推断）
+      default: "500"
   biases:
     - DID_M targets the INSTANTANEOUS effect of switching among switchers (not a dynamic or cumulative ATT) — read it accordingly
     - needs treatment variation across consecutive periods plus stable comparison groups in each pair; without switchers + stable controls it degrades honestly

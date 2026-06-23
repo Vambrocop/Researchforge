@@ -14,6 +14,20 @@
     - linear / quadratic weighted kappa (ordinal)
     - confusion matrix + heatmap + Landis-Koch band
   executor_ref: empirical-analysis-python
+  params:
+    - name: rater1
+      type: column
+      description: 第一个评分者列
+      default: 第一个分类/有序列
+    - name: rater2
+      type: column
+      description: 第二个评分者列
+      default: 第二个分类/有序列
+    - name: weights
+      type: choice
+      choices: [none, linear, quadratic]
+      description: 加权 kappa（有序量表）
+      default: none（不加权）
   biases:
     - kappa corrects agreement for chance and is sensitive to marginal prevalence/base-rates — the kappa paradox (high agreement, low kappa) is flagged for skewed 2x2 tables
     - weighted kappa (linear/quadratic) is for ORDINAL categories; the category order is taken from sorted labels — verify it matches your scale
@@ -34,6 +48,15 @@
     - per-category kappa + category proportions
     - P-bar / P-bar-e + Landis-Koch band
   executor_ref: empirical-analysis-python
+  params:
+    - name: raters
+      type: columns
+      description: 评分者列（subjects × raters 编码矩阵）
+      default: 全部分类列
+    - name: count_matrix
+      type: bool
+      description: 输入是否为已汇总的每类别计数矩阵
+      default: "false"
   biases:
     - Fleiss kappa assumes raters are interchangeable (not necessarily the same raters per subject) and an equal number of ratings per subject — subjects with unequal counts are aligned to the modal n
     - chance-corrected and prevalence-sensitive — skewed category prevalence depresses kappa even with high raw agreement
@@ -53,6 +76,15 @@
     - proportional-bias slope/p + percent within limits
     - Bland-Altman difference-vs-mean plot
   executor_ref: empirical-analysis-python
+  params:
+    - name: method1
+      type: column
+      description: 第一个测量方法列
+      default: 第一个连续列
+    - name: method2
+      type: column
+      description: 第二个测量方法列
+      default: 第二个连续列
   biases:
     - Bland-Altman assesses AGREEMENT, not correlation — a high Pearson r can hide poor agreement (the Pearson r is reported alongside for contrast)
     - what counts as an acceptable difference (the limits of agreement width) needs clinical/domain judgement, not a statistical threshold

@@ -22,6 +22,39 @@
     - per-class item-response probabilities (class profiles) + profile plot
     - entropy (0-1), BIC/AIC per k + selected k, BIC curve plot
   executor_ref: stepmix
+  params:
+    - name: indicators
+      type: columns
+      description: 测量指标列（分类/二值）
+      default: 全部分类/二值/计数列
+    - name: n_classes
+      type: int
+      description: 强制潜类别数 k
+      default: 由 BIC 在 k_min..k_max 选择
+    - name: k
+      type: int
+      description: n_classes 的别名
+      default: 由 BIC 选择
+    - name: k_min
+      type: int
+      description: 搜索的最小类别数
+      default: "2"
+    - name: k_max
+      type: int
+      description: 搜索的最大类别数
+      default: "5"
+    - name: n_init
+      type: int
+      description: EM 随机重启次数
+      default: "10"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
+    - name: random_state
+      type: int
+      description: seed 的别名
+      default: 固定种子
   biases:
     - indicators auto-picked from categorical/binary/count columns — set config indicators=[...] to override
     - a latent class is a statistical construct (a mixture component), NOT an externally validated real group
@@ -52,6 +85,39 @@
     - per-class means and variances per indicator (class profiles, original scale) + profile plot
     - entropy (0-1), BIC/AIC per k + selected k, BIC curve plot
   executor_ref: stepmix
+  params:
+    - name: indicators
+      type: columns
+      description: 测量指标列（连续）
+      default: 全部连续列
+    - name: n_classes
+      type: int
+      description: 强制潜剖面数 k
+      default: 由 BIC 在 k_min..k_max 选择
+    - name: k
+      type: int
+      description: n_classes 的别名
+      default: 由 BIC 选择
+    - name: k_min
+      type: int
+      description: 搜索的最小剖面数
+      default: "2"
+    - name: k_max
+      type: int
+      description: 搜索的最大剖面数
+      default: "5"
+    - name: n_init
+      type: int
+      description: EM 随机重启次数
+      default: "10"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: 固定种子
+    - name: random_state
+      type: int
+      description: seed 的别名
+      default: 固定种子
   biases:
     - indicators auto-picked from continuous columns — set config indicators=[...] to override
     - LPA assumes within-class (multivariate) normality; this implementation uses a diagonal covariance (free per-class variances) and so ignores within-class correlations among indicators

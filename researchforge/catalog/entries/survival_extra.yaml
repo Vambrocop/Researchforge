@@ -25,6 +25,31 @@
     - partial log-likelihood (CoxTimeVaryingFitter exposes no concordance index)
     - hazard-ratio forest plot (log scale)
   executor_ref: py::time_varying_cox
+  params:
+    - name: id
+      type: column
+      description: 受试者标识列
+      default: 面板单元列
+    - name: start
+      type: column
+      description: 区间起点（entry）列
+      default: 名称匹配自动
+    - name: stop
+      type: column
+      description: 区间终点（exit）列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（仅事件发生的区间为 1）
+      default: 名称匹配自动
+    - name: duration
+      type: column
+      description: 时长列（非计数过程格式时）
+      default: 名称匹配自动
+    - name: covariates
+      type: columns
+      description: 时变协变量
+      default: 其余数值列
   biases:
     - requires counting-process (start, stop, event) long format — wrong shape invalidates the fit
     - time-varying covariates must be exogenous (their values not driven by the event hazard) or coefficients are biased
@@ -53,6 +78,23 @@
     - number of strata + partial log-likelihood + concordance index
     - hazard-ratio forest plot
   executor_ref: py::stratified_cox
+  params:
+    - name: duration
+      type: column
+      description: 时长列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（0/1）
+      default: 名称匹配自动
+    - name: strata
+      type: column
+      description: 分层（每层独立基线风险）列
+      default: 低基数分类/二值列
+    - name: covariates
+      type: columns
+      description: 协变量（跨层共系数）
+      default: 其余数值列
   biases:
     - stratification lets the baseline hazard differ across strata but assumes COMMON coefficients (no stratum x covariate interaction estimated)
     - if a stratum x covariate interaction matters, an interaction model is needed instead
@@ -80,6 +122,19 @@
     - global PH test (nan when lifelines gives only per-covariate)
     - -log10(PH p) bar chart with the 0.05 threshold line
   executor_ref: py::cox_ph_diagnostics
+  params:
+    - name: duration
+      type: column
+      description: 时长列
+      default: 名称匹配自动
+    - name: event
+      type: column
+      description: 事件指示列（0/1）
+      default: 名称匹配自动
+    - name: covariates
+      type: columns
+      description: Cox 模型协变量
+      default: 其余数值列
   biases:
     - a significant Schoenfeld test means the HR is NOT constant over time (PH violated) — consider stratified_cox, time_varying_cox, or time-interaction terms
     - the test depends on the time transform (rank used here)

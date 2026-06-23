@@ -29,6 +29,15 @@
     - threshold cutpoints + log-likelihood + McFadden pseudo-R-squared + LR test
     - odds-ratio forest plot (log scale)
   executor_ref: py::proportional_odds_logit
+  params:
+    - name: outcome
+      type: column
+      description: 有序结果变量（3..10 个有序水平）
+      default: 第一个 3..10 水平的计数/分类列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续/二值/计数列
   biases:
     - >-
       the proportional-odds (parallel lines) assumption — one common slope across all
@@ -55,6 +64,15 @@
     - threshold cutpoints + log-likelihood + McFadden pseudo-R-squared + LR test
     - latent-scale coefficient plot
   executor_ref: py::ordered_probit
+  params:
+    - name: outcome
+      type: column
+      description: 有序结果变量（3..10 个有序水平）
+      default: 第一个 3..10 水平的计数/分类列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续/二值/计数列
   biases:
     - >-
       probit coefficients are on the latent-normal scale (interpret sign/significance,
@@ -83,6 +101,15 @@
     - omnibus chi-square test of proportional odds (global stat + p + df)
     - per-predictor slopes-across-cut-points plot
   executor_ref: py::brant_test
+  params:
+    - name: outcome
+      type: column
+      description: 有序结果变量（3..10 个有序水平）
+      default: 第一个 3..10 水平的计数/分类列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续/二值/计数列
   biases:
     - >-
       this is the binary-logit Brant approximation (separate per-cut logits with a

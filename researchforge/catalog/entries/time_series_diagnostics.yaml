@@ -26,6 +26,19 @@
     - suggested AR / MA order hint
     - two-panel ACF / PACF stem plot
   executor_ref: py::acf_pacf
+  params:
+    - name: column
+      type: column
+      description: 要诊断的序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: nlags
+      type: int
+      description: 计算的最大滞后阶数
+      default: 自动
   biases:
     - ACF / PACF assume (weak) stationarity — a trending or near-unit-root series (lag-1 ACF approximately 1) must be differenced / detrended first; the engine flags this
     - the significance band is a white-noise approximation (±1.96/√n) applied per lag with no multiple-comparison correction, so some lags will exceed it by chance
@@ -53,6 +66,19 @@
     - minimum p-value + white-noise verdict
     - p-value-by-lag plot with the 0.05 line
   executor_ref: py::ljung_box
+  params:
+    - name: column
+      type: column
+      description: 要检验的序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
+    - name: lags
+      type: str
+      description: 检验的滞后阶数（整数或列表）
+      default: "10"
   biases:
     - the null is NO autocorrelation up to lag k — rejecting it means structure / autocorrelation remains (the series is not white noise), not that the model is wrong per se
     - when applied to model residuals the degrees of freedom should be reduced by the number of estimated parameters; this engine does NOT auto-adjust df, so on residuals use the df-adjusted form
@@ -82,6 +108,15 @@
     - window-size vs log(R/S) table (CSV)
     - log-log R/S plot with the fitted slope
   executor_ref: py::hurst_exponent
+  params:
+    - name: column
+      type: column
+      description: 要估计 Hurst 指数的序列列
+      default: 第一个连续列
+    - name: value
+      type: column
+      description: column 的别名
+      default: 第一个连续列
   biases:
     - the R/S Hurst estimate is sample-size sensitive and biased for short series — at least ~100 observations are advised; the engine flags short series
     - the estimate depends on the method used (rescaled-range / R/S here, vs DFA, periodogram, wavelet, etc.) and these can disagree; the method is disclosed

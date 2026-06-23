@@ -26,6 +26,28 @@
     - chosen penalty alpha (+ l1_ratio) and number of non-zero coefficients
     - standardized coefficients + selected flag (CSV) and coefficient bar plot
   executor_ref: py::regularized_regression
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
+    - name: method
+      type: choice
+      choices: [lasso, ridge, elasticnet]
+      description: 惩罚类型
+      default: elasticnet
+    - name: alphas
+      type: str
+      description: 候选惩罚强度网格（列表）
+      default: 由 *CV 自动
+    - name: l1_ratio
+      type: float
+      description: 弹性网的 L1 占比
+      default: 由 ElasticNetCV 自动
   biases:
     - coefficients are on STANDARDIZED features (magnitudes comparable, not in original units)
     - lasso's variable selection is unstable under correlated predictors (it arbitrarily keeps one and zeros the rest)
@@ -53,6 +75,28 @@
     - number of support vectors + class-balance note
     - per-fold scores (CSV), confusion matrix (CSV) and plot
   executor_ref: py::svm_model
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（分类→SVC，连续→SVR）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值列
+    - name: kernel
+      type: choice
+      choices: [rbf, linear, poly, sigmoid]
+      description: 核函数
+      default: rbf
+    - name: C
+      type: float
+      description: 正则化强度 C
+      default: "1.0"
+    - name: gamma
+      type: str
+      description: 核系数（scale/auto 或数值）
+      default: scale
   biases:
     - SVM needs feature scaling (done here via StandardScaler)
     - the rbf C and gamma matter a lot and are NOT auto-tuned beyond defaults (to keep it fast) unless set via config
@@ -81,6 +125,27 @@
     - per-predictor permutation importance (mean +/- sd, CSV) + bar plot
     - top-importance predictor
   executor_ref: py::gradient_boosting
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（分类→GBC，连续→GBR）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值列
+    - name: n_estimators
+      type: int
+      description: 提升树数量
+      default: sklearn 默认
+    - name: learning_rate
+      type: float
+      description: 学习率
+      default: sklearn 默认
+    - name: max_depth
+      type: int
+      description: 单棵树最大深度
+      default: sklearn 默认
   biases:
     - importance is PERMUTATION-based (not impurity-based, which is biased toward high-cardinality features)
     - permutation importance is from a single held-out split, so at small n its sd is wide and the ranking can be unstable (see the sd column)

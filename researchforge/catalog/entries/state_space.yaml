@@ -14,6 +14,27 @@
     - model AIC / BIC / loglik
     - smoothed level / trend (and seasonal) component plot + CSV
   executor_ref: statsmodels
+  params:
+    - name: column
+      type: column
+      description: 要分解的序列列
+      default: 第一个连续列
+    - name: level
+      type: str
+      description: 趋势/水平设定（如 local linear trend / local level）
+      default: local linear trend
+    - name: seasonal
+      type: bool
+      description: 是否加入季节成分
+      default: "true（有周期时）"
+    - name: seasonal_period
+      type: int
+      description: 季节周期
+      default: 周期图自动检测
+    - name: maxiter
+      type: int
+      description: 优化最大迭代次数
+      default: statsmodels 默认
   biases:
     - UC decomposes the series into unobserved stochastic components (a model-based STL alternative WITH inference) — the chosen spec (which components are stochastic) matters and is reported via the variances; a component variance ~= 0 means that component is effectively deterministic
     - needs a reasonably long series to identify the components
@@ -34,6 +55,31 @@
     - transition-probability matrix + expected regime durations
     - smoothed regime probabilities + series shaded by most-likely regime
   executor_ref: statsmodels
+  params:
+    - name: column
+      type: column
+      description: 要建模的序列列
+      default: 第一个连续列
+    - name: k_regimes
+      type: int
+      description: 潜在状态（regime）数
+      default: "2"
+    - name: switching_variance
+      type: bool
+      description: 方差是否也随状态切换
+      default: "true"
+    - name: order
+      type: int
+      description: 自回归阶（>0 用 MarkovAutoregression）
+      default: "0"
+    - name: search_reps
+      type: int
+      description: 多起点优化次数
+      default: 自动
+    - name: maxiter
+      type: int
+      description: 优化最大迭代次数
+      default: statsmodels 默认
   biases:
     - regimes are a LATENT-STATE interpretation, NOT externally validated states — corroborate with known events before naming them
     - label-switching — regime identity is arbitrary; the engine orders regimes by mean (ascending) and fixes the numbering, but the labels themselves carry no inherent meaning
@@ -54,6 +100,23 @@
     - model loglik / AIC
     - extracted common factor plot + CSV (sign fixed by convention)
   executor_ref: statsmodels
+  params:
+    - name: columns
+      type: columns
+      description: 参与的共动序列列
+      default: 全部连续列
+    - name: k_factors
+      type: int
+      description: 公共动态因子数
+      default: "1"
+    - name: factor_order
+      type: int
+      description: 因子的 AR 阶
+      default: 自动
+    - name: maxiter
+      type: int
+      description: 优化最大迭代次数
+      default: statsmodels 默认
   biases:
     - DFM assumes the comovement is driven by a few common factors + idiosyncratic noise (a dynamic PCA WITH inference) — if the series do not actually co-move, the common factor explains little (the engine flags low mean variance-explained)
     - inputs are standardized before fitting (reported) so loadings/variance-explained are comparable across series

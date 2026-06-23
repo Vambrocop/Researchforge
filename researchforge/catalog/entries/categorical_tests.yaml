@@ -27,6 +27,19 @@
     - observed + expected count tables (CSV) with sparse-cell (expected below 5) flag and a Yates note for 2x2
     - contingency heatmap with observed and expected counts, or observed-vs-expected goodness-of-fit bar chart (PNG)
   executor_ref: py::chi_square_test
+  params:
+    - name: var1
+      type: column
+      description: 第一个分类/二值列
+      default: 第一个低基数分类/二值列
+    - name: var2
+      type: column
+      description: 第二个分类/二值列（缺则做拟合优度）
+      default: 第二个低基数分类/二值列
+    - name: expected
+      type: str
+      description: "拟合优度的期望分布 {类别: 概率/计数}"
+      default: 均匀分布
   biases:
     - the asymptotic chi-square approximation is unreliable when expected counts are small; cells with expected below 5 are counted and flagged (merge sparse categories or use fisher_exact)
     - tests only whether the two variables are associated, not the direction or form of the association; Cramer's V quantifies the strength
@@ -56,6 +69,15 @@
     - for r-by-c tables an honest degrade to a fixed-margin Monte-Carlo permutation p (or asymptotic chi-square) with bias-corrected Cramer's V, since scipy's Fisher is 2x2 only
     - the contingency table (CSV) plus a 2x2 grouped bar chart or an r-by-c count heatmap (PNG)
   executor_ref: py::fisher_exact
+  params:
+    - name: var1
+      type: column
+      description: 第一个分类/二值列
+      default: 第一个低基数分类/二值列
+    - name: var2
+      type: column
+      description: 第二个分类/二值列
+      default: 第二个低基数分类/二值列
   biases:
     - preferred over the chi-square test for small or sparse 2x2 tables because it is exact (no large-sample / expected-count assumption)
     - scipy's exact test handles 2x2 only; for r-by-c the exact test is computationally expensive and is replaced here by a Monte-Carlo permutation p-value or the asymptotic chi-square, which is disclosed in the summary
@@ -86,6 +108,15 @@
     - discordant pair counts b (0 to 1) and c (1 to 0) and the odds of change b/c, plus the full paired 2x2 table (CSV)
     - discordant-pairs bar chart (PNG)
   executor_ref: py::mcnemar_test
+  params:
+    - name: var1
+      type: column
+      description: 第一个二值列（如 before / rater1）
+      default: 第一个二值列
+    - name: var2
+      type: column
+      description: 第二个二值列（同一单元的配对测量）
+      default: 第二个二值列
   biases:
     - tests MARGINAL HOMOGENEITY in paired binary data (whether the positive rate changed), NOT independence; only the discordant pairs (b, c) carry information and the concordant pairs are ignored
     - requires two binary columns measured on the SAME units (paired / repeated); applying it to two independent samples is invalid (use chi_square_test or fisher_exact there)

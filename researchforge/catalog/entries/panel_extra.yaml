@@ -29,6 +29,23 @@
     - Mundlak joint Wald chi-square + p (robust FE-vs-RE test)
     - beta-vs-gamma coefficient plot with 95% CIs
   executor_ref: py::mundlak
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 时变协变量
+      default: 其余连续列
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
   biases:
     - a significant Mundlak test (p<0.05) means the entity effects correlate with the regressors, so RE is inconsistent and FE should be used; the reported beta is already the within-consistent estimate
     - only time-varying covariates have a meaningful entity mean — time-invariant regressors are collinear with their mean and are dropped (disclosed)
@@ -59,6 +76,23 @@
     - FE vs RE coefficients side by side + their difference (CSV)
     - FE-vs-RE coefficient comparison plot with 95% CIs
   executor_ref: py::hausman_test
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 时变协变量
+      default: 其余连续列
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
   biases:
     - the test statistic uses the unadjusted (efficient) covariances so that V_FE - V_RE is positive-definite (its theoretical basis); the reported SEs are clustered-robust and only for reading
     - a non-positive-definite V_FE - V_RE (small samples) makes H sensitive — a pseudo-inverse is used and flagged, and cross-checking the Mundlak test is advised
@@ -87,6 +121,23 @@
     - FE (within) coefficient contrast per predictor
     - FD coefficient plot with 95% CIs
   executor_ref: py::first_difference
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 时变协变量
+      default: 其余连续列
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
   biases:
     - first-differencing removes only the entity (unit) effects, NOT time effects — common time shocks need separate time fixed effects
     - needs at least 2 periods per entity and time-VARYING regressors; time-invariant variables difference out to zero and are dropped (disclosed)

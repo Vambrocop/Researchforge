@@ -19,6 +19,19 @@
     - per-treatment means + Tukey HSD pairwise comparisons
     - treatment means with 95% CI plot
   executor_ref: statsmodels
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理因子
+      default: 名称匹配，否则低基数因子
+    - name: block
+      type: column
+      description: 区组因子
+      default: 名称含 block/rep 的因子
   biases:
     - assumes a complete balanced block design (each treatment once per block); imbalance is flagged
     - block is a nuisance factor controlling field/site variation, not of scientific interest
@@ -46,6 +59,19 @@
     - cell means (A × B) + interaction plot
     - interaction-significance flag (conditional vs independent main effects)
   executor_ref: statsmodels
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: factor_a
+      type: column
+      description: 因子 A
+      default: 名称匹配，否则低基数因子
+    - name: factor_b
+      type: column
+      description: 因子 B
+      default: 名称匹配，否则次低基数因子
   biases:
     - needs replication within each A×B cell; a single rep per cell cannot estimate the interaction error
     - Type II SS — for unbalanced designs with a real interaction, Type III (sum contrasts) is an alternative convention
@@ -74,6 +100,23 @@
     - whole-plot / sub-plot / interaction F-tests against the correct error terms
     - cell means (whole-plot × sub-plot) + means plot
   executor_ref: statsmodels
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: block
+      type: column
+      description: 区组因子
+      default: 名称含 block/rep 的因子
+    - name: whole_plot
+      type: column
+      description: 主区因子
+      default: 名称匹配（whole/main…）
+    - name: sub_plot
+      type: column
+      description: 裂区因子
+      default: 名称匹配（sub/split）
   biases:
     - requires a complete balanced design (one obs per block×whole-plot×sub-plot); unbalanced needs a mixed model
     - two error strata — the whole-plot factor has fewer error df and lower power than the sub-plot factor
@@ -100,6 +143,23 @@
     - per-treatment means + Tukey HSD
     - treatment means plot
   executor_ref: statsmodels
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 处理因子（t 水平）
+      default: 名称匹配（treatment/trt…）
+    - name: row
+      type: column
+      description: 行区组（t 水平）
+      default: 名称含 row 的因子
+    - name: col
+      type: column
+      description: 列区组（t 水平）
+      default: 名称含 col/column 的因子
   biases:
     - requires a valid t×t Latin square (treatments=rows=cols; each treatment once per row and per column)
     - rows and columns are nuisance blocking factors, not of scientific interest
@@ -127,6 +187,27 @@
     - sample size vs effect-size curve
     - pilot observed Cohen's f (context only)
   executor_ref: statsmodels
+  params:
+    - name: environment
+      type: column
+      description: 环境/地点因子列（GE 设计）
+      default: 按列名/基数推断
+    - name: genotype
+      type: column
+      description: 基因型/品种因子列（GE 设计）
+      default: 按列名/基数推断
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 分组因子（k 组）
+      default: 低基数分类列
+    - name: alpha
+      type: float
+      description: 显著性水平
+      default: "0.05"
   biases:
     - planning should use a meaningful TARGET effect size, not the observed pilot effect
     - post-hoc / observed power is a deterministic function of the p-value, so it is NOT reported as a planning tool
@@ -154,6 +235,19 @@
     - genotype stability table (IPCA1/IPCA2 scores, AMMI stability value)
     - AMMI-2 biplot (genotypes + environments)
   executor_ref: numpy
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量（如产量）
+      default: 第一个连续列
+    - name: genotype
+      type: column
+      description: 基因型因子
+      default: 名称匹配（genotype/variety…）
+    - name: environment
+      type: column
+      description: 环境因子
+      default: 名称匹配（environment/env/site…）
   biases:
     - descriptive multiplicative decomposition of the G×E interaction, not an inferential test
     - AMMI stability value / IPCA scores have several conventions; axis-retention (Gauch F) is not done — only % explained is reported
@@ -181,6 +275,19 @@
     - which-won-where table (winning genotype per environment)
     - GGE biplot (genotypes as points, environments as vectors)
   executor_ref: numpy
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量（如产量）
+      default: 第一个连续列
+    - name: genotype
+      type: column
+      description: 基因型因子
+      default: 名称匹配（genotype/variety…）
+    - name: environment
+      type: column
+      description: 环境因子
+      default: 名称匹配（environment/env/site…）
   biases:
     - descriptive biplot of genotype + G×E, not an inferential test
     - centering / scaling choices (environment-centering, symmetric scaling) change the figure and its interpretation
@@ -207,6 +314,15 @@
     - stationary-point classification (max / min / saddle) via Hessian eigenvalues
     - response-surface contour plot
   executor_ref: statsmodels
+  params:
+    - name: outcome
+      type: column
+      description: 响应变量
+      default: 第一个连续列
+    - name: factors
+      type: columns
+      description: 连续因子列（>=2）
+      default: 其余连续列
   biases:
     - local quadratic approximation — valid only within the explored design region
     - the stationary point is meaningful only if it falls inside the factor box; outside it is extrapolation and is flagged

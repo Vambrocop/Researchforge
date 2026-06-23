@@ -14,6 +14,11 @@
     - best distribution by AIC + delta-AIC gap to the second-best
     - density histogram with fitted PDFs overlaid (best highlighted)
   executor_ref: empirical-analysis-python
+  params:
+    - name: column
+      type: column
+      description: 要拟合的数值列
+      default: 第一个连续列
   biases:
     - AIC/BIC rank RELATIVE fit among the candidates and do NOT prove the best one is adequate in an absolute sense -- confirm with goodness_of_fit
     - positive-support distributions are skipped when the data has values <= 0 (which ones were skipped is reported)
@@ -34,6 +39,15 @@
     - ECDF vs fitted-CDF plot
     - overall verdict (rejected vs not-contradicted)
   executor_ref: empirical-analysis-python
+  params:
+    - name: column
+      type: column
+      description: 要检验的数值列
+      default: 第一个连续列
+    - name: dist
+      type: str
+      description: 目标分布名（scipy.stats 名称）
+      default: norm
   biases:
     - the KS and Cramer-von Mises tests use the FITTED-parameter CDF, so their p-values are conservative (the theory assumes known parameters; estimated from the same data the true p-value differs and is harder to reject) -- treat a non-rejection cautiously
     - Anderson-Darling is only defined for specific distributions (norm/expon/logistic/gumbel/weibull)
@@ -54,6 +68,15 @@
     - order-stat / theoretical-quantile / empirical & theoretical CDF table
     - 1x2 Q-Q + P-P diagnostic panel
   executor_ref: empirical-analysis-python
+  params:
+    - name: column
+      type: column
+      description: 要诊断的数值列
+      default: 第一个连续列
+    - name: dist
+      type: str
+      description: 理论分布名（scipy.stats 名称）
+      default: norm
   biases:
     - a PPCC near 1 indicates a good fit but is a VISUAL / heuristic diagnostic, not a formal test -- pair it with goodness_of_fit
     - the probability-plot quantiles depend on the chosen plotting positions ((i-0.5)/n here)

@@ -15,6 +15,19 @@
     - per-group DV means table
     - discriminant-style scatter of the first two DVs by group
   executor_ref: statsmodels
+  params:
+    - name: outcomes
+      type: columns
+      description: 因变量（连续）集合
+      default: 全部连续列
+    - name: group
+      type: column
+      description: 分组因子
+      default: 最低基数分类列
+    - name: factors
+      type: columns
+      description: group 的别名（因子列）
+      default: 最低基数分类列
   biases:
     - all continuous columns are the dependent variables and the lowest-cardinality categorical is the factor by default — set config outcomes/group/factors
     - assumes multivariate normality + homogeneity of covariance matrices (Box's M); Pillai's trace is the most robust to violations
@@ -36,6 +49,15 @@
     - confusion matrix (from CV predictions) + explained-discriminant ratio per LD axis
     - LD1 x LD2 projection scatter
   executor_ref: scikit-learn
+  params:
+    - name: predictors
+      type: columns
+      description: 连续判别变量
+      default: 全部连续列
+    - name: group
+      type: column
+      description: 分组（类别）列
+      default: 最低基数分类列
   biases:
     - all continuous columns are predictors and the lowest-cardinality categorical is the group by default — set config predictors/group
     - LDA assumes equal class covariances; QDA relaxes this (both are reported and compared)
@@ -56,6 +78,15 @@
     - Bartlett/Wilks sequential test (how many pairs are significant)
     - first canonical variate pair scatter (U1 vs V1)
   executor_ref: scikit-learn / numpy
+  params:
+    - name: set_x
+      type: columns
+      description: 第一组变量 X
+      default: 连续列前半
+    - name: set_y
+      type: columns
+      description: 第二组变量 Y
+      default: 连续列后半
   biases:
     - the default split of the continuous columns into two halves (set_x / set_y) is ARBITRARY — set config set_x/set_y to your two conceptual variable sets
     - CCA finds linear combinations maximising correlation; usually only the FIRST few canonical correlations are interpretable
@@ -77,6 +108,15 @@
     - per-variable mean differences between the two groups
     - scatter of the first two outcomes by group with group means
   executor_ref: scipy / numpy
+  params:
+    - name: outcomes
+      type: columns
+      description: 因变量（连续）集合
+      default: 全部连续列
+    - name: group
+      type: column
+      description: 两水平分组列
+      default: 最低基数两水平分类列
   biases:
     - all continuous columns are the outcomes and the lowest-cardinality 2-level categorical is the group by default — set config outcomes/group
     - assumes multivariate normality + equal covariance matrices in the two groups

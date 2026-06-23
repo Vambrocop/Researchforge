@@ -20,6 +20,19 @@
   - observed vs Poisson-expected zeros
   - AIC vs plain Poisson
   executor_ref: statsmodels
+  params:
+  - name: outcome
+    type: column
+    description: 计数结果变量
+    default: 第一个计数列
+  - name: predictors
+    type: columns
+    description: 计数模型的预测变量
+    default: 其余连续/计数/二值列
+  - name: inflation
+    type: columns
+    description: 结构零（膨胀）部分的预测变量
+    default: 仅常数项
   biases:
   - excess zeros must be real (else over-fitting two processes)
   - residual overdispersion (consider ZINB)
@@ -46,6 +59,19 @@
   - dispersion alpha
   - AIC vs ZIP and Poisson
   executor_ref: statsmodels
+  params:
+  - name: outcome
+    type: column
+    description: 计数结果变量
+    default: 第一个计数列
+  - name: predictors
+    type: columns
+    description: 计数模型的预测变量
+    default: 其余连续/计数/二值列
+  - name: inflation
+    type: columns
+    description: 结构零（膨胀）部分的预测变量
+    default: 仅常数项
   biases:
   - convergence can be finicky (report non-convergence honestly)
   - alpha greater than zero confirms overdispersion
@@ -71,6 +97,19 @@
   - deviance
   - variance power used
   executor_ref: statsmodels
+  params:
+  - name: outcome
+    type: column
+    description: 非负半连续结果变量
+    default: 第一个连续列
+  - name: predictors
+    type: columns
+    description: 预测变量
+    default: 其余连续/计数/二值列
+  - name: var_power
+    type: float
+    description: Tweedie 方差幂 p（1<p<2 为复合泊松-伽马）
+    default: "1.5"
   biases:
   - var_power is a modeling choice (ideally profiled)
   - assumes the mean-variance power law

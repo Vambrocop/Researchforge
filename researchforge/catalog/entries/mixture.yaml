@@ -15,6 +15,23 @@
     - per-component weights/means + cluster labels with membership certainty
     - silhouette + PCA scatter colored by component
   executor_ref: scikit-learn
+  params:
+    - name: features
+      type: columns
+      description: 聚类特征列
+      default: 全部连续列
+    - name: k_range
+      type: str
+      description: 成分数搜索范围 [lo, hi]
+      default: "[1, 6]"
+    - name: covariance_type
+      type: str
+      description: 协方差类型（full/tied/diag/spherical，可列表）
+      default: full
+    - name: n_init
+      type: int
+      description: EM 重启次数
+      default: "5"
   biases:
     - GMM is soft probabilistic clustering assuming Gaussian components (unlike k-means spherical hard assignment)
     - k is chosen by BIC (a modeling choice — the BIC curve is reported)
@@ -34,6 +51,19 @@
     - cluster labels (CSV)
     - PCA scatter (noise grey) + k-distance elbow plot
   executor_ref: scikit-learn
+  params:
+    - name: features
+      type: columns
+      description: 聚类特征列
+      default: 全部连续列
+    - name: min_samples
+      type: int
+      description: 核心点的最小邻居数
+      default: 2 × 特征数
+    - name: eps
+      type: float
+      description: 邻域半径
+      default: k-距离拐点自动
   biases:
     - DBSCAN finds density clusters and labels outliers as noise — no need to pre-specify k
     - eps and min_samples drive everything (both reported, along with the k-distance knee heuristic)
@@ -53,6 +83,15 @@
     - robust (MCD) vs classical covariance comparison (CSV)
     - Mahalanobis distances (CSV) + distance plot with threshold line
   executor_ref: scikit-learn
+  params:
+    - name: features
+      type: columns
+      description: 用于计算距离的特征列
+      default: 全部连续列
+    - name: alpha
+      type: float
+      description: 卡方截断分位（0-1）
+      default: "0.975"
   biases:
     - MCD gives a high-breakdown robust covariance (resistant to about h outliers)
     - the chi-square cutoff assumes multivariate normality of the clean data (a heuristic threshold — the flagged percentage is reported)

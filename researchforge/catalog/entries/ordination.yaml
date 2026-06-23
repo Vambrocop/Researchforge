@@ -21,6 +21,23 @@
     - Shepard-diagram correlation (fitted vs original distances)
     - 2D scatter + Shepard diagram
   executor_ref: scikit-learn
+  params:
+    - name: features
+      type: columns
+      description: 连续特征列
+      default: 全部连续列
+    - name: n_components
+      type: int
+      description: 嵌入维度
+      default: "2"
+    - name: metric
+      type: bool
+      description: 度量 MDS（false 为非度量）
+      default: "true"
+    - name: label
+      type: column
+      description: 给散点上色的标签列
+      default: 无
   biases:
     - all continuous columns are the features by default — set config features/n_components/metric/label
     - MDS places points so low-D distances approximate high-D distances; stress measures the distortion — high stress (>0.20) means 2D is a poor summary, try 3D
@@ -47,6 +64,11 @@
     - chi-square test of independence (CA)
     - 2D biplot of row + column points (symmetric map)
   executor_ref: prince
+  params:
+    - name: columns
+      type: columns
+      description: 参与 CA/MCA 的分类列
+      default: 最低基数分类列
   biases:
     - the lowest-cardinality categorical columns are chosen by default — set config columns
     - CA/MCA visualizes association between categorical variables in a low-D map (proximity means association); inertia equals chi-square over n in CA
@@ -74,6 +96,19 @@
     - CV R-squared vs n_components curve + fitted-vs-actual plot
     - standardized and original-scale regression coefficients
   executor_ref: scikit-learn
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续列
+    - name: n_components
+      type: int
+      description: 潜成分数
+      default: CV 选择
   biases:
     - first continuous column is the outcome by default — set config outcome/predictors/n_components
     - PLS finds latent components maximizing covariance with Y (handles p greater than n and multicollinearity where OLS fails)

@@ -1,0 +1,131 @@
+# Mediation-extra catalog entries — PROCESS-flavoured mediation/moderation
+# extensions (pure Python: statsmodels OLS + bootstrap, no R). Each id maps to a
+# @register handler in executor/branches/mediation_extra.py. Family reuses
+# conditional_process (complements moderated_mediation / johnson_neyman there).
+#
+# NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
+
+- id: serial_mediation
+  method: Serial (sequential) mediation
+  domain: statistics
+  family: conditional_process
+  goal: explain
+  description: >-
+    PROCESS model 6: two mediators in SEQUENCE, X → M1 → M2 → Y. Fits M1~X, M2~X+M1,
+    Y~X+M1+M2 by OLS and decomposes the total indirect effect into the specific paths
+    X→M1→Y (a1·b1), X→M2→Y (a2·b2) and the SERIAL path X→M1→M2→Y (a1·d21·b2), each
+    with a bootstrap percentile 95% CI, plus the direct effect c'. Roles are
+    config-declared (x / m1 / m2 / y) — the M1→M2 ordering is yours to set — else taken
+    in continuous-column order (strongly recommend config).
+  preconditions:
+    min_continuous: 4
+    min_rows: 30
+  produces:
+    - specific indirect effects a1·b1, a2·b2, and the serial a1·d21·b2 with bootstrap 95% CIs
+    - total indirect + direct (c') effects
+    - effects table (CSV) + indirect-effects bar chart with CIs (PNG)
+  executor_ref: py::serial_mediation
+  biases:
+    - mediation decomposes ASSOCIATION, not proof of causation — requires correct causal order (X before M1 before M2 before Y) and no unmeasured confounding of any M–Y or X–M link
+    - the serial ordering M1→M2 is assumed (set by config), not tested; reversing it gives a different model
+    - bootstrap percentile CIs assume the resampled estimator is roughly unbiased; small n is unreliable (n>=30 required)
+    - OLS path estimates assume linear, additive, homoscedastic relationships
+  params:
+    - name: x
+      type: column
+      description: 自变量 X
+      default: 第二个连续列
+    - name: m1
+      type: column
+      description: 第一中介 M1（序列中在前）
+      default: 第三个连续列
+    - name: m2
+      type: column
+      description: 第二中介 M2（序列中在后）
+      default: 第四个连续列
+    - name: y
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列
+
+- id: parallel_mediation
+  method: Parallel multiple mediation
+  domain: statistics
+  family: conditional_process
+  goal: explain
+  description: >-
+    PROCESS model 4 with k PARALLEL mediators. Fits each Mi~X and Y~X+M1+…+Mk by OLS
+    and reports the specific indirect effect a_i·b_i for every mediator (each adjusted
+    for the others), the total indirect effect, and the direct effect c' — all with
+    bootstrap percentile 95% CIs — plus pairwise CONTRASTS between specific indirects
+    (which mediator transmits more). Roles are config-declared (x / y / mediators) else
+    Y and X are the first two continuous columns and the rest are mediators.
+  preconditions:
+    min_continuous: 3
+    min_rows: 30
+  produces:
+    - specific indirect a_i·b_i per mediator + total indirect, with bootstrap 95% CIs
+    - pairwise contrasts between specific indirects
+    - per-mediator table + contrasts table (CSV) + specific-indirect bar chart (PNG)
+  executor_ref: py::parallel_mediation
+  biases:
+    - mediation decomposes ASSOCIATION, not causation — needs correct order (X before M before Y) and no unmeasured confounding
+    - parallel mediators are mutually adjusted, so each specific indirect can differ from its single-mediator counterpart (and from omitted-mediator bias)
+    - bootstrap percentile CIs need adequate n (n>=30 required); contrasts inherit the same assumptions
+    - OLS paths assume linear, additive, homoscedastic relationships
+  params:
+    - name: x
+      type: column
+      description: 自变量 X
+      default: 第二个连续列
+    - name: y
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列
+    - name: mediators
+      type: columns
+      description: 并行中介变量列表
+      default: 其余连续列
+
+- id: moderated_moderation
+  method: Moderated moderation (three-way interaction)
+  domain: statistics
+  family: conditional_process
+  goal: explain
+  description: >-
+    PROCESS model 3: a THREE-WAY interaction X×W×Z on Y. Fits Y ~ X + W + Z + XW + XZ +
+    WZ + XWZ (X, W, Z mean-centered) by OLS. The X×W×Z coefficient tests whether the
+    moderation of the X→Y effect by W itself depends on Z. Reports the three-way term +
+    p, model R², and the CONDITIONAL effect of X on Y across the W×Z grid (mean ± SD)
+    with analytic standard errors (theta = bX + bXW·W + bXZ·Z + bXWZ·W·Z, SE via
+    L'·cov·L). Roles config-declared (x / w / z / y) else continuous-column order.
+  preconditions:
+    min_continuous: 4
+    min_rows: 20
+  produces:
+    - three-way X×W×Z coefficient + p, model R², lower-order interaction coefficients
+    - conditional effect of X over the W×Z grid (mean±SD) with analytic SE + p (CSV)
+    - "conditional-effect plot: X effect vs W at low/mid/high Z (PNG)"
+  executor_ref: py::moderated_moderation
+  biases:
+    - a significant three-way term means W's moderation of X→Y itself depends on Z — interpret only the highest-order significant interaction
+    - X, W, Z are mean-centered so lower-order coefficients are effects at the sample means, not at zero on the raw scale
+    - high-order interaction terms are data-hungry and sensitive to outliers and collinearity; needs adequate n
+    - this is an associational moderation model, not causal; conditional-effect SEs are analytic (not bootstrap)
+  params:
+    - name: x
+      type: column
+      description: 自变量 X（其效应被调节）
+      default: 第二个连续列
+    - name: w
+      type: column
+      description: 调节变量 W
+      default: 第三个连续列
+    - name: z
+      type: column
+      description: 二阶调节变量 Z（调节 W 的调节作用）
+      default: 第四个连续列
+    - name: y
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列

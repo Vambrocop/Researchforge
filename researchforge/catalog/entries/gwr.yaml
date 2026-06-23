@@ -23,6 +23,36 @@
     - local R-squared and coefficient surface map (PNG)
     - AICc-selected bandwidth and effective parameters tr(S)
   executor_ref: numpy
+  params:
+    - name: outcome
+      type: column
+      description: 结果（因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续列
+    - name: lon
+      type: column
+      description: 经度/X 坐标列
+      default: 名称含 lon/x 的列
+    - name: lat
+      type: column
+      description: 纬度/Y 坐标列
+      default: 名称含 lat/y 的列
+    - name: kernel
+      type: choice
+      choices: [bisquare, gaussian]
+      description: 空间核函数
+      default: bisquare
+    - name: bw
+      type: float
+      description: 固定带宽（覆盖 AICc 选择）
+      default: AICc 自动
+    - name: adaptive_k
+      type: int
+      description: 自适应近邻数（k-NN 带宽）
+      default: AICc 自动
   biases:
     - exploratory not confirmatory — coefficients varying over space do not prove causal heterogeneity
     - bandwidth choice drives smoothness (reported, AICc-selected); a different bandwidth gives a different surface

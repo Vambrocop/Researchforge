@@ -27,6 +27,15 @@
     - BIC-by-k table and delta-BIC versus k=1 (multimodality evidence)
     - density histogram with fitted mixture pdf and components + BIC-by-k curve
   executor_ref: py::finite_mixture
+  params:
+    - name: column
+      type: column
+      description: 要拟合混合分布的数值列
+      default: 第一个连续列
+    - name: max_k
+      type: int
+      description: 最大成分数（按 BIC 选 k）
+      default: "5"
   biases:
     - EM is sensitive to initialization (mitigated with n_init restarts and a fixed seed, but the global optimum is not guaranteed)
     - BIC selects the RELATIVE best k among the candidates, it does not prove the chosen k is the truth
@@ -56,6 +65,15 @@
     - number of modes + their locations and the primary mode
     - grid x / density table, modes table, and a KDE-over-histogram plot with mode markers
   executor_ref: py::kernel_density
+  params:
+    - name: column
+      type: column
+      description: 要估计密度的数值列
+      default: 第一个连续列
+    - name: bandwidth
+      type: float
+      description: 核带宽（覆盖自动规则）
+      default: Silverman/Scott 自动
   biases:
     - the KDE shape depends on the bandwidth (both rules are reported; oversmoothing hides modes, undersmoothing invents them)
     - the mode count is grid- and bandwidth-dependent (a fine grid plus a 1% height threshold is used as a heuristic, not a formal test)
@@ -85,6 +103,20 @@
     - k / Hill-alpha table
     - Hill plot (alpha-hat versus k) with the stable-region band marked
   executor_ref: py::tail_index
+  params:
+    - name: column
+      type: column
+      description: 要估计尾部的数值列
+      default: 第一个连续列
+    - name: tail
+      type: choice
+      choices: [upper, lower]
+      description: 估计上尾还是下尾
+      default: upper（上尾）
+    - name: k_frac
+      type: float
+      description: 用于 Hill 估计的尾部样本比例
+      default: 中央 20%-60% 稳定区
   biases:
     - the Hill estimator assumes a Pareto-type upper tail and POSITIVE data (the lower tail is sign-flipped; non-positive data degrade honestly rather than being silently shifted, which would change the tail)
     - the estimate is highly sensitive to the choice of k (a stable-region median heuristic is used and disclosed, NOT an optimal selector such as Danielsson's bootstrap)

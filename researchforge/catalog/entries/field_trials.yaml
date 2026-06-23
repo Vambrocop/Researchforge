@@ -36,6 +36,10 @@
     - blocking spends error degrees of freedom; if the block effect is weak the relative efficiency can fall below 1 (blocking did not help)
     - an unreplicated RCBD cannot separate a treatment×block interaction from error
   params:
+    - name: outcome
+      type: column
+      description: 结果变量（response 的别名）
+      default: 第一个连续列
     - name: response
       type: column
       description: 连续结果变量
@@ -77,6 +81,10 @@
     - residual df is only (t-1)(t-2), so small squares (t=3,4) have low power — use replicated Latin squares
     - approximately normal, homoscedastic residuals
   params:
+    - name: outcome
+      type: column
+      description: 结果变量（response 的别名）
+      default: 第一个连续列
     - name: response
       type: column
       description: 连续结果变量
@@ -124,6 +132,10 @@
     - using an ordinary two-factor ANOVA here tests the whole-plot factor against the wrong error and grossly overstates its significance
     - assumes approximately normal, homoscedastic residuals in both strata
   params:
+    - name: outcome
+      type: column
+      description: 结果变量（response 的别名）
+      default: 第一个连续列
     - name: response
       type: column
       description: 连续结果变量
