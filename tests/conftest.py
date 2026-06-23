@@ -43,6 +43,9 @@ SLOW_MODULES = {
     "test_proportional_odds_logit", "test_ordered_probit", "test_brant_test",
     # supervised ML (sklearn CV fits: regularized / SVM / gradient boosting)
     "test_regularized_regression", "test_svm_model", "test_gradient_boosting",
+    # forecasting (statsmodels ETS/theta) + dimensionality (t-SNE / FA / LDA-CV)
+    "test_exponential_smoothing", "test_theta_method", "test_croston",
+    "test_tsne", "test_factor_analysis", "test_linear_discriminant",
 }
 
 

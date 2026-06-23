@@ -1,0 +1,89 @@
+# Time-series diagnostics catalog entries — single-series autocorrelation / memory
+# diagnostics (pure Python: statsmodels / numpy). Auto-discovered (the catalog loads
+# every *.yaml in this directory). Each id maps to a @register handler in
+# executor/branches/time_series_diagnostics.py. All operate on ONE numeric series
+# (config column, else the first continuous column), respecting fp.time_col order.
+
+- id: acf_pacf
+  method: ACF / PACF autocorrelation diagnostics
+  domain: time series
+  family: time-series
+  goal: explore
+  description: >-
+    Compute the autocorrelation function (ACF) and partial autocorrelation function
+    (PACF) of a single numeric series up to nlags, with white-noise significance bands
+    (±1.96/√n). Reports the lag-1 ACF, the number of significant ACF lags outside the
+    band, and a suggested AR/MA order hint via the Box-Jenkins cutoff (the initial run
+    of consecutive significant PACF lags → AR order, of ACF lags → MA order) as a
+    starting point for ARIMA model identification. Produces an ACF/PACF CSV and a two-panel stem plot with the bands.
+    Set config column / nlags.
+  preconditions:
+    is_timeseries: true
+    min_rows: 20
+  produces:
+    - ACF + PACF values with significance bands (CSV)
+    - lag-1 ACF + number of significant lags
+    - suggested AR / MA order hint
+    - two-panel ACF / PACF stem plot
+  executor_ref: py::acf_pacf
+  biases:
+    - ACF / PACF assume (weak) stationarity — a trending or near-unit-root series (lag-1 ACF approximately 1) must be differenced / detrended first; the engine flags this
+    - the significance band is a white-noise approximation (±1.96/√n) applied per lag with no multiple-comparison correction, so some lags will exceed it by chance
+    - the AR / MA order hint is only a starting point for model identification, not a fitted / tested model order
+    - operates on the first continuous column unless config column is set
+
+- id: ljung_box
+  method: Ljung-Box autocorrelation (white-noise) test
+  domain: time series
+  family: time-series
+  goal: explore
+  description: >-
+    Run the Ljung-Box portmanteau test for autocorrelation on a single numeric series
+    at one or more lags (config lags, default 10). The null hypothesis is NO
+    autocorrelation up to lag k; rejecting it (any p < 0.05) means the series is NOT
+    white noise and structure remains — useful both for testing a raw series and for
+    checking model residuals. Reports the Q statistic and p-value at each lag, the
+    minimum p-value, and an overall white-noise verdict. Produces a lag/Q/p CSV and a
+    p-value-by-lag plot with the 0.05 line. Set config column / lags.
+  preconditions:
+    is_timeseries: true
+    min_rows: 20
+  produces:
+    - Ljung-Box Q statistic + p-value at each lag (CSV)
+    - minimum p-value + white-noise verdict
+    - p-value-by-lag plot with the 0.05 line
+  executor_ref: py::ljung_box
+  biases:
+    - the null is NO autocorrelation up to lag k — rejecting it means structure / autocorrelation remains (the series is not white noise), not that the model is wrong per se
+    - when applied to model residuals the degrees of freedom should be reduced by the number of estimated parameters; this engine does NOT auto-adjust df, so on residuals use the df-adjusted form
+    - the conclusion depends on the chosen number of lags (config lags); too few or too many lags can change the verdict
+    - operates on the first continuous column unless config column is set
+
+- id: hurst_exponent
+  method: Hurst exponent (rescaled-range / R/S analysis)
+  domain: time series
+  family: time-series
+  goal: explore
+  description: >-
+    Estimate the Hurst exponent of a single numeric series via classic rescaled-range
+    (R/S) analysis — the log-log slope of the average rescaled range against window
+    size over a geometric grid of window sizes. The Hurst exponent characterises
+    long-memory / persistence: H = 0.5 is a random walk (no memory), H < 0.5 is
+    mean-reverting / anti-persistent, and H > 0.5 is trending / persistent (long
+    memory). Reports H, the R² of the log-log fit (how clean the scaling is), and a
+    regime interpretation. Produces a window-size / log(R/S) CSV and a log-log R/S plot
+    with the fitted slope. Set config column.
+  preconditions:
+    is_timeseries: true
+    min_rows: 32
+  produces:
+    - Hurst exponent H + log-log fit R-squared
+    - regime interpretation (mean-reverting / random walk / persistent)
+    - window-size vs log(R/S) table (CSV)
+    - log-log R/S plot with the fitted slope
+  executor_ref: py::hurst_exponent
+  biases:
+    - the R/S Hurst estimate is sample-size sensitive and biased for short series — at least ~100 observations are advised; the engine flags short series
+    - the estimate depends on the method used (rescaled-range / R/S here, vs DFA, periodogram, wavelet, etc.) and these can disagree; the method is disclosed
+    - a low log-log fit R-squared means the scaling relationship is unstable and H is unreliable (flagged)
+    - operates on the first continuous column unless config column is set

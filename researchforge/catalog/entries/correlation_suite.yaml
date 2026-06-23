@@ -1,0 +1,90 @@
+# Correlation-suite catalog entries — pure-Python bivariate / partial / matrix
+# correlation (scipy/numpy/pandas; no R). Auto-discovered (catalog loads every
+# *.yaml here). Each id maps to a @register handler in
+# executor/branches/correlation_suite.py. Distinct from the bare `correlation`
+# branch (statistics.py), which only dumps a corr() matrix with no inference.
+#
+# NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
+
+- id: pearson_correlation
+  method: Pearson correlation (with Spearman & Kendall)
+  domain: statistics
+  family: statistics
+  goal: explore
+  description: >-
+    Measure the bivariate association between two numeric columns. Reports the
+    Pearson r (linear association) with its p-value and a Fisher-z 95% confidence
+    interval, alongside Spearman rho and Kendall tau (rank-based, monotonic) so the
+    user can see at a glance whether the relationship is linear or merely monotonic.
+    Produces a coefficient table (CSV) and a scatter plot with the OLS fit line and
+    an r annotation (PNG). By default x and y are the first two numeric columns,
+    overridable via config x/y.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 3
+  produces:
+    - Pearson r + p + Fisher-z 95% CI
+    - Spearman rho and Kendall tau (linear vs monotonic)
+    - coefficient table (CSV) + scatter-with-fit plot (PNG)
+  executor_ref: py::pearson_correlation
+  biases:
+    - Pearson measures LINEAR association only and is sensitive to outliers and non-normality (use Spearman/Kendall for monotonic or ordinal relationships)
+    - correlation does not imply causation
+    - the first two numeric columns are taken as x and y — set config x/y if wrong
+    - a single confounder can create or hide a correlation (see partial_correlation)
+
+- id: partial_correlation
+  method: Partial correlation (controlling for covariates)
+  domain: statistics
+  family: statistics
+  goal: explore
+  description: >-
+    Estimate the correlation between x and y after CONTROLLING for one or more
+    covariates z, computed by residualisation (regress x on z and y on z by OLS,
+    then correlate the residuals — numerically equivalent to the precision-matrix
+    off-diagonal). Reports the partial r with its p-value and Fisher-z 95% CI, and
+    contrasts it against the zero-order (uncontrolled) r: a large drop signals
+    confounding, while a partial r that grows signals suppression. Produces a
+    zero-order-vs-partial table (CSV) and a residual-vs-residual scatter (PNG).
+    Configure x/y/covariates; by default x and y are the first two numeric columns
+    and the remaining numeric columns are the controls.
+  preconditions:
+    min_numeric_cols: 3
+    min_rows: 5
+  produces:
+    - partial r + p + Fisher-z 95% CI
+    - zero-order vs partial contrast (confounding / suppression)
+    - contrast table (CSV) + residual-vs-residual scatter (PNG)
+  executor_ref: py::partial_correlation
+  biases:
+    - partial correlation assumes LINEAR relationships among all variables (x, y, and the controls)
+    - a large zero-order to partial drop signals confounding; a partial r that grows signals suppression
+    - controlling for a collider or a mediator can introduce or distort association — choose covariates by subject-matter reasoning, not fit
+    - the first two numeric columns are x and y and the rest are controls — set config x/y/covariates if wrong
+
+- id: correlation_matrix
+  method: Correlation matrix (pairwise p + BH-FDR)
+  domain: statistics
+  family: statistics
+  goal: explore
+  description: >-
+    Compute the full correlation matrix over all numeric columns (Pearson by
+    default, Spearman via config method). Reports the matrix, every pairwise
+    p-value, and — because many simultaneous tests inflate false positives — a
+    Benjamini-Hochberg FDR-adjusted p-value and significance flag for each pair,
+    plus the strongest |correlation| pairs and a near-collinearity warning. Produces
+    the matrix and a long pairwise table with r/p/p_fdr (CSV) and a correlation
+    heatmap (PNG). Configure method (pearson/spearman) and the column subset.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 3
+  produces:
+    - correlation matrix (CSV) + correlation heatmap (PNG)
+    - long pairwise table with r, p, and BH-FDR-adjusted p
+    - strongest pairs + count of FDR-significant pairs + near-collinearity flag
+  executor_ref: py::correlation_matrix
+  biases:
+    - many pairwise tests inflate false positives — a BH-FDR-adjusted p-value and flag are reported (use p_fdr, not raw p)
+    - Pearson captures linear association, Spearman captures monotonic association
+    - near-collinear pairs (|r| >= 0.9) are flagged — they can destabilise downstream regression
+    - constant columns are dropped (correlation undefined); set config columns to control the subset

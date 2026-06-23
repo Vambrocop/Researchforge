@@ -116,6 +116,13 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+**波⑦ 6 方法族冷审（2026-06-23，6 个 inference-reviewer；4 ZERO / 2 MUST-FIX 已当场修）：**
+- ✅ **MUST-FIX 已修**：① correlation_suite 偏相关 Fisher-z CI off-by-one（`_fisher_ci(dof+3)`→`dof+2`，SE 1/√(n−k−2)→正确 1/√(n−k−3)，k=0 时正确退回零阶 1/√(n−3)）；② time_series_diagnostics 阶数提示**标签**说"末位显著滞后"但代码实为 Box-Jenkins 截断（初始连续显著段）——summary+yaml 已对齐（数值一直对，纯诚实标签 bug）。
+- **effect_sizes（should-fix，择机）**：d/g 的 CI 用大样本正态近似，小 n 欠覆盖——可换**非中心 t（Hedges 精确）CI**，或 ⚠ 补一句"小 n CI 近似、偏窄"；CLES 用非参 AUC（不假定正态、优于 Φ(d/√2)）但 summary 未点明，补一句。Glass's δ 对照=数据第二个出现水平（任意），可加 `config["control"]`。
+- **dimensionality_extra（should-fix，择机）**：t-SNE 轮廓在**嵌入空间**算与"距离非度量"自相矛盾——改在标准化输入 `Xs` 上算（或改标签/删）；FA 缺 **Heywood/低共同度告警**（min_communality<~0.2 或 max>~0.98 时 ⚠）；NaN 显示为字面 "nan%"（honest 但难看，加 N/A 守卫）；载荷符号任意性可加一句 ⚠。
+- **forecasting（should-fix，择机）**：ETS PI 用 SES √step 律，trend/季节下偏窄（已披露）——可换 statsmodels `ETSModel.get_prediction().conf_int()` 给模型一致区间；theta 仅点预测（可加残差自助 PI）；croston 间歇阈值硬 25%（可换 CV²/ADI 象限分类）。
+- **correlation_suite（should-fix，择机）**：matrix 分支列表删除缺失→某列多缺会拉低全配对 n，summary 补一句披露。
+- **categorical_tests（nice-to-have）**：估计 dict 里 p_value round 到 0.0（summary `:.4g` 仍显小值，dict 可保精度/设 ε 下限）；无 `config["mode"]="gof"` 强制 GoF 钩子（多列时只能跑独立性）。
 - **spatial_panel（SAR/SEM/SDM, splm）impacts 的 SE**：当前 direct/indirect/total 用 LeSage-Pace **解析点估计**（exact，`S=(I-ρW)^{-1}(Ib+Wθ)`），**未附模拟标准误/CI**。原因：splm 自带 `impacts()` 在本机 spdep/spatialreg 版本下易碎（`trW`、`as_dgRMatrix_listw` 已移位/改名，且 `impacts(spml)` 报 `have_factor_preds` 断言失败），故绕过自带实现、自算点估计。**补全**：用 ρ、β 的协方差（`vcov(m)`）做 delta-method 或参数自助（draw ρ/β ~ N(est, vcov)，重算 S，取分位）给 impacts 的 SE/CI。
 - **spatial_panel 的 W 仅 k-NN**：默认行标准化 k-NN（k=6，欧氏经纬度）。**待优化**：可配距离阈值/contiguity/反距离权重，以及真测地距离（与截面 spatial_regression 同一 backlog 第 6 条）。
 - **spatial_panel FE 仅个体（within, individual）**：未做双向（个体+时间）或随机效应空间面板，也未自动跑 Hausman 选 FE/RE-spatial。**补全**：接 `effect="twoways"` 与 `spml` 的 RE 变体 + `sphtest`（空间 Hausman）。

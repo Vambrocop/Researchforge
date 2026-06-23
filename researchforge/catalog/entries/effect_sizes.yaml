@@ -1,0 +1,88 @@
+# Effect-sizes catalog entries — standardized magnitude of a two-group difference.
+# The companions to a significance test: a p-value says *whether* groups differ, an
+# effect size says *how much*. Continuous outcome between exactly TWO groups; outcome
+# = first continuous column, group = a binary / 2-level column (config overridable).
+# Pure Python (numpy/scipy/pandas); honest degrade when not exactly 2 groups.
+
+- id: cohens_d
+  method: Cohen's d (standardized mean difference)
+  domain: statistics
+  family: effect_sizes
+  goal: describe
+  description: >-
+    Cohen's d — the pooled-SD standardized mean difference between two groups on a
+    continuous outcome. Reports d, its analytic 95% CI (Hedges-Olkin large-sample
+    variance), the small/medium/large magnitude band (0.2/0.5/0.8, Cohen 1988), and
+    the common-language effect size CLES = P(X1>X2) (the Mann-Whitney AUC, normality-
+    free). Also reports Glass's delta (standardized by the control-group SD) as an
+    alternative when the group variances differ. Outcome and group are config-overridable.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - effect-size table (d, 95% CI, CLES, Glass's delta, group means, pooled SD, n)
+    - overlaid two-group distribution plot (violin + jitter) annotated with d and its CI
+  executor_ref: py::cohens_d
+  biases:
+    - the analytic 95% CI assumes roughly equal group variances and approximate normality
+    - if the variances differ markedly use Glass's delta (control-group SD) reported alongside
+    - if the outcome is non-normal or ordinal use cliffs_delta (distribution-free) instead
+    - d overestimates the magnitude in small samples — prefer hedges_g for small n
+    - an effect size is not significance, and standardization can be misled by an unusual SD
+
+- id: hedges_g
+  method: Hedges' g (bias-corrected standardized mean difference)
+  domain: statistics
+  family: effect_sizes
+  goal: describe
+  description: >-
+    Hedges' g — the small-sample bias-corrected standardized mean difference,
+    g = Cohen's d × J, where J = 1 − 3/(4(n1+n2)−9). Cohen's d overestimates the
+    absolute effect when n is small; J shrinks it back toward zero, so g is the
+    preferred SMD for small samples (J → 1 and g ≈ d as n grows). Reports g, the
+    underlying d, the correction factor J, the analytic 95% CI (scaled by J), and the
+    magnitude band. Outcome and group are config-overridable.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - effect-size table (g, d, 95% CI, correction factor J, group means, pooled SD, n)
+    - overlaid two-group distribution plot (violin + jitter) annotated with g, d, and J
+  executor_ref: py::hedges_g
+  biases:
+    - g is the less-biased SMD for small samples — d overestimates the absolute effect when n is small
+    - the CI carries the same approximate-normality and roughly-equal-variance assumption as d
+    - for a non-normal or ordinal outcome use cliffs_delta (distribution-free) instead
+    - the correction is a function of n only — it does not fix a wrong-scale (heteroscedastic) SD
+    - an effect size is not a significance test
+
+- id: cliffs_delta
+  method: Cliff's delta (nonparametric dominance effect size)
+  domain: statistics
+  family: effect_sizes
+  goal: describe
+  description: >-
+    Cliff's delta — a nonparametric, ordinal-valid effect size for two groups:
+    δ = (#(x1>x2) − #(x1<x2)) / (n1·n2) over all pairwise comparisons, ranging in
+    [−1, 1]. It measures stochastic dominance (how often a value from one group
+    exceeds a value from the other) without assuming normality or even an interval
+    scale, so it is the right choice when the outcome is non-normal or ordinal. Reports
+    δ, its Romano magnitude band (|δ|<.147 negligible / <.33 small / <.474 medium /
+    else large), and P(X1>X2); δ = 2·AUC − 1 ties it to the Mann-Whitney test. Outcome
+    and group are config-overridable.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - effect-size table (delta, P(X1>X2), magnitude band, pairwise >/</tie counts, n)
+    - overlaid two-group distribution plot (violin + jitter) annotated with delta
+  executor_ref: py::cliffs_delta
+  biases:
+    - distribution-free — use it when normality fails or the outcome is ordinal
+    - it measures dominance (ordering), not the difference in means on the original scale
+    - it is related to the Mann-Whitney U test (δ = 2·AUC − 1), not to a mean comparison
+    - the Romano magnitude bands are conventional cutoffs, not a substitute for a significance test
+    - ties between the two groups contribute zero to delta (counted as 0.5 only in P(X1>X2))

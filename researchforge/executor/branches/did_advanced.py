@@ -346,6 +346,7 @@ def _branch_goodman_bacon(ctx: Ctx) -> None:
             "**简化形**权重（组对规模 × 子窗口内处理份额方差 Dbar(1-Dbar)）归一化重构，"
             "权重的**相对**结构（尤其坏比较份额）是可靠诊断信号，但其绝对值与精确 bacondecomp 略有出入，"
             "故分解和与直接系数即使在平衡面板上也未必完全相等（已分别给出，不强行对齐）。"
+            " ⚠ 与所有 DiD 一样假定**平行趋势 + 无预期效应（no-anticipation，处理前不应已有响应）**。"
         )
         code += [
             "# Goodman-Bacon (2021) decomposition of the TWFE DiD coefficient",
@@ -721,6 +722,7 @@ def _branch_chaisemartin_did(ctx: Ctx) -> None:
             "每个相邻期 (t-1,t) 用『初值相同但处理状态未变』的**稳定组**作对照，"
             "只用**尚未切换**的对照、在异质处理效应下仍有效（规避 TWFE 的禁止对照偏差）。"
             f"需要处理状态在相邻期有变化 + 每对都有稳定对照组；自助法 B={B}、固定随机种子 seed={seed}（已披露，结果可复现）。"
+            " ⚠ 假定**平行趋势（变化版）+ 无预期效应（no-anticipation）**。"
         )
         code += [
             "# de Chaisemartin & D'Haultfoeuille (2020) DID_M (heterogeneity-robust)",

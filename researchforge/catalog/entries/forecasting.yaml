@@ -1,0 +1,91 @@
+# Forecasting catalog entries — univariate time-series forecasting (pure Python).
+# Auto-discovered (catalog loads every *.yaml here). Each id maps to a @register
+# handler in executor/branches/forecasting.py. All forecast a SINGLE numeric series
+# (config column else first continuous; time order via the time column if present).
+# NOTE: biases / produces are YAML LISTS (one `-` item each) — never folded scalars.
+
+- id: exponential_smoothing
+  method: Exponential smoothing (Holt-Winters)
+  domain: time series
+  family: time-series
+  goal: predict
+  description: >-
+    Forecast a single time series with Holt-Winters exponential smoothing
+    (statsmodels ExponentialSmoothing). The engine auto-picks the trend (additive,
+    if a clear linear slope stands out from noise) and the additive seasonal
+    component (period auto-detected from the periodogram, requiring at least two
+    full cycles), or you can force them via config trend / seasonal /
+    seasonal_periods. It fits the model, reports the smoothing parameters
+    (alpha/beta/gamma) and initial level/trend, the in-sample fit (AIC, SSE), and an
+    h-step-ahead forecast (config h, default 10) with a 95% prediction interval.
+    For monthly/quarterly/weekly series with trend and/or seasonality.
+  preconditions:
+    is_timeseries: true
+    min_rows: 12
+  produces:
+    - smoothing parameters (alpha/beta/gamma) + initial level/trend
+    - in-sample fit (AIC, SSE)
+    - h-step forecast table with 95% prediction interval (CSV) + fitted/forecast plot
+  executor_ref: py::exponential_smoothing
+  biases:
+    - assumes the smoothing structure is stable and that the historical trend/seasonal pattern continues into the forecast horizon
+    - the prediction interval widens the residual sd by sqrt(step) (an approximate SES-style interval) and may be too narrow, especially for the trend/seasonal model
+    - the seasonal period must be correct — it is auto-detected from the periodogram main peak; override with config seasonal_periods (monthly=12, quarterly=4, weekly=7)
+    - the trend/seasonal choice is a heuristic on the data; force it with config trend/seasonal when you know the structure
+
+- id: theta_method
+  method: Theta method
+  domain: time series
+  family: time-series
+  goal: predict
+  description: >-
+    Forecast a single time series with the Theta method (Assimakopoulos &
+    Nikolopoulos 2000 — the winner of the M3 forecasting competition). The series
+    is (optionally) deseasonalized by classical multiplicative decomposition, then
+    decomposed into theta-lines: a theta=0 line forecast by simple exponential
+    smoothing (SES, alpha optimized on one-step SSE) and a theta=2 line capturing the
+    long-run linear trend (drift). The two are recombined 50/50 and reseasonalized to
+    produce an h-step forecast (config h, default 10). A simple, robust benchmark that
+    is hard to beat for many business series.
+  preconditions:
+    is_timeseries: true
+    min_rows: 12
+  produces:
+    - h-step Theta forecast table (CSV) + forecast plot
+    - optimized SES alpha + estimated linear drift
+    - optional multiplicative deseasonalization (period auto-detected)
+  executor_ref: py::theta_method
+  biases:
+    - the Theta forecast extrapolates the estimated linear drift — it assumes the drift continues over the horizon
+    - this implementation produces point forecasts only (no analytic prediction interval)
+    - the optional deseasonalization is a classical multiplicative decomposition and requires a correct seasonal period and a strictly positive series; disable it with config seasonal='none' or set seasonal_periods
+    - 50/50 weighting of the theta=0 and theta=2 lines is the standard Theta rule; it is not tuned per series
+
+- id: croston
+  method: Croston's method (intermittent demand)
+  domain: time series
+  family: time-series
+  goal: predict
+  description: >-
+    Forecast INTERMITTENT demand (sparse, zero-heavy series — spare parts, slow
+    movers) with Croston's method. It separates the series into the sizes of the
+    nonzero demands and the inter-arrival intervals between them, smooths each with
+    simple exponential smoothing (config alpha, default 0.1), and forms the per-period
+    demand-rate forecast as smoothed-size / smoothed-interval. It also reports the
+    SBA (Syntetos-Boylan Approximation) variant, which multiplies by (1 - alpha/2) to
+    correct Croston's known positive bias. The engine flags when the series is NOT
+    intermittent (low percentage of zeros), where ordinary smoothing/Theta is more
+    appropriate. Set config column / alpha.
+  preconditions:
+    is_timeseries: true
+    min_rows: 12
+  produces:
+    - Croston demand-rate forecast + SBA bias-corrected forecast (CSV)
+    - percentage of zeros + mean inter-arrival interval
+    - intermittent-demand plot with the forecast demand levels
+  executor_ref: py::croston
+  biases:
+    - Croston is designed for intermittent / zero-heavy demand — on a non-intermittent series (low %zero) it offers no advantage and ordinary exponential smoothing / Theta is preferable (the engine flags this)
+    - the original Croston estimator is positively biased — the SBA (1 - alpha/2) correction is reported and generally preferred
+    - the output is a constant per-period demand RATE, not a forecast of individual demand events or their timing
+    - sensitive to the smoothing parameter alpha (config alpha, default 0.1) and assumes a non-negative series

@@ -4,25 +4,80 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "researchforge"
-version = "0.7.0"
-description = "Data-driven automated research engine"
+dynamic = ["version"]
+description = "A methodology melting-pot engine: profile data, recommend feasible analyses with rigor verdicts and a methodology scorecard, then run them and emit code/figures/tables/reports."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "ResearchForge" }]
+keywords = [
+    "statistics",
+    "data-analysis",
+    "causal-inference",
+    "methodology",
+    "recommender",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+# Core pure-Python stack actually imported across researchforge/. Many analyses
+# run on this set alone; heavier methods live under the "full" extra below and
+# degrade gracefully when their optional library is absent.
 dependencies = [
+    "numpy>=1.24",
     "pandas>=2.0",
-    "openpyxl>=3.1",
-    "pydantic>=2.5",
+    "scipy>=1.10",
+    "statsmodels>=0.14",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
     "pyyaml>=6.0",
+    "pydantic>=2.5",
+    "openpyxl>=3.1",          # Excel reads in the profiler
+    "fastapi>=0.110",         # web UI
+    "uvicorn>=0.27",          # web UI server (cli web)
+    "python-multipart>=0.0.9", # FastAPI file uploads (POST /api/analyze)
 ]
 
 [project.optional-dependencies]
+# Heavy / specialized backends. Each is imported behind a try/except so the
+# corresponding method degrades honestly when the library is missing.
+full = [
+    "lifelines>=0.27",      # survival (KM / Cox / parametric)
+    "linearmodels>=5.0",    # panel econometrics (FE/RE, IV/2SLS)
+    "networkx>=3.0",        # network science
+    "python-louvain>=0.16", # community detection (imported as `community`)
+    "girth>=0.8",           # IRT / Rasch
+    "stepmix>=2.0",         # latent-class / mixture models
+    "prince>=0.13",         # correspondence analysis / MCA ordination
+    "semopy>=2.3",          # structural equation modeling
+    "arch>=6.0",            # GARCH volatility
+    "ruptures>=1.1",        # changepoint detection
+    "econml>=0.14",         # modern causal ML (causal forests, DML)
+    "doubleml>=0.7",        # double/debiased machine learning
+]
 dev = ["pytest>=8.0", "pytest-xdist>=3.0"]
 
 [project.scripts]
+researchforge = "researchforge.cli:main"
 rf = "researchforge.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "researchforge.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["researchforge*"]
+
+# Ship non-Python assets so the catalog + web UI work from an installed package.
+[tool.setuptools.package-data]
+researchforge = [
+    "catalog/entries/*.yaml",
+    "catalog/candidate_queue/*.yaml",
+    "web/static/*",
+    "web/static/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

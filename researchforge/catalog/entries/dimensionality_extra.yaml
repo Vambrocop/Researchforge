@@ -1,0 +1,84 @@
+# Dimensionality reduction / latent structure catalog entries (pure Python — scikit-learn / numpy / scipy).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+
+- id: tsne
+  method: t-SNE (t-distributed stochastic neighbor embedding)
+  domain: statistics
+  family: ml
+  goal: explore
+  description: >-
+    t-SNE 2-D embedding for VISUALIZATION of high-dimensional continuous data
+    (sklearn TSNE, PCA init, perplexity defaulting to min(30, (n-1)/3)). Standardizes
+    the features, embeds them in two dimensions, and reports the embedding coordinates
+    plus the final KL divergence of the optimization. If a low-cardinality label column
+    is present it colors the scatter by it and reports a descriptive silhouette of the
+    embedding by that label. t-SNE distances and cluster sizes are NOT metric-meaningful.
+  preconditions:
+    min_continuous: 2
+    min_rows: 5
+  produces:
+    - 2D embedding coordinates (rows x tsne1/tsne2, + label if present)
+    - KL divergence of the optimization
+    - descriptive silhouette of the embedding by a label (if one exists)
+    - 2D scatter colored by label
+  executor_ref: py::tsne
+  biases:
+    - all continuous columns are the features by default and are standardized — set config features/perplexity/label
+    - t-SNE is for VISUALIZATION only — distances, cluster sizes, and cluster positions are not metric-meaningful and must not be used downstream
+    - results are perplexity-sensitive and stochastic (random_state fixed at 42; a different seed changes the picture)
+    - the silhouette-by-label is descriptive only, not a fit or significance metric
+
+- id: factor_analysis
+  method: Exploratory factor analysis (EFA)
+  domain: statistics
+  family: ml
+  goal: explore
+  description: >-
+    Exploratory factor analysis (sklearn FactorAnalysis) modeling the common variance
+    among continuous/Likert indicators with a small number of latent factors. The factor
+    count is chosen by config, else Horn's parallel analysis (95th percentile), else the
+    Kaiser rule (eigenvalue greater than 1) on the correlation-matrix eigenvalues. Reports
+    the per-factor loadings (varimax-rotated when more than one factor), the communalities,
+    the variance explained per factor, and the chosen n_factors with the selection rule.
+  preconditions:
+    min_numeric_cols: 3
+    min_rows: 10
+  produces:
+    - per-factor loadings matrix (varimax-rotated when feasible) + communalities
+    - variance explained per factor and cumulative
+    - chosen n_factors with the selection rule
+    - loadings heatmap
+  executor_ref: py::factor_analysis
+  biases:
+    - all continuous/count columns are the indicators by default — set config features/n_factors
+    - EFA assumes a linear latent structure and an adequate sample (n/p); KMO sampling adequacy is not computed — assess it yourself
+    - rotation aids interpretation, it does not change model fit
+    - the factor count is a choice (rule disclosed; random_state fixed at 0); EFA models common variance and differs from PCA which models total variance
+
+- id: linear_discriminant
+  method: Linear discriminant analysis (LDA)
+  domain: statistics
+  family: ml
+  goal: predict
+  description: >-
+    Linear discriminant analysis as supervised dimensionality reduction plus
+    classification (sklearn LinearDiscriminantAnalysis). Needs a categorical or binary
+    target (config outcome, else a low-cardinality categorical column) and continuous
+    features. Fits the discriminant axes, reports the percentage of between-class variance
+    per axis, the k-fold cross-validated classification accuracy (versus the majority-class
+    baseline), the per-sample LD scores, and the class means on LD1.
+  preconditions:
+    min_continuous: 2
+    min_categorical_cols: 1
+    min_rows: 10
+  produces:
+    - discriminant axes (LD scores per sample) + class
+    - percentage of between-class variance explained per axis
+    - k-fold cross-validated classification accuracy (vs majority-class baseline)
+    - class means on LD1 + LD scatter by class
+  executor_ref: py::linear_discriminant
+  biases:
+    - needs a categorical/binary target — config outcome chooses it, else a low-cardinality categorical column; features default to the continuous columns (config features)
+    - LDA assumes equal class covariances and approximate normality — use QDA if these are violated
+    - cross-validated accuracy is the honest out-of-sample estimate (compare to the majority-class baseline); in-sample fit is optimistic
+    - features are standardized inside the CV pipeline to prevent leakage (random_state fixed at 0)
