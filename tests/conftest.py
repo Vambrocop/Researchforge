@@ -41,6 +41,8 @@ SLOW_MODULES = {
     "test_chaisemartin_did",
     # ordinal regression (statsmodels OrderedModel bfgs + Brant per-cut logits)
     "test_proportional_odds_logit", "test_ordered_probit", "test_brant_test",
+    # supervised ML (sklearn CV fits: regularized / SVM / gradient boosting)
+    "test_regularized_regression", "test_svm_model", "test_gradient_boosting",
 }
 
 

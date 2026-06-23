@@ -1,0 +1,86 @@
+- id: anova_oneway
+  method: One-way ANOVA (with effect sizes, Welch, Levene, Tukey HSD)
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Compares a continuous outcome across the levels of ONE grouping factor. Reports the
+    omnibus F-test (df between/within) and p, η² and ω² effect sizes, Levene's test for
+    homogeneity of variance, Welch's robust ANOVA F (a fallback when variances are
+    unequal), and Tukey HSD post-hoc pairwise comparisons that flag which groups differ.
+    Produces a group means/sd/n table, the Tukey pairwise table, and a group-means
+    (95% CI) plot. Set config outcome/group.
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - omnibus F-test (df between/within, p) + η² and ω² effect sizes
+    - Levene homogeneity-of-variance test + Welch's robust ANOVA F (unequal-variance fallback)
+    - group means/sd/n table + Tukey HSD pairwise comparisons + means (95% CI) plot
+  executor_ref: py::anova_oneway
+  biases:
+    - classic ANOVA assumes normal residuals and equal variances across groups
+    - Levene flags unequal variances; when violated prefer the reported Welch F
+    - η² is upward-biased as a population effect size; ω² is less biased
+    - Tukey HSD controls the family-wise error rate across all pairwise comparisons
+    - the grouping factor is guessed from low-cardinality columns when config doesn't set group — disclosed in the summary
+
+- id: ancova
+  method: ANCOVA (analysis of covariance, adjusted group means)
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Compares group means on a continuous outcome while controlling for one or more
+    continuous covariates: fits outcome ~ C(factor) + covariate(s) (Type II ANOVA),
+    reports the factor's adjusted F + p + partial η², the covariate coefficient, and the
+    ADJUSTED (estimated marginal) group means evaluated at the covariate mean. Also runs
+    the homogeneity-of-regression-slopes check (the factor×covariate interaction) — if it
+    is significant, ANCOVA's parallel-slopes assumption is violated. Produces an
+    adjusted-vs-unadjusted means table, the ANOVA table, and a covariate-vs-outcome
+    scatter with per-group fit lines. Set config outcome/group/covariates.
+  preconditions:
+    requires_group: true
+    min_continuous: 2
+    min_rows: 8
+  produces:
+    - factor adjusted F + p + partial η² (controlling for covariate) + covariate coefficient
+    - adjusted (EMM) vs unadjusted group means table + ANCOVA table
+    - homogeneity-of-regression-slopes (factor×covariate interaction) check
+    - covariate-vs-outcome scatter colored by group with per-group fit lines
+  executor_ref: py::ancova
+  biases:
+    - assumes homogeneity of regression slopes (parallel slopes); the interaction check flags violation
+    - assumes a linear covariate–outcome relationship
+    - the covariate must be measured without error and not affected by the factor, or adjustment is biased
+    - factor / covariate roles are inferred when config doesn't set group/covariates — disclosed in the summary
+
+- id: repeated_measures_anova
+  method: Repeated-measures ANOVA (within-subjects, sphericity-corrected)
+  domain: experimental design
+  family: experimental_stats
+  goal: explain
+  description: >-
+    Within-subjects (repeated-measures) ANOVA for a single within factor. Accepts long
+    format (subject id + within condition + outcome) OR wide format (several repeated-measure
+    columns per subject row, which are detected and melted). Fits statsmodels AnovaRM,
+    reports the within-factor F + df + p and partial η², Mauchly's test of sphericity, and
+    the Greenhouse-Geisser and Huynh-Feldt epsilon corrections plus the GG-corrected p (used
+    when sphericity is violated). Produces a condition-means table, the RM-ANOVA table, and a
+    per-condition means plot with within-subject error bars and subject spaghetti. Set config
+    subject/within/outcome (or measures for wide format).
+  preconditions:
+    requires_group: true
+    min_numeric_cols: 2
+    min_rows: 6
+  produces:
+    - within-factor F + df + p + partial η² (statsmodels AnovaRM)
+    - Mauchly sphericity test + Greenhouse-Geisser / Huynh-Feldt epsilon + GG-corrected p
+    - condition means table + RM-ANOVA table + per-condition means plot (within-subject error bars)
+  executor_ref: py::repeated_measures_anova
+  biases:
+    - assumes sphericity; Mauchly checks it and when violated the reported GG-corrected p should be used
+    - needs at least 2 conditions and a balanced design — subjects missing any condition are dropped and disclosed
+    - Mauchly's p is from a chi-square approximation (small-sample approximate); epsilon is from the condition covariance matrix
+    - subject / within / outcome roles are inferred (or wide columns melted) when config doesn't set them — disclosed in the summary

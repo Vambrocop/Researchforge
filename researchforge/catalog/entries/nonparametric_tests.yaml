@@ -1,0 +1,113 @@
+# Nonparametric group-comparison (rank-based) catalog entries.
+# DISTINCT from the `nonparametric` family (permutation/bootstrap/robust): this is
+# the rank-based group-difference suite — the distribution-free cousins of one-way
+# ANOVA, repeated-measures ANOVA, and the two-sample t-test. Auto-discovered (the
+# catalog loads every *.yaml here); each id maps to a @register handler in
+# executor/branches/nonparametric_tests.py. Pure Python (scipy/numpy/pandas).
+
+- id: kruskal_wallis
+  method: Kruskal-Wallis H test (nonparametric one-way ANOVA)
+  domain: statistics
+  family: nonparametric
+  goal: explain
+  description: >-
+    Distribution-free test for whether a continuous or ordinal outcome differs
+    across three or more INDEPENDENT groups — the nonparametric one-way ANOVA.
+    Reports the Kruskal-Wallis H statistic (ties-corrected), its p-value, the
+    eta-squared effect size (eta2[H] = (H - k + 1)/(n - k), per rstatix; not
+    Tomczak's epsilon-squared = H/(n-1)), and a Dunn
+    post-hoc pairwise rank-sum test with Bonferroni-adjusted p-values flagging
+    which group pairs differ. Outputs a per-group median / mean-rank / n table,
+    the Dunn pairwise z / adjusted-p table, and a per-group boxplot. Outcome =
+    first continuous column, group = a 3..~12-level categorical column (override
+    via config outcome / group).
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 9
+  produces:
+    - Kruskal-Wallis H + p-value + eta-squared (eta2[H]) effect size
+    - per-group median / mean-rank / n table
+    - Dunn post-hoc pairwise z / Bonferroni-adjusted p table
+    - per-group boxplot
+  executor_ref: scipy
+  biases:
+    - >-
+      tests stochastic dominance / a distribution shift across groups, NOT just a
+      difference in medians — it reduces to a median test only when the group
+      distributions share the same shape
+    - ties are corrected (in both scipy's H and Dunn's variance)
+    - the Dunn post-hoc controls the family-wise error rate by Bonferroni (conservative)
+    - significance is not effect size — report the eta-squared (eta2[H]) effect size alongside p
+    - the result is associational, not causal
+
+- id: friedman_test
+  method: Friedman test (nonparametric repeated-measures ANOVA)
+  domain: statistics
+  family: nonparametric
+  goal: explain
+  description: >-
+    Distribution-free test for whether an outcome differs across three or more
+    REPEATED conditions measured on the same subjects (within-subject blocks) —
+    the nonparametric repeated-measures ANOVA. Accepts long input
+    (config subject / within / outcome) or wide input (>=3 numeric
+    repeated-measure columns, auto-pivoted). Reports the Friedman chi-square Q,
+    its p-value, Kendall's W effect size (W = chi2 / (n*(k-1))), and a Nemenyi
+    post-hoc pairwise test (critical difference from the studentized-range
+    statistic) flagging which condition pairs differ. Outputs a per-condition
+    mean-rank / median table, the Nemenyi pairwise table, and a mean-rank bar
+    chart. Subjects with any missing condition are dropped (complete blocks).
+  preconditions:
+    min_continuous: 3
+    min_rows: 4
+  produces:
+    - Friedman chi-square Q + p-value + Kendall's W effect size
+    - per-condition mean-rank / median table
+    - Nemenyi post-hoc pairwise critical-difference table
+    - per-condition mean-rank bar chart
+  executor_ref: scipy
+  biases:
+    - >-
+      requires COMPLETE blocks — subjects missing any condition are dropped (the
+      count is disclosed)
+    - >-
+      tests overall differences among the repeated conditions (a within-subject
+      design), so it assumes the same subjects / matched blocks across conditions
+    - the Nemenyi post-hoc is conservative (critical difference from the studentized range)
+    - significance is not effect size — report Kendall's W
+    - the result is associational, not causal
+
+- id: mann_whitney
+  method: Mann-Whitney U / Wilcoxon rank-sum (nonparametric t-test)
+  domain: statistics
+  family: nonparametric
+  goal: explain
+  description: >-
+    Distribution-free test for whether a continuous or ordinal outcome differs
+    between EXACTLY TWO independent groups — the nonparametric two-sample t-test
+    (Mann-Whitney U, equivalently the Wilcoxon rank-sum). Reports the U
+    statistic, its two-sided p-value, the rank-biserial correlation effect size
+    (r = 1 - 2U/(n1*n2), with magnitude and direction), and the Hodges-Lehmann
+    median-shift estimate (median of all cross-group pairwise differences) with
+    a distribution-free confidence interval where tractable. Outputs a per-group
+    median / mean / n table, a test-statistics table, and a two-group boxplot
+    with a jittered strip overlay. Outcome = first continuous column, group = a
+    binary / 2-level column (override via config outcome / group).
+  preconditions:
+    requires_group: true
+    min_continuous: 1
+    min_rows: 6
+  produces:
+    - Mann-Whitney U + two-sided p-value + rank-biserial effect size
+    - Hodges-Lehmann median-shift estimate (+ distribution-free CI)
+    - per-group median / mean / n table + test-statistics table
+    - two-group boxplot with jittered strip overlay
+  executor_ref: scipy
+  biases:
+    - >-
+      tests stochastic dominance — it reduces to a comparison of medians only when
+      the two group distributions share the same shape
+    - reports the rank-biserial correlation as the effect size (its sign gives the direction)
+    - it is for EXACTLY two groups — use kruskal_wallis for three or more
+    - ties are corrected
+    - the result is associational, not causal
