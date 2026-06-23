@@ -116,6 +116,13 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+**v0.9 脏数据鲁棒（2026-06-23，`profiler/ingest.py` 鲁棒读取门）—— 已做 + 刻意 defer 的 i18n 尾巴：**
+- ✅ **已做**：编码回退(utf-8-sig→gb18030→latin-1)、分隔符嗅探(`,;\t|`)、保守数值强转(文本"1,234"/"$5"/"12%"/杂缺失标记 ≥90% 可解析才转、`df.attrs['rf_coercions']` 非静默)、`diagnose` 加 coerced_numeric/high_cardinality 披露、12 脏数据测试。
+- **i18n 小数逗号**（European `1,5`=1.5）：刻意**不**处理——千分位正则只吃"逗号+恰好3位数+边界"，`1,5` 解析失败→留文本（保守，宁可不转也不把 1,5 错成 15）。补全：检测整列单逗号无小数点模式→按小数逗号解析。
+- **charset 检测器**：编码链是静态启发式（法语 latin-1 文件可能先被 gb18030 错解为中文乱码再到 latin-1）。补全：可选接 `charset_normalizer`（纯 Py、常随 requests 装）做最佳猜测，缺则回退静态链。
+- **不规则行容错**：现用 C parser 默认；ragged/坏行会抛 ParserError。补全：捕获后用 `engine="python"` + `on_bad_lines="warn"` 重试（别静默丢行）。
+- **code 产物可复现性**：`run.py` 导出的代码片段仍是裸 `pd.read_csv(path)`，若发生了强转则无法逐位复现。补全：强转发生时在导出代码里带上 ingest 的清洗步骤（或导出 `from researchforge.profiler.profile import read_table`）。
+
 **波⑦ 6 方法族冷审（2026-06-23，6 个 inference-reviewer；4 ZERO / 2 MUST-FIX 已当场修）：**
 - ✅ **MUST-FIX 已修**：① correlation_suite 偏相关 Fisher-z CI off-by-one（`_fisher_ci(dof+3)`→`dof+2`，SE 1/√(n−k−2)→正确 1/√(n−k−3)，k=0 时正确退回零阶 1/√(n−3)）；② time_series_diagnostics 阶数提示**标签**说"末位显著滞后"但代码实为 Box-Jenkins 截断（初始连续显著段）——summary+yaml 已对齐（数值一直对，纯诚实标签 bug）。
 - **effect_sizes（should-fix，择机）**：d/g 的 CI 用大样本正态近似，小 n 欠覆盖——可换**非中心 t（Hedges 精确）CI**，或 ⚠ 补一句"小 n CI 近似、偏窄"；CLES 用非参 AUC（不假定正态、优于 Φ(d/√2)）但 summary 未点明，补一句。Glass's δ 对照=数据第二个出现水平（任意），可加 `config["control"]`。

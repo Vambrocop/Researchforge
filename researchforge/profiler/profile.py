@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
+from researchforge.profiler.ingest import read_table as _robust_read_table
 from researchforge.profiler.quality import diagnose
 from researchforge.profiler.types import infer_kind
 
@@ -14,9 +15,10 @@ _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day"
 
 
 def read_table(path: Path) -> pd.DataFrame:
-    if path.suffix.lower() in {".xlsx", ".xls"}:
-        return pd.read_excel(path)
-    return pd.read_csv(path)
+    """Robust read: encoding fallback, delimiter sniff, and conservative numeric
+    coercion of text columns that are really numbers (see profiler.ingest).
+    Drop-in replacement; coercions/encoding are recorded in ``df.attrs``."""
+    return _robust_read_table(path)
 
 
 def profile_dataset(path: str | Path) -> DataFingerprint:

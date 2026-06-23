@@ -21,6 +21,13 @@ def diagnose(df: pd.DataFrame) -> list[Issue]:
     if n == 0:
         return issues
 
+    # Disclose any numeric coercions the robust reader applied (never silent).
+    for col, note in (df.attrs.get("rf_coercions") or {}).items():
+        issues.append(
+            Issue(kind="coerced_numeric", severity="low",
+                  detail=f"文本列已转为数值：{note}", column=str(col))
+        )
+
     dup = int(df.duplicated().sum())
     if dup:
         issues.append(
@@ -36,10 +43,24 @@ def diagnose(df: pd.DataFrame) -> list[Issue]:
                 Issue(kind="missing", severity=_severity(miss / n),
                       detail=f"{miss} missing values", column=str(col), count=miss)
             )
-        if s.nunique(dropna=True) <= 1:
+        nuniq = int(s.nunique(dropna=True))
+        if nuniq <= 1:
             issues.append(
                 Issue(kind="constant", severity="low",
                       detail="constant / single-value column", column=str(col), count=n)
+            )
+        # High-cardinality text column (likely free text / identifier): a poor
+        # grouping factor and a memory risk for one-hot. Numbers/dates exempt.
+        elif (
+            not pd.api.types.is_numeric_dtype(s)
+            and not pd.api.types.is_bool_dtype(s)
+            and not pd.api.types.is_datetime64_any_dtype(s)
+            and nuniq > max(50, 0.5 * n)
+        ):
+            issues.append(
+                Issue(kind="high_cardinality", severity="low",
+                      detail=f"{nuniq} distinct text values ({nuniq / n:.0%} of rows)",
+                      column=str(col), count=nuniq)
             )
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             nn = s.dropna()

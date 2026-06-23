@@ -22,10 +22,10 @@
 - [x] **Web 前端 MVP**:上传 → 推荐(🟢🟡🔴 + 6 维评分卡) → 跑 → 报告/图。`web/static/index.html` 单页应用 + `web/app.py`(analyze/clean/reanalyze/run/download) + `cli web` 启动 + test_web 9 绿；`/api/run` 已接 config 覆盖。**可用性 58→83、总分→93**（旧 scorecard 探测错路径 templates/→已改 static/index.html）。
 
 ### 阶段 ② v0.9 — 硬化 + 触达
-- [ ] **真实脏数据鲁棒**(编码/缺失/异常 dtype/高基数列)—— 1.0 隐形门槛(现测试多用合成数据)
-- [ ] 用户 **README + pip 打包**
-- [ ] **discover 真抓取**(阶段2):`fetch_fn` 接 CRAN/PyPI/GitHub,带降级
-- [ ] **推断 backlog**:DML/causal_forest CV R² + 多重比较校正、BART holdout R²、GAMM 非高斯
+- [x] **真实脏数据鲁棒**(编码/分隔符/数值强转/缺失标记/高基数列)—— 1.0 隐形门槛。**2026-06-23**:`profiler/ingest.py` 鲁棒读取门(utf-8-sig/gb18030/latin-1 编码回退 + `,;\t|` 分隔符嗅探 + **保守数值强转**:文本列"1,234"/"$5"/"12%"/杂缺失标记 ≥90% 可解析才转、记 `df.attrs['rf_coercions']` 非静默)；`diagnose` 加 coerced_numeric/high_cardinality 披露；12 个真实脏数据测试端到端不崩；全量回归护好。〔余:i18n 小数逗号/charset 检测器/不规则行容错见 deferred-log〕
+- [x] 用户 **README + pip 打包**(2026-06-23 波⑦:README 重写 + pyproject 动态版本/scripts/extras/package-data)
+- [ ] **discover 真抓取**(阶段2):`fetch_fn` 接 CRAN/PyPI/GitHub,带降级（roadmap 自标"暂缓:选得准>加得多",优先级最低）
+- [x] **推断 backlog**:DML/causal_forest CV R² + 多重比较校正、BART holdout R²、GAMM 非高斯（#4a-#4d 已做）
 - [ ] **config schema(机器可读,每 analysis entry)** —— **厚 1.0 加到 100+ 方法前的门槛**(Codex 审建议前移到 v0.9):Web UI / 推荐解释 / 运行错误都消费同一份参数规格,别各自猜参数
 
 ### 阶段 ③ 方法熔炉扩张（折入 1.0,使其"厚"）
