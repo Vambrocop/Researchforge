@@ -110,10 +110,18 @@ def run_analysis(
     # anchors, etc.) — each branch reads cfg.get(<key>) and falls back to its auto
     # default. See docs/loop-decisions.md for the configurable keys per analysis.
     cfg = config or {}
+    # Validate the override keys against the entry's declared param spec (if any)
+    # and surface problems instead of silently ignoring them. Non-blocking: the
+    # analysis still runs on its auto defaults. See catalog/config_schema.py.
+    from researchforge.catalog.config_schema import validate_config
+
+    _cfg_warns = validate_config(entry, cfg, fp)
     d = _run_dir(output_root, entry.id)
     _init_mpl_style()
     files: list[str] = []
     summary: list[str] = []
+    if _cfg_warns:
+        summary.append("⚠ 配置参数提示：" + " ".join(_cfg_warns))
     estimates: dict[str, float] = {}
     code: list[str] = ["import pandas as pd", f"df = pd.read_csv(r'{fp.path}')", ""]
 

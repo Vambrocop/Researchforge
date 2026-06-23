@@ -27,6 +27,15 @@
     - Spearman rho and Kendall tau (linear vs monotonic)
     - coefficient table (CSV) + scatter-with-fit plot (PNG)
   executor_ref: py::pearson_correlation
+  params:
+    - name: x
+      type: column
+      description: 第一个变量列
+      default: 第一个数值列
+    - name: y
+      type: column
+      description: 第二个变量列
+      default: 第二个数值列
   biases:
     - Pearson measures LINEAR association only and is sensitive to outliers and non-normality (use Spearman/Kendall for monotonic or ordinal relationships)
     - correlation does not imply causation
@@ -56,6 +65,19 @@
     - zero-order vs partial contrast (confounding / suppression)
     - contrast table (CSV) + residual-vs-residual scatter (PNG)
   executor_ref: py::partial_correlation
+  params:
+    - name: x
+      type: column
+      description: 第一个变量列
+      default: 第一个数值列
+    - name: y
+      type: column
+      description: 第二个变量列
+      default: 第二个数值列
+    - name: covariates
+      type: columns
+      description: 要控制（partial out）的协变量列
+      default: 其余数值列
   biases:
     - partial correlation assumes LINEAR relationships among all variables (x, y, and the controls)
     - a large zero-order to partial drop signals confounding; a partial r that grows signals suppression
@@ -83,6 +105,16 @@
     - long pairwise table with r, p, and BH-FDR-adjusted p
     - strongest pairs + count of FDR-significant pairs + near-collinearity flag
   executor_ref: py::correlation_matrix
+  params:
+    - name: method
+      type: choice
+      choices: [pearson, spearman]
+      description: 相关系数类型
+      default: pearson
+    - name: columns
+      type: columns
+      description: 参与相关矩阵的列子集
+      default: 全部数值列
   biases:
     - many pairwise tests inflate false positives — a BH-FDR-adjusted p-value and flag are reported (use p_fdr, not raw p)
     - Pearson captures linear association, Spearman captures monotonic association

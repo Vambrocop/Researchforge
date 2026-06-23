@@ -116,6 +116,11 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **实验设计要"设计感知"**:RCBD/split-plot/nested/repeated 做成强制声明 block/plot/subplot 角色的 mixed-model wrapper（已入 roadmap）。
 - Codex 审查任务书在 `docs/codex-review-brief.md`（之前+接下来的阅读清单 + 红线）。
 
+**v0.9 config schema（2026-06-23）—— infra 已做 + 回填 backlog：**
+- ✅ **已做**：`ParamSpec` 模型 + `AnalysisEntry.params`；`catalog/config_schema.py` `validate_config`（未知键/坏 choice/列不存在/类型错，**非阻塞**警告）；`run_analysis` 接入（⚠ 进 summary）；`cli params <id>`；recommend payload 带 `params`；correlation_suite/effect_sizes 两族填好范例；`tests/test_config_schema.py`。
+- **回填 backlog（~30 族 params 待声明）**：逐族在 yaml 加 `params:` 块。**方法**：审 `@register` handler **及其调用的 helper** 的全部 `cfg.get` 键（共享 resolver 的键，如 forecasting 的 column/value、effect_sizes 的 outcome/group，常在 helper 里、单看 handler 体会漏）；**宁可不填也别 under-declare**（漏键会对合法 config 发假"未知参数"警告）。数据源 = loop-decisions 各行「config 键」列。可写个一次性脚本：正则抽每族每 handler+helper 的 cfg.get 键 → 生成 params 草稿 → 人核类型/描述。
+- **Web 前端表单**：payload 已带 params，但前端尚未据此渲染 config 表单（A 版 web 仍是固定/无表单）。补全：前端用 `rec.params` 动态生成输入控件（column→列下拉、choice→选择框、float/int→数字框），提交进 `/api/run` 的 config。
+
 **v0.9 脏数据鲁棒（2026-06-23，`profiler/ingest.py` 鲁棒读取门）—— 已做 + 刻意 defer 的 i18n 尾巴：**
 - ✅ **已做**：编码回退(utf-8-sig→gb18030→latin-1)、分隔符嗅探(`,;\t|`)、保守数值强转(文本"1,234"/"$5"/"12%"/杂缺失标记 ≥90% 可解析才转、`df.attrs['rf_coercions']` 非静默)、`diagnose` 加 coerced_numeric/high_cardinality 披露、12 脏数据测试。
 - **i18n 小数逗号**（European `1,5`=1.5）：刻意**不**处理——千分位正则只吃"逗号+恰好3位数+边界"，`1,5` 解析失败→留文本（保守，宁可不转也不把 1,5 错成 15）。补全：检测整列单逗号无小数点模式→按小数逗号解析。

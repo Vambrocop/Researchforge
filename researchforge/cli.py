@@ -58,6 +58,31 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     return 0
 
 
+def _cmd_params(analysis_id: str) -> int:
+    """Print an analysis's machine-readable config parameters (the spec the Web
+    form / recommend / run validation all consume)."""
+    from researchforge.catalog import Catalog
+
+    entry = Catalog.load().by_id(analysis_id)
+    if entry is None:
+        print(f"未知分析 id：{analysis_id}")
+        return 1
+    print(f"{entry.id} — {entry.method}")
+    if not entry.params:
+        print("  （尚未声明机器可读参数规格；该分析按自动默认运行，"
+              "可配键见 docs/loop-decisions.md）")
+        return 0
+    print(f"  config 参数（{len(entry.params)} 项，均可选，缺省回退自动默认）：")
+    for p in entry.params:
+        req = "必填" if p.required else "可选"
+        ch = f" 取值={p.choices}" if p.choices else ""
+        dft = f" 默认={p.default}" if p.default else ""
+        print(f"    - {p.name} [{p.type}/{req}]{ch}{dft}")
+        if p.description:
+            print(f"        {p.description}")
+    return 0
+
+
 def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
     import json
 
@@ -322,6 +347,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help='JSON of substantive overrides, e.g. \'{"outcome":"yield","predictors":["rain","fert"]}\'',
     )
+    par = sub.add_parser("params", help="show an analysis's configurable parameters (machine-readable spec)")
+    par.add_argument("analysis", help="analysis id from the catalog (e.g. ols)")
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
     sub.add_parser("benchmark", help="score engine quality on known cases")
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
@@ -352,6 +379,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_recommend(args.path, args.goal, args.top)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis, args.config)
+    if args.command == "params":
+        return _cmd_params(args.analysis)
     if args.command == "ingest":
         return _cmd_ingest()
     if args.command == "benchmark":

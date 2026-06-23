@@ -54,6 +54,8 @@ def analyze_path(path: str | Path) -> dict:
             "score_note": r.score.note,
             # goal keys this method matches (server-side, mirrors the CLI selector incl. keywords)
             "goals": [k for k in GOALS if entry_matches_goal(r.entry, k)],
+            # machine-readable config params (single source of truth for the run form)
+            "params": [p.model_dump() for p in r.entry.params],
         }
         for r in recs
     ]

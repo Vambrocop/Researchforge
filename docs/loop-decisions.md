@@ -4,6 +4,8 @@
 
 > **✅ 用户可配置机制已上线（2026-06-13）**：`run_analysis(..., config={...})`，CLI `run <data> <id> --config '{"key":"val"}'`，web service 同步透传。各分支读 `cfg.get(<key>)` 覆盖默认、否则回退自动默认（默认仍能跑）。**九条决策已全部接入**（#1–#8 完全可配；#9 提供可配的纯 Python 检验 + 金标准诚实降级，R 专用桥待接）。下表「状态」逐条标注。
 >
+> **✅ 机器可读 config schema（2026-06-23，v0.9）**：`AnalysisEntry.params: list[ParamSpec]`（name/type/required/description/choices/default）—— Web 表单 / 推荐解释 / **运行期校验**共一份真源，别各自猜参数。`catalog/config_schema.py` 的 `validate_config(entry,config,fp)` **非阻塞警告**未知键/坏 choice/列不存在/类型错（仍按默认跑）；`run_analysis` 已接（⚠ 进 summary），`cli params <id>` 打印规格，recommend payload 带 `params`。**约定**：在 entry 的 yaml 加 `params:` 块（见 correlation_suite/effect_sizes 范例）。**⚠ 加时审准 handler+helper 的全部 `cfg.get` 键再声明**——under-declare 会对合法键发假警告（共享 resolver 的键易漏）。当前**已填**：correlation_suite、effect_sizes；其余 ~30 族待回填（本表的「config 键」列即数据源）。
+>
 > **config 键速查**（按分析）：
 > - 回归族(#5)：`outcome`(结果列)、`predictors`(预测列表)
 > - MCDA TOPSIS/CRITIC/隶属/灰关联(#2)：`cost_criteria`(成本型列名列表)

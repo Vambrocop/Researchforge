@@ -31,6 +31,26 @@ class Precondition(BaseModel):
     requires_edgelist: Optional[bool] = None
 
 
+class ParamSpec(BaseModel):
+    """Machine-readable spec for one user-configurable parameter (a key the
+    analysis reads from ``config``). The single source of truth consumed by the
+    Web UI form, the recommend explanation, and run-time config validation — so
+    nobody has to guess an analysis's parameters. Optional: an entry with no
+    declared ``params`` simply isn't config-validated (it still runs on its auto
+    defaults).
+
+    ``type``: column (one column name) | columns (list of names) | str | int |
+    float | bool | choice. ``default`` is a human note on the auto-default the
+    engine uses when the key is omitted (the default must still run)."""
+
+    name: str
+    type: str = "column"
+    required: bool = False
+    description: str = ""
+    choices: list[str] = Field(default_factory=list)
+    default: str = ""
+
+
 class AnalysisEntry(BaseModel):
     id: str
     method: str
@@ -42,3 +62,4 @@ class AnalysisEntry(BaseModel):
     produces: list[str] = Field(default_factory=list)
     executor_ref: str = ""
     biases: list[str] = Field(default_factory=list)
+    params: list[ParamSpec] = Field(default_factory=list)

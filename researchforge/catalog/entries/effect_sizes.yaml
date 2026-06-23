@@ -24,6 +24,19 @@
     - effect-size table (d, 95% CI, CLES, Glass's delta, group means, pooled SD, n)
     - overlaid two-group distribution plot (violin + jitter) annotated with d and its CI
   executor_ref: py::cohens_d
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 二分组变量（恰两组）
+      default: 第一个二值/两水平分类列
+    - name: ci
+      type: float
+      description: 置信区间水平（0-1）
+      default: "0.95"
   biases:
     - the analytic 95% CI assumes roughly equal group variances and approximate normality
     - if the variances differ markedly use Glass's delta (control-group SD) reported alongside
@@ -51,6 +64,19 @@
     - effect-size table (g, d, 95% CI, correction factor J, group means, pooled SD, n)
     - overlaid two-group distribution plot (violin + jitter) annotated with g, d, and J
   executor_ref: py::hedges_g
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 二分组变量（恰两组）
+      default: 第一个二值/两水平分类列
+    - name: ci
+      type: float
+      description: 置信区间水平（0-1）
+      default: "0.95"
   biases:
     - g is the less-biased SMD for small samples — d overestimates the absolute effect when n is small
     - the CI carries the same approximate-normality and roughly-equal-variance assumption as d
@@ -80,6 +106,15 @@
     - effect-size table (delta, P(X1>X2), magnitude band, pairwise >/</tie counts, n)
     - overlaid two-group distribution plot (violin + jitter) annotated with delta
   executor_ref: py::cliffs_delta
+  params:
+    - name: outcome
+      type: column
+      description: 连续/有序结果变量
+      default: 第一个连续列
+    - name: group
+      type: column
+      description: 二分组变量（恰两组）
+      default: 第一个二值/两水平分类列
   biases:
     - distribution-free — use it when normality fails or the outcome is ordinal
     - it measures dominance (ordering), not the difference in means on the original scale
