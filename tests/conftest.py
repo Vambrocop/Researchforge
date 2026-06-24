@@ -58,6 +58,8 @@ SLOW_MODULES = {
     "test_text_mining",
     # end-to-end: runs many analyses on real datasets through the full pipeline
     "test_end_to_end",
+    # AIPW fits propensity + per-arm outcome (GBM) models; UMAP embedding
+    "test_aipw", "test_umap",
 }
 
 

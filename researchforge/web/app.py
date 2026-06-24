@@ -1,10 +1,12 @@
 """FastAPI web application for ResearchForge.
 
 Endpoints:
-  GET  /                          -> serve index.html
-  POST /api/analyze               -> upload CSV, profile + recommend
-  POST /api/run                   -> run a chosen analysis
-  GET  /api/download/{run_name}   -> zip and download an outputs/<run_name> dir
+  GET  /                                     -> serve index.html
+  POST /api/analyze                          -> upload CSV, profile + recommend
+  POST /api/run                              -> run a chosen analysis
+  GET  /api/runs                             -> list previous runs (newest-first)
+  GET  /api/runs/{run_name}/file/{filename}  -> serve one artifact (traversal-safe)
+  GET  /api/download/{run_name}              -> zip and download an outputs/<run_name> dir
 Static mounts:
   /static   -> researchforge/web/static/
   /outputs  -> repo-level outputs/ dir
@@ -134,6 +136,115 @@ def api_run(body: RunRequest) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Run history + artifact browsing
+# ---------------------------------------------------------------------------
+def _safe_run_dir(run_name: str) -> Path:
+    """Resolve outputs/<run_name>/ and confirm it stays inside the outputs root.
+
+    Raises HTTPException(400) on any path-traversal attempt, HTTPException(404)
+    if the directory does not exist. Returns the resolved run directory.
+    """
+    # Reject any name that contains path separators or dot-dot up front.
+    if "/" in run_name or "\\" in run_name or ".." in run_name:
+        raise HTTPException(status_code=400, detail="invalid run_name")
+
+    run_dir = (_OUTPUTS_DIR / run_name).resolve()
+    # Confirm the resolved path is still inside _OUTPUTS_DIR (defence in depth).
+    try:
+        run_dir.relative_to(_OUTPUTS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid run_name")
+
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise HTTPException(status_code=404, detail="run not found")
+    return run_dir
+
+
+def _parse_run_name(run_name: str) -> tuple[str, str]:
+    """Split a run-dir basename into (analysis_id, timestamp).
+
+    Run dirs are named `<timestamp>_<analysis_id>` (e.g.
+    `20260624-143052-123_correlation_matrix`). The analysis id can itself
+    contain underscores, so we split on the FIRST underscore only. If the name
+    does not match the convention, fall back to (run_name, "").
+    """
+    ts, sep, aid = run_name.partition("_")
+    if not sep:
+        return run_name, ""
+    return aid, ts
+
+
+def list_runs() -> list[dict]:
+    """Scan the outputs root and return previous runs, newest-first.
+
+    Each entry: {run_name, analysis_id, timestamp, mtime, files:[...], n_files}.
+    Robust to a missing/empty outputs dir (returns []).
+    """
+    root = _OUTPUTS_DIR
+    if not root.exists() or not root.is_dir():
+        return []
+
+    runs: list[dict] = []
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        analysis_id, timestamp = _parse_run_name(d.name)
+        files = sorted(f.name for f in d.iterdir() if f.is_file())
+        try:
+            mtime = d.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        runs.append(
+            {
+                "run_name": d.name,
+                "analysis_id": analysis_id,
+                "timestamp": timestamp,
+                "mtime": mtime,
+                "files": files,
+                "n_files": len(files),
+            }
+        )
+
+    # Newest-first: prefer the dir-name timestamp (lexicographically sortable
+    # given the %Y%m%d-%H%M%S-%f format), fall back to filesystem mtime.
+    runs.sort(key=lambda r: (r["timestamp"], r["mtime"]), reverse=True)
+    return runs
+
+
+@app.get("/api/runs")
+def api_runs() -> JSONResponse:
+    """List previous runs (newest-first). Returns [] if outputs is missing/empty."""
+    return JSONResponse(list_runs())
+
+
+@app.get("/api/runs/{run_name}/file/{filename}")
+def api_run_file(run_name: str, filename: str) -> FileResponse:
+    """Serve a single artifact from outputs/<run_name>/<filename> for inline preview.
+
+    Traversal-safe: both run_name and filename are validated against separators
+    and dot-dot, and the fully-resolved target path is asserted to stay within
+    the run directory before anything is served.
+    """
+    run_dir = _safe_run_dir(run_name)
+
+    # Reject any filename that contains path separators or dot-dot.
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="invalid filename")
+
+    target = (run_dir / filename).resolve()
+    # Confirm the resolved file is still inside this run dir (defence in depth).
+    try:
+        target.relative_to(run_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid filename")
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+
+    return FileResponse(str(target), filename=filename)
+
+
+# ---------------------------------------------------------------------------
 # Download helper — factored out so tests can import it directly
 # ---------------------------------------------------------------------------
 def _zip_run_dir(run_name: str) -> Path:
@@ -143,19 +254,7 @@ def _zip_run_dir(run_name: str) -> Path:
     Raises HTTPException(404) if the directory does not exist.
     The caller is responsible for deleting the temp file when done.
     """
-    # Security: reject any name that contains path separators or dot-dot
-    if "/" in run_name or "\\" in run_name or ".." in run_name:
-        raise HTTPException(status_code=400, detail="invalid run_name")
-
-    run_dir = (_OUTPUTS_DIR / run_name).resolve()
-    # Confirm the resolved path is still inside _OUTPUTS_DIR
-    try:
-        run_dir.relative_to(_OUTPUTS_DIR.resolve())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="invalid run_name")
-
-    if not run_dir.exists() or not run_dir.is_dir():
-        raise HTTPException(status_code=404, detail="run not found")
+    run_dir = _safe_run_dir(run_name)
 
     tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
     tmp.close()

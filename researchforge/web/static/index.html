@@ -106,6 +106,34 @@
   .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);border-radius:8px;padding:7px 12px;text-decoration:none;background:#fff}
   .inline-fig{max-width:420px;width:100%;border:1px solid var(--line);border-radius:10px}
   .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:8px 18px;border-radius:8px;font-size:13px}
+  /* run history */
+  .hist-bar{display:flex;align-items:center;gap:10px;margin:26px 0 12px}
+  .hist-bar h2{margin:0}
+  .hist-refresh{font-size:12px;border:1px solid var(--line);background:#fff;color:var(--accent);padding:4px 11px;border-radius:8px;cursor:pointer}
+  .hist-refresh:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .hist-empty{color:var(--muted);font-size:13.5px}
+  .hist-item{border-bottom:1px solid var(--line);padding:11px 0}
+  .hist-item:last-child{border-bottom:none}
+  .hist-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .hist-id{font-weight:640;font-size:14px}
+  .hist-ts{font-size:12px;color:var(--muted)}
+  .hist-count{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .hist-actions{margin-left:auto;display:flex;gap:8px}
+  .hist-actions a,.hist-actions button{font-size:12.5px;border:1px solid var(--line);background:#fff;color:var(--accent);
+    padding:5px 12px;border-radius:8px;text-decoration:none;cursor:pointer}
+  .hist-actions a:hover,.hist-actions button:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .hist-files{margin-top:9px;display:none}
+  .hist-files.open{display:block}
+  .hist-file{display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:3px 0}
+  .hist-file a{color:var(--accent);text-decoration:none;cursor:pointer}
+  .hist-file a:hover{text-decoration:underline}
+  .hist-preview{margin-top:9px;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fdfdfc;display:none}
+  .hist-preview.open{display:block}
+  .hist-preview img{max-width:100%;border-radius:8px}
+  .hist-preview pre{margin:0;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
+  .hist-preview .report{font-size:13px}
+  .hist-preview .pv-close{float:right;font-size:12px;color:var(--muted);cursor:pointer;border:none;background:none}
+  #history-section{display:none}
   #profile-section,#clean-section,#result-section{display:none}
 </style>
 </head>
@@ -177,6 +205,15 @@
         <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#">⬇ 下载全部产物</a>
       </div>
     </div>
+  </div>
+
+  <!-- RUN HISTORY -->
+  <div id="history-section">
+    <div class="hist-bar">
+      <h2>运行历史 / Run history</h2>
+      <button class="hist-refresh" id="btn-hist-refresh" onclick="loadHistory()">↻ 刷新</button>
+    </div>
+    <div class="card" id="history-list"></div>
   </div>
 </div>
 
@@ -490,6 +527,7 @@ async function doRun(analysisId,btn,config){
   renderResult(data);
   document.getElementById('result-section').style.display='';
   document.getElementById('result-section').scrollIntoView({behavior:'smooth'});
+  loadHistory();  // a new run just landed — refresh the history panel
 }
 
 function renderResult(data){
@@ -510,6 +548,129 @@ function renderResult(data){
     }).join('');
   }else{el.innerHTML='<span class="meta">无输出文件</span>';}
 }
+
+// --------------------------------------------------------------------------
+// Run history + artifact browser
+// --------------------------------------------------------------------------
+let historyRuns = [];   // [{run_name,analysis_id,timestamp,files,n_files,...}]
+
+// Turn a dir-name timestamp (YYYYMMDD-HHMMSS-mmm) into a friendly string;
+// fall back to the raw value when it doesn't match the convention.
+function fmtTs(ts){
+  const m=/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(ts||'');
+  if(!m)return ts||'—';
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+}
+
+async function loadHistory(){
+  const sec=document.getElementById('history-section');
+  const el=document.getElementById('history-list');
+  let runs;
+  try{
+    const res=await fetch('/api/runs');
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    runs=await res.json();
+  }catch(e){
+    // history is a non-critical panel — never block the main flow on its failure
+    sec.style.display='';
+    el.innerHTML=`<div class="hist-empty">无法加载运行历史：${escHtml(e.message)}</div>`;
+    return;
+  }
+  historyRuns=Array.isArray(runs)?runs:[];
+  sec.style.display='';
+  renderHistory();
+}
+
+function renderHistory(){
+  const el=document.getElementById('history-list');
+  if(!historyRuns.length){
+    el.innerHTML='<div class="hist-empty">暂无运行记录。跑一个分析后，产物会出现在这里。</div>';
+    return;
+  }
+  el.innerHTML=historyRuns.map((r,i)=>{
+    const dl=`/api/download/${encodeURIComponent(r.run_name)}`;
+    return `<div class="hist-item">
+      <div class="hist-head">
+        <span class="hist-id">${escHtml(r.analysis_id||r.run_name)}</span>
+        <span class="hist-ts">${escHtml(fmtTs(r.timestamp))}</span>
+        <span class="hist-count">${r.n_files||0} 个文件</span>
+        <span class="hist-actions">
+          <button onclick="toggleHistFiles(${i})" id="hist-toggle-${i}">查看文件</button>
+          <a href="${dl}">⬇ 下载 zip</a>
+        </span>
+      </div>
+      <div class="hist-files" id="hist-files-${i}">
+        ${(r.files||[]).map(f=>histFileRow(r.run_name,f)).join('')||'<div class="hist-empty">（无文件）</div>'}
+      </div>
+      <div class="hist-preview" id="hist-pv-${i}"></div>
+    </div>`;
+  }).join('');
+}
+
+function histFileRow(runName,fname){
+  const url=`/api/runs/${encodeURIComponent(runName)}/file/${encodeURIComponent(fname)}`;
+  // pass runName/fname via a click handler so we can render inline previews
+  return `<div class="hist-file">
+    <a href="#" onclick="previewArtifact('${encodeURIComponent(runName)}','${encodeURIComponent(fname)}');return false;">${escHtml(fname)}</a>
+    <a href="${url}" target="_blank" class="meta" style="font-size:11.5px">↗ 原始</a>
+  </div>`;
+}
+
+function toggleHistFiles(i){
+  const box=document.getElementById(`hist-files-${i}`);
+  const btn=document.getElementById(`hist-toggle-${i}`);
+  if(!box)return;
+  const open=box.classList.toggle('open');
+  if(btn)btn.textContent=open?'收起文件':'查看文件';
+}
+
+// Find which rendered history item a run belongs to (preview targets it).
+function histIndexFor(runName){
+  return historyRuns.findIndex(r=>r.run_name===runName);
+}
+
+async function previewArtifact(encRun,encFile){
+  const runName=decodeURIComponent(encRun);
+  const fname=decodeURIComponent(encFile);
+  const i=histIndexFor(runName);
+  if(i<0)return;
+  const pv=document.getElementById(`hist-pv-${i}`);
+  if(!pv)return;
+  const url=`/api/runs/${encodeURIComponent(runName)}/file/${encodeURIComponent(fname)}`;
+  const close=`<button class="pv-close" onclick="document.getElementById('hist-pv-${i}').classList.remove('open')">关闭 ✕</button>`;
+  const low=fname.toLowerCase();
+  if(low.endsWith('.png')||low.endsWith('.jpg')||low.endsWith('.jpeg')||low.endsWith('.gif')||low.endsWith('.svg')){
+    pv.innerHTML=`${close}<div style="clear:both"><img src="${url}" alt="${escHtml(fname)}"></div>`;
+    pv.classList.add('open');pv.scrollIntoView({behavior:'smooth',block:'nearest'});
+    return;
+  }
+  // text-ish: fetch and render (report.md as markdown, CSV head, else raw text)
+  pv.innerHTML=`${close}<div class="meta" style="clear:both">加载中…</div>`;
+  pv.classList.add('open');
+  let text;
+  try{
+    const res=await fetch(url);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    text=await res.text();
+  }catch(e){
+    pv.innerHTML=`${close}<div class="hist-empty" style="clear:both">无法预览：${escHtml(e.message)}</div>`;
+    return;
+  }
+  if(low.endsWith('.md')){
+    pv.innerHTML=`${close}<div class="report" style="clear:both">${mdToHtml(text)}</div>`;
+  }else if(low.endsWith('.csv')||low.endsWith('.tsv')){
+    const lines=text.split(/\r?\n/).slice(0,21);  // header + 20 rows
+    const more=text.split(/\r?\n/).length>21?'\n… （仅显示前 20 行）':'';
+    pv.innerHTML=`${close}<pre style="clear:both">${escHtml(lines.join('\n')+more)}</pre>`;
+  }else{
+    const head=text.length>4000?text.slice(0,4000)+'\n… （已截断）':text;
+    pv.innerHTML=`${close}<pre style="clear:both">${escHtml(head)}</pre>`;
+  }
+  pv.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+// Load run history on first paint.
+loadHistory();
 </script>
 </body>
 </html>

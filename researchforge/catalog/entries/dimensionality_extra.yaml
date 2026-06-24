@@ -41,6 +41,52 @@
     - results are perplexity-sensitive and stochastic (random_state fixed at 42; a different seed changes the picture)
     - the silhouette-by-label is descriptive only, not a fit or significance metric
 
+- id: umap
+  method: UMAP (uniform manifold approximation and projection)
+  domain: statistics
+  family: ml
+  goal: explore
+  description: >-
+    UMAP 2-D embedding for VISUALIZATION of high-dimensional continuous data
+    (umap-learn, an OPTIONAL backend — honest degrade with a tsne/pca/mds substitute when
+    absent). Standardizes the features, embeds them in two dimensions
+    (n_neighbors defaulting to min(15, n-1), min_dist 0.1, random_state 42), and reports
+    the embedding coordinates. If a low-cardinality label column is present it colors the
+    scatter by it and reports a descriptive silhouette of that label in the STANDARDIZED
+    INPUT feature space (NOT the embedding — UMAP distances are non-metric and preserve
+    local over global structure). Embedding distances and cluster sizes are NOT metric-meaningful.
+  preconditions:
+    min_continuous: 2
+    min_rows: 5
+  produces:
+    - 2D embedding coordinates (rows x umap1/umap2, + label if present)
+    - descriptive silhouette of the label in the standardized INPUT space (if one exists)
+    - 2D scatter colored by label
+  executor_ref: py::umap
+  params:
+    - name: features
+      type: columns
+      description: 参与嵌入的特征列
+      default: 全部连续列
+    - name: label
+      type: column
+      description: 给散点上色的低基数标签列
+      default: 无（不上色）
+    - name: n_neighbors
+      type: int
+      description: UMAP 近邻数（局部/全局结构权衡）
+      default: min(15, n-1)
+    - name: min_dist
+      type: float
+      description: UMAP 嵌入点的最小间距
+      default: "0.1"
+  biases:
+    - umap-learn is an OPTIONAL backend — if absent the analysis honestly skips and suggests tsne/pca/mds (built-in substitutes), it does not hard-fail
+    - all continuous columns are the features by default and are standardized — set config features/label/n_neighbors/min_dist
+    - UMAP is for VISUALIZATION only — distances are non-metric (it preserves local over global structure); cluster sizes and positions must not be used downstream
+    - results are sensitive to n_neighbors/min_dist and are stochastic (random_state fixed at 42; a different seed or parameter changes the picture)
+    - the silhouette-by-label is descriptive only (computed in the standardized input space, not the embedding), not a fit or significance metric
+
 - id: factor_analysis
   method: Exploratory factor analysis (EFA)
   domain: statistics

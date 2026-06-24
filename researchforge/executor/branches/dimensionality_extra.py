@@ -1,6 +1,7 @@
 """Branch handlers for the dimensionality-reduction / latent-structure family.
 
-Three pure-Python methods (scikit-learn / numpy / pandas / scipy — NO R):
+Four methods (scikit-learn / numpy / pandas / scipy — NO R; umap is an OPTIONAL
+backend with honest degrade):
 
 - ``tsne``                — t-SNE 2-D embedding (sklearn TSNE) for VISUALIZATION
                             only. Reports the embedding coordinates + the final KL
@@ -9,6 +10,12 @@ Three pure-Python methods (scikit-learn / numpy / pandas / scipy — NO R):
                             label in the STANDARDIZED INPUT feature space (NOT the
                             embedding — embedding distances are non-metric). Embedding
                             distances/positions are NOT metric.
+- ``umap``                — UMAP 2-D embedding (umap-learn, OPTIONAL backend) for
+                            VISUALIZATION only. Same disclosure shape as t-SNE: a
+                            descriptive silhouette of a label is computed on the
+                            STANDARDIZED INPUT space, never the embedding. Honest
+                            degrade ("跳过：需要 umap-learn …") when umap is absent;
+                            suggests tsne/pca/mds as substitutes.
 - ``factor_analysis``     — exploratory factor analysis (sklearn FactorAnalysis) with
                             an n_factors rule (config / parallel-analysis / Kaiser>1 on
                             the correlation eigenvalues), varimax rotation if feasible,
@@ -621,3 +628,165 @@ def _branch_linear_discriminant(ctx: Ctx) -> None:
         ]
     except Exception as err:
         summary.append(f"LDA 失败：{err}")
+
+
+# ===========================================================================
+# 4. UMAP — 2-D embedding for VISUALIZATION only (OPTIONAL backend: umap-learn)
+# ===========================================================================
+
+@register("umap")
+def _branch_umap(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    import importlib.util
+
+    cont = _continuous_cols(fp)
+    forced = [c for c in (cfg.get("features") or []) if c in df.columns]
+    features = forced if forced else cont
+
+    # OPTIONAL backend — umap-learn imports as the module `umap`. Honest degrade if
+    # absent (do NOT hard-fail) and point at the always-available substitutes.
+    if importlib.util.find_spec("umap") is None:
+        summary.append(
+            "UMAP 跳过：需要 umap-learn（未检测到）。安装：pip install umap-learn；"
+            "可用替代 tsne / pca / mds（均为内置纯 Python 嵌入/降维）。"
+        )
+        return
+    if importlib.util.find_spec("sklearn") is None:
+        summary.append("UMAP 跳过：需要 scikit-learn（未检测到）。安装：pip install scikit-learn。")
+        return
+    if len(features) < 2:
+        summary.append("UMAP 跳过：需要 ≥2 个连续特征。设 config features。")
+        return
+
+    # An optional label column to color the scatter / compute a descriptive silhouette.
+    label_col = cfg.get("label") if cfg.get("label") in df.columns else _label_col(fp, df, set(features))
+    keep = features + ([label_col] if label_col else [])
+    sub = df[keep].dropna()
+    X = sub[features]
+    n = len(X)
+    if n < 5:
+        summary.append(f"UMAP 跳过：有效样本太少（n={n} < 5）。")
+        return
+
+    # Constant features carry no information and break standardization scaling.
+    nonconst = [c for c in features if float(X[c].std(ddof=0)) > 0]
+    if len(nonconst) < 2:
+        summary.append("UMAP 跳过：非常量连续特征不足 2 个。")
+        return
+    features = nonconst
+    X = sub[features]
+
+    # n_neighbors must be < n; default min(15, n-1). min_dist defaults to 0.1.
+    try:
+        forced_nn = cfg.get("n_neighbors")
+        forced_nn = int(forced_nn) if forced_nn is not None else None
+    except (TypeError, ValueError):
+        forced_nn = None
+    auto_nn = min(15, n - 1)
+    n_neighbors = forced_nn if (forced_nn is not None and forced_nn >= 2) else auto_nn
+    n_neighbors = max(2, min(int(n_neighbors), n - 1))
+
+    try:
+        forced_md = cfg.get("min_dist")
+        min_dist = float(forced_md) if forced_md is not None else 0.1
+    except (TypeError, ValueError):
+        min_dist = 0.1
+    min_dist = max(0.0, min(min_dist, 0.99))
+
+    try:
+        import numpy as np
+        import pandas as pd
+        import umap
+        from sklearn.preprocessing import StandardScaler
+
+        Xs = StandardScaler().fit_transform(X.values.astype(float))
+
+        reducer = umap.UMAP(
+            n_components=2,
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            random_state=42,
+        )
+        emb = reducer.fit_transform(Xs)
+
+        # --- descriptive silhouette of the LABEL in INPUT space (not a fit metric) ---
+        # Computed on the standardized INPUT features `Xs` (the matrix fed to UMAP),
+        # NOT on the 2-D embedding — UMAP distances are non-metric (it preserves local
+        # > global structure), so a silhouette there would contradict our disclosure.
+        # This is an input-space separability descriptor only (mirrors the t-SNE fix).
+        sil = float("nan")
+        if label_col is not None:
+            try:
+                from sklearn.metrics import silhouette_score
+
+                lab = sub[label_col].values
+                n_lab = int(pd.Series(lab).nunique())
+                if 2 <= n_lab < n:
+                    sil = float(silhouette_score(Xs, lab))
+            except Exception:
+                sil = float("nan")
+
+        # --- embedding CSV (coords + label) --------------------------------
+        emb_df = pd.DataFrame(emb, columns=["umap1", "umap2"], index=X.index)
+        if label_col is not None:
+            emb_df.insert(0, "label", sub[label_col].values)
+        emb_df.to_csv(d / "umap_embedding.csv", index=True, encoding="utf-8")
+        files.append("umap_embedding.csv")
+
+        # --- 2-D scatter (colored by label if present) ---------------------
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(6, 5))
+            if label_col is not None and sub[label_col].nunique() <= 12:
+                for lv in sub[label_col].dropna().unique().tolist():
+                    m = (sub[label_col] == lv).values
+                    ax.scatter(emb[m, 0], emb[m, 1], s=18, alpha=0.75, label=str(lv))
+                ax.legend(title=str(label_col), fontsize=8)
+            else:
+                ax.scatter(emb[:, 0], emb[:, 1], s=18, alpha=0.75)
+            ax.set_xlabel("UMAP 1")
+            ax.set_ylabel("UMAP 2")
+            ax.set_title(f"UMAP 2D embedding (n_neighbors={n_neighbors}, min_dist={min_dist:.2f})")
+            fig.tight_layout()
+            fig.savefig(d / "umap_scatter.png", dpi=150)
+            plt.close(fig)
+            files.append("umap_scatter.png")
+        except Exception:
+            pass
+
+        estimates["n_neighbors"] = float(n_neighbors)
+        estimates["min_dist"] = float(min_dist)
+        estimates["n_features"] = float(len(features))
+        estimates["n"] = float(n)
+        estimates["silhouette_by_label"] = round(sil, 6) if sil == sil else float("nan")
+
+        lab_txt = (
+            f"，按 {label_col} 着色，该标签在标准化输入特征空间的轮廓系数={sil:.3f}"
+            f"（输入空间可分性描述，非来自嵌入；仅描述性）"
+            if (label_col is not None and sil == sil)
+            else "，无低基数标签列可着色"
+        )
+        summary.append(
+            f"{entry.method} 完成（UMAP，{len(features)} 个特征 × {n} 个样本 → 2D，"
+            f"n_neighbors={n_neighbors}，min_dist={min_dist:.2f}{lab_txt}）。"
+            f"⚠ UMAP 仅用于可视化——其距离为**非度量**（保留局部结构优于全局结构），"
+            f"低维图中的距离、簇大小、簇间相对位置都不具度量意义，不要据此算距离或做下游度量分析；"
+            f"结果对 n_neighbors / min_dist 敏感且为随机优化"
+            f"（已固定 random_state=42，换种子/参数图会变），别把它当稳定坐标；"
+            f"全部连续特征为默认特征、已标准化——可用 config features/label/n_neighbors/min_dist 覆盖。"
+        )
+        code += [
+            "import umap  # pip install umap-learn",
+            "from sklearn.preprocessing import StandardScaler",
+            f"features = {features!r}",
+            "Xs = StandardScaler().fit_transform(df[features].dropna())",
+            f"reducer = umap.UMAP(n_components=2, n_neighbors={n_neighbors}, "
+            f"min_dist={min_dist:.2f}, random_state=42)",
+            "emb = reducer.fit_transform(Xs)",
+        ]
+    except Exception as err:
+        summary.append(f"UMAP 失败：{err}")

@@ -244,6 +244,49 @@
     - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns
     - HC1 SE ignores propensity-estimation uncertainty (bootstrap / sandwich variance is stricter)
 
+- id: aipw
+  method: Augmented inverse-probability weighting (AIPW, doubly-robust ATE)
+  domain: economics
+  family: causal
+  goal: explain
+  description: >-
+    Doubly-robust average treatment effect (ATE) for a binary treatment. Estimates the
+    propensity e(X)=P(T=1|X) with a logistic regression on standardized covariates, and
+    the outcome models mu0(X)/mu1(X) with a regression learner fit per arm
+    (GradientBoostingRegressor when each arm is large, else linear — disclosed). The AIPW
+    score per unit is (mu1-mu0) + T(Y-mu1)/e - (1-T)(Y-mu0)/(1-e); the ATE is its mean and
+    the standard error is the influence-function plug-in sd(score)/sqrt(n) with a 95% CI.
+    Reports the naive difference-in-means for contrast, the propensity-trim fraction
+    (positivity), and a propensity overlap plot. Set config treatment/outcome/covariates.
+  preconditions:
+    requires_treatment: true
+    min_rows: 30
+  produces:
+    - doubly-robust ATE estimate + influence-function SE / 95% CI / p-value
+    - naive difference-in-means for contrast
+    - positivity diagnostics (propensity-trim fraction, extreme-propensity fraction)
+    - per-unit AIPW scores CSV + propensity overlap plot
+  executor_ref: py::aipw
+  params:
+    - name: treatment
+      type: column
+      description: 二值处理变量
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: covariates
+      type: columns
+      description: 倾向得分 + 结果模型协变量
+      default: 其余数值列
+  biases:
+    - doubly robust — consistent if EITHER the propensity model OR the outcome models are correctly specified, but it is NOT a guarantee of causality
+    - causal ATE still needs ignorability (no unobserved confounding) AND positivity/overlap (propensities away from 0/1) — both untestable / flagged
+    - extreme propensities inflate variance and bias; they are trimmed to [0.01, 0.99] and the trimmed/extreme fraction is reported
+    - the SE is influence-function based (sd of the per-unit AIPW score / sqrt(n)); cross-fitting is NOT done, so the SE can be optimistic for an over-fit outcome model (DML/AIPW-CF is stricter)
+    - treatment auto-detected as a binary column / set via config; covariates default to the other numeric columns; outcome model is boosting when each arm is large else linear (disclosed)
+
 - id: event_study
   method: Event-study (dynamic difference-in-differences)
   domain: economics

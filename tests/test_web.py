@@ -248,6 +248,163 @@ def test_zip_run_dir_helper(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Run-history + artifact-browser tests
+# ---------------------------------------------------------------------------
+def test_api_runs_lists_run_after_a_run(tmp_path):
+    """GET /api/runs returns a list; after a real run the run dir shows up with
+    the expected shape (run_name / analysis_id / timestamp / files / n_files)."""
+    from fastapi.testclient import TestClient
+
+    run_out = tmp_path / "outputs"
+    csv = _write_panel(tmp_path)
+    result = run_for_path(csv, "did", output_root=str(run_out))
+    run_name = Path(result["output_dir"]).name
+
+    import researchforge.web.app as web_app
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+    try:
+        client = TestClient(web_app.app)
+        resp = client.get("/api/runs")
+        assert resp.status_code == 200, resp.text
+        runs = resp.json()
+        assert isinstance(runs, list), "/api/runs must return a list"
+        assert len(runs) >= 1, "the run we just made must appear"
+
+        names = {r["run_name"] for r in runs}
+        assert run_name in names, f"{run_name} must be listed"
+
+        rec = next(r for r in runs if r["run_name"] == run_name)
+        # required shape
+        for key in ("run_name", "analysis_id", "timestamp", "files", "n_files"):
+            assert key in rec, f"run entry missing key {key!r}: {rec}"
+        # the dir name is "<timestamp>_did" -> analysis_id parsed as "did"
+        assert rec["analysis_id"] == "did", f"analysis_id parsed wrong: {rec['analysis_id']}"
+        assert isinstance(rec["files"], list) and rec["files"], "files must be a non-empty list"
+        assert rec["n_files"] == len(rec["files"])
+        assert "report.md" in rec["files"], "report.md should be among the artifacts"
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+def test_api_runs_parses_underscored_analysis_id(tmp_path):
+    """An analysis id with underscores (correlation_matrix) must round-trip:
+    the dir is '<timestamp>_correlation_matrix' and the parser splits on the
+    FIRST underscore only, so analysis_id == 'correlation_matrix'."""
+    from fastapi.testclient import TestClient
+
+    run_out = tmp_path / "outputs"
+    csv = tmp_path / "num.csv"
+    pd.DataFrame({"a": range(10), "b": [i * 1.5 for i in range(10)]}).to_csv(csv, index=False)
+    result = run_for_path(csv, "correlation_matrix", output_root=str(run_out))
+    run_name = Path(result["output_dir"]).name
+
+    import researchforge.web.app as web_app
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+    try:
+        client = TestClient(web_app.app)
+        runs = client.get("/api/runs").json()
+        rec = next(r for r in runs if r["run_name"] == run_name)
+        assert rec["analysis_id"] == "correlation_matrix"
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+def test_api_runs_empty_when_no_outputs(tmp_path):
+    """/api/runs must be robust to a missing outputs dir -> returns []."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = tmp_path / "does_not_exist_outputs"
+    try:
+        client = TestClient(web_app.app)
+        resp = client.get("/api/runs")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == [], "missing outputs dir must yield an empty list"
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+def test_api_run_file_serves_in_dir_and_rejects_traversal(tmp_path):
+    """GET /api/runs/<run>/file/<name> serves an in-dir artifact and REJECTS a
+    path-traversal attempt (../.. and embedded separators)."""
+    from fastapi.testclient import TestClient
+
+    run_out = tmp_path / "outputs"
+    csv = _write_panel(tmp_path)
+    result = run_for_path(csv, "did", output_root=str(run_out))
+    run_name = Path(result["output_dir"]).name
+
+    # plant a secret OUTSIDE the outputs root that a traversal would try to reach
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP SECRET", encoding="utf-8")
+
+    import researchforge.web.app as web_app
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+    try:
+        client = TestClient(web_app.app)
+
+        # -- happy path: a real in-dir file (report.md) --
+        resp = client.get(f"/api/runs/{run_name}/file/report.md")
+        assert resp.status_code == 200, f"in-dir file must serve: {resp.text}"
+        assert len(resp.content) > 0, "served file must be non-empty"
+
+        # -- missing in-dir file -> 404 --
+        resp = client.get(f"/api/runs/{run_name}/file/nope_xyz.txt")
+        assert resp.status_code == 404, f"missing file must 404, got {resp.status_code}"
+
+        # -- traversal in the filename component must NOT escape the run dir.
+        # The TestClient/Starlette router resolves dot-segments, so probe several
+        # encodings; whatever the path resolves to, the secret must never leak.
+        for attempt in [
+            f"/api/runs/{run_name}/file/..%2f..%2fsecret.txt",
+            f"/api/runs/{run_name}/file/%2e%2e%2f%2e%2e%2fsecret.txt",
+            f"/api/runs/{run_name}/file/..%5c..%5csecret.txt",
+        ]:
+            r = client.get(attempt)
+            assert r.status_code in (400, 404), (
+                f"traversal {attempt!r} should be rejected, got {r.status_code}"
+            )
+            assert "TOP SECRET" not in r.text, f"traversal {attempt!r} LEAKED the secret"
+
+        # -- traversal in the run_name component must also be rejected --
+        for bad_run in ["..", "..%2f..", "foo%2fbar"]:
+            r = client.get(f"/api/runs/{bad_run}/file/report.md")
+            assert r.status_code in (400, 404), (
+                f"bad run_name {bad_run!r} should be rejected, got {r.status_code}"
+            )
+            assert "TOP SECRET" not in r.text
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+def test_safe_run_dir_helper_rejects_traversal(tmp_path):
+    """The shared _safe_run_dir guard rejects separators / dot-dot directly."""
+    import researchforge.web.app as web_app
+    from fastapi import HTTPException
+
+    run_out = tmp_path / "outputs"
+    run_out.mkdir()
+
+    original_outputs = web_app._OUTPUTS_DIR
+    web_app._OUTPUTS_DIR = run_out
+    try:
+        for bad in ["..", "../x", "foo/bar", "foo\\bar", "a/../../b"]:
+            with pytest.raises(HTTPException) as exc:
+                web_app._safe_run_dir(bad)
+            assert exc.value.status_code in (400, 404)
+    finally:
+        web_app._OUTPUTS_DIR = original_outputs
+
+
+# ---------------------------------------------------------------------------
 # Config-form data contract (end-to-end through the HTTP layer)
 #
 # The frontend (static/index.html) renders a per-analysis config form from the
