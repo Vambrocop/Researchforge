@@ -245,3 +245,167 @@ def test_zip_run_dir_helper(tmp_path):
         web_app._OUTPUTS_DIR = original_outputs
         if zip_path.exists():
             zip_path.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Config-form data contract (end-to-end through the HTTP layer)
+#
+# The frontend (static/index.html) renders a per-analysis config form from the
+# `params` list each recommendation carries in /api/analyze, using
+# fingerprint.columns to populate column selectors, then POSTs the assembled
+# {file_id, analysis_id, config} to /api/run. These tests lock that contract at
+# the HTTP boundary so a field rename / dropped key would fail loudly.
+# ---------------------------------------------------------------------------
+def _numeric_csv_bytes() -> bytes:
+    """Three named numeric columns — enough rows/cols to make correlation_matrix
+    feasible (min_numeric_cols=2, min_rows=3) and to give us stable column names."""
+    df = pd.DataFrame(
+        {
+            "alpha": range(20),
+            "beta": [i * 1.3 + 2 for i in range(20)],
+            "gamma": [i * 0.7 for i in range(20)],
+        }
+    )
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def _analyze_via_http(client) -> dict:
+    """POST a numeric CSV to /api/analyze and return the parsed JSON body."""
+    resp = client.post(
+        "/api/analyze",
+        files={"file": ("d.csv", _numeric_csv_bytes(), "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_analyze_response_carries_params_for_form():
+    """/api/analyze recommendations must each carry a `params` list, and a known
+    entry must expose the ParamSpec fields the form reads (name/type/required/
+    description/choices/default). This is the single source of truth the form
+    renders from — if `params` drops, the form silently renders nothing."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    client = TestClient(web_app.app)
+    data = _analyze_via_http(client)
+
+    # fingerprint.columns is what the form's column/columns selectors are built from
+    cols = data["fingerprint"]["columns"]
+    assert isinstance(cols, list) and cols, "fingerprint.columns must be non-empty"
+    assert all("name" in c and "kind" in c for c in cols), (
+        "each column must carry name+kind (the form reads c.name and c.kind)"
+    )
+    colnames = {c["name"] for c in cols}
+    assert {"alpha", "beta", "gamma"} <= colnames
+
+    recs = data["recommendations"]
+    assert recs, "expected at least one recommendation"
+
+    # EVERY recommendation must carry a `params` key that is a list (the form does
+    # `rec.params || []`; a missing key would still work but a renamed key is a bug)
+    for r in recs:
+        assert "params" in r, f"recommendation {r.get('id')!r} missing 'params'"
+        assert isinstance(r["params"], list)
+
+    # A known entry that declares params must round-trip the full ParamSpec shape.
+    by_id = {r["id"]: r for r in recs}
+    assert "correlation_matrix" in by_id, (
+        "correlation_matrix should be recommended for a 3-numeric-column dataset"
+    )
+    cm_params = {p["name"]: p for p in by_id["correlation_matrix"]["params"]}
+    assert {"method", "columns"} <= cm_params.keys()
+
+    # Each param dict must carry exactly the fields the form's paramFieldHtml reads.
+    for p in by_id["correlation_matrix"]["params"]:
+        for field in ("name", "type", "required", "description", "choices", "default"):
+            assert field in p, f"param {p.get('name')!r} missing form field {field!r}"
+
+    # `method` is a choice param -> the form renders a <select> from p.choices
+    method = cm_params["method"]
+    assert method["type"] == "choice"
+    assert set(method["choices"]) == {"pearson", "spearman"}
+
+    # `columns` is a columns param -> the form renders checkboxes from fingerprint.columns
+    assert cm_params["columns"]["type"] == "columns"
+
+
+def test_run_with_valid_config_has_no_param_warning():
+    """A config the form could legitimately assemble (a real column subset + a
+    valid choice) must run cleanly with NO '配置参数提示' warning in the summary.
+    This proves a well-formed form submission is accepted as-is."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    client = TestClient(web_app.app)
+    data = _analyze_via_http(client)
+    file_id = data["file_id"]
+
+    # valid choice + a real column subset (exactly what the form would POST)
+    resp = client.post(
+        "/api/run",
+        json={
+            "file_id": file_id,
+            "analysis_id": "correlation_matrix",
+            "config": {"method": "spearman", "columns": ["alpha", "beta"]},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    summary = resp.json()["summary"]
+    assert "配置参数提示" not in summary, (
+        f"valid config must not raise a config warning; got: {summary[:200]}"
+    )
+
+
+def test_run_with_bad_config_key_surfaces_warning():
+    """A typo'd key (the realistic failure the spec is meant to catch) must still
+    run (non-blocking) but the returned summary must carry '配置参数提示' and name
+    the unknown key — proving the form's submissions are validated server-side."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    client = TestClient(web_app.app)
+    data = _analyze_via_http(client)
+    file_id = data["file_id"]
+
+    resp = client.post(
+        "/api/run",
+        json={
+            "file_id": file_id,
+            "analysis_id": "correlation_matrix",
+            "config": {"method": "pearson", "methdo": "spearman"},  # typo'd key
+        },
+    )
+    # non-blocking: the run still succeeds (200), the warning is in the summary
+    assert resp.status_code == 200, resp.text
+    summary = resp.json()["summary"]
+    assert "配置参数提示" in summary, "unknown key must surface a config warning"
+    assert "methdo" in summary, "the warning must name the offending key"
+
+
+def test_run_with_bad_choice_value_surfaces_warning():
+    """A value outside a choice param's allowed set (e.g. a stale option) must
+    also surface a warning while still running on the auto default."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    client = TestClient(web_app.app)
+    data = _analyze_via_http(client)
+    file_id = data["file_id"]
+
+    resp = client.post(
+        "/api/run",
+        json={
+            "file_id": file_id,
+            "analysis_id": "correlation_matrix",
+            "config": {"method": "kendall"},  # not in {pearson, spearman}
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    summary = resp.json()["summary"]
+    assert "配置参数提示" in summary
+    assert "method" in summary

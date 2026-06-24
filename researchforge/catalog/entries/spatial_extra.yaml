@@ -70,6 +70,10 @@
       type: column
       description: 要找热点的数值变量列
       default: 第一个连续列
+    - name: knn_k
+      type: int
+      description: k-NN 邻居数（含自身）
+      default: "8"
   biases:
     - the local Gi* applies to any real-valued variable, but the GLOBAL G is defined ONLY for a non-negative variable (it measures concentration of high positive values); for a variable with negative values the global G is skipped and disclosed (use moran_i for global autocorrelation of a centered variable)
     - Gi* depends on the spatial weights spec (k-NN k is disclosed)
@@ -109,6 +113,10 @@
       type: column
       description: 二值属性列
       default: 第一个二值列
+    - name: knn_k
+      type: int
+      description: k-NN 邻居数
+      default: "6"
   biases:
     - free-sampling (CSR) assumption for the expected counts and variances
     - weights come from k-NN (k disclosed, symmetrised) — result depends on the spec

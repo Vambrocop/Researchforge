@@ -50,6 +50,10 @@ SLOW_MODULES = {
     "test_mediation_extra",
     # ML explainers fit GBM/RF + SHAP TreeExplainer per test
     "test_interpretability",
+    # spatial association (permutation inference) + SKATER MST pruning
+    "test_spatial_dependence",
+    # meta-guard: parses every branch module's AST + loads catalog
+    "test_config_params_complete",
 }
 
 

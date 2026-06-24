@@ -1,0 +1,154 @@
+# Spatial-dependence catalog entries — spatial association & regionalization
+# (pure Python: numpy / scipy, no R / no pysal). Each id maps to a @register handler
+# in executor/branches/spatial_dependence.py. Complements moran_i / local_moran /
+# getis_ord / spatial_regression. Coordinates: config x/y, else lon/lat geo, else
+# first two continuous columns; analysis variables are the remaining continuous columns.
+#
+# NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
+
+- id: bivariate_moran
+  method: Bivariate Moran's I (spatial cross-correlation)
+  domain: spatial
+  family: spatial
+  goal: explore
+  description: >-
+    Bivariate global Moran's I: the association between variable X at each location and
+    the SPATIAL LAG of variable Y at its neighbours — "is high X located near high Y?".
+    Uses a row-standardized symmetric k-NN spatial weights matrix and z-scored variables,
+    I = zx'·W·zy / (zx'·zx), with a permutation pseudo p-value (shuffle Y) and a z-score.
+    Produces a bivariate Moran scatter (z(X) vs lagged z(Y)) and a per-point CSV.
+    Configure var1 (X) / var2 (Y) / coordinates x,y / knn_k.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 10
+  produces:
+    - bivariate Moran's I + permutation pseudo p-value + z-score
+    - bivariate Moran scatter plot (PNG)
+    - per-point z(X) and spatial-lag z(Y) table (CSV)
+  executor_ref: py::bivariate_moran
+  biases:
+    - bivariate Moran blends the (non-spatial) X–Y correlation with Y's spatial structure and does NOT separate them; it is not a causal statement
+    - it depends on the spatial weights definition (k-NN; disclosed) — a different neighbourhood can change the result
+    - the pseudo p-value is a permutation approximation; small n is unreliable
+    - global statistic — it can hide local pockets of association (see local_geary / local_moran)
+  params:
+    - name: var1
+      type: column
+      description: 变量 X
+      default: 坐标外第一个连续列
+    - name: var2
+      type: column
+      description: 变量 Y（取其空间滞后）
+      default: 坐标外第二个连续列
+    - name: x
+      type: column
+      description: 坐标 X（经度）
+      default: geo 经度列，否则第一个连续列
+    - name: y
+      type: column
+      description: 坐标 Y（纬度）
+      default: geo 纬度列，否则第二个连续列
+    - name: knn_k
+      type: int
+      description: k-NN 邻居数
+      default: 约 √n（2–8）
+    - name: n_perm
+      type: int
+      description: 置换次数
+      default: "999"
+
+- id: local_geary
+  method: Local Geary's C (LISA)
+  domain: spatial
+  family: spatial
+  goal: explore
+  description: >-
+    Local Geary's C, a Local Indicator of Spatial Association: per-location
+    c_i = Σ_j w_ij (z_i − z_j)² over a row-standardized k-NN neighbourhood. Unlike local
+    Moran (which flags local SIMILARITY), local Geary flags local DISSIMILARITY, so it
+    is good at detecting spatial OUTLIERS as well as homogeneous clusters. Significance
+    is a conditional-permutation pseudo p-value per location (two-sided). Each location is
+    labelled low-C (similar cluster) / high-C (spatial outlier) / ns. Produces a labelled
+    map (PNG) and a per-point CSV. Configure value / coordinates x,y / knn_k / n_perm.
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 10
+  produces:
+    - per-location local Geary's C + conditional-permutation pseudo p-value + label
+    - counts of similar clusters / spatial outliers / non-significant
+    - labelled LISA map (PNG) + per-point table (CSV)
+  executor_ref: py::local_geary
+  biases:
+    - local Geary measures local DISSIMILARITY (low C = similar neighbourhood, high C = outlier); complementary to local_moran, not a substitute
+    - per-location pseudo p-values are NOT corrected for multiple comparisons — expect some false positives
+    - it depends on the spatial weights definition (k-NN; disclosed)
+    - not a causal statement; the conditional-permutation p-value is approximate
+  params:
+    - name: value
+      type: column
+      description: 分析变量
+      default: 坐标外第一个连续列
+    - name: x
+      type: column
+      description: 坐标 X（经度）
+      default: geo 经度列，否则第一个连续列
+    - name: y
+      type: column
+      description: 坐标 Y（纬度）
+      default: geo 纬度列，否则第二个连续列
+    - name: knn_k
+      type: int
+      description: k-NN 邻居数
+      default: 约 √n（2–8）
+    - name: n_perm
+      type: int
+      description: 条件置换次数
+      default: "999"
+
+- id: skater
+  method: SKATER regionalization (spatially-constrained clustering)
+  domain: spatial
+  family: spatial
+  goal: explore
+  description: >-
+    SKATER (Spatial 'K'luster Analysis by Tree Edge Removal): partitions locations into
+    spatially CONTIGUOUS, internally homogeneous regions. It builds a symmetric k-NN
+    contiguity graph weighted by attribute dissimilarity (Euclidean distance in
+    standardized feature space), takes its minimum spanning tree, then greedily prunes
+    edges to maximise the reduction in within-region sum of squares until n_clusters
+    regions remain. Unlike ordinary clustering, every region is guaranteed to be a
+    connected area. Produces a region map (PNG) and per-point region labels (CSV).
+    Configure features / n_clusters / coordinates x,y / knn_k.
+  preconditions:
+    min_numeric_cols: 1
+    min_rows: 8
+  produces:
+    - region label per location (CSV) + region map (PNG)
+    - number of regions + within-region sum of squares (homogeneity) + region sizes
+  executor_ref: py::skater
+  biases:
+    - SKATER enforces spatial contiguity (it prunes a spanning tree), so its regions differ from non-spatial clustering and can be driven by the contiguity graph
+    - it depends on the neighbourhood definition (k-NN; disclosed) and on attribute standardization
+    - the greedy MST edge-pruning is a heuristic, not a global optimum
+    - the number of regions is user-set (n_clusters), not chosen by the method; if the contiguity graph is disconnected the realized region count can differ (disclosed)
+  params:
+    - name: features
+      type: columns
+      description: 用于聚类的分析变量
+      default: 坐标外全部连续列
+    - name: n_clusters
+      type: int
+      description: 目标区域数
+      default: "5"
+    - name: x
+      type: column
+      description: 坐标 X（经度）
+      default: geo 经度列，否则第一个连续列
+    - name: y
+      type: column
+      description: 坐标 Y（纬度）
+      default: geo 纬度列，否则第二个连续列
+    - name: knn_k
+      type: int
+      description: k-NN 邻接邻居数
+      default: 约 √n（2–8）

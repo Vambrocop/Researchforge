@@ -94,6 +94,10 @@
       choices: [lag, error, sdm]
       description: 空间模型（SAR/SEM/SDM）
       default: lag（SAR）
+    - name: knn_k
+      type: int
+      description: k-NN 空间权重邻居数
+      default: "6"
   biases:
     - assumes spatial dependence exists (contemporaneous correlation among neighbouring units); if W is mis-specified the spatial term is meaningless
     - the spatial weights matrix W (here k-nearest-neighbour, k≈6, row-standardised) is a MODELLING CHOICE that drives results — changing k / the distance metric / the neighbour definition can change rho/lambda and the spillovers; confirm against theory

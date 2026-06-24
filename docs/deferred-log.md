@@ -121,6 +121,11 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **Web 动态 config 表单（subagent A，已集成）**：`web/static/index.html` 据 recommend payload 的 `params` 渲染表单（column→列下拉、columns→多选、choice→选择、int/float→数字、bool→勾选），空字段省略→回退默认，空 params 提示按默认跑。仅前端，test_web 9 绿。
 - **config params 回填（subagent B，已集成）**：47 文件/165 entry 加 `params:`（共 177 entry 有 params）。主脑集成时**修了 2 个未引号化的 `{}` 描述 YAML 崩**（categorical_tests `{类别:概率}`、survey_methods `{var:{level:prop}}`）+ **补 12 个 under-declare 真键**（field_trials outcome 别名、MCDA 6 个 weights、power_analysis environment/genotype、irt_pcm group、kruskal within/subject/conditions）防假警告；写了 within-file 完整性校验脚本（declared⊇read，仅剩 croston seasonal_periods 一个确认的假阳=模块广播但不实读）。**回填 backlog**：跨文件 resolver 键（_helpers 的 _regression/_io_names 等）未逐一校验，残留少量假警告风险（非阻塞）；可把完整性校验做成 CI guard。
 
+**config params 完整性 CI guard（2026-06-24，subagent B + 主脑修）：**
+- ✅ `tests/test_config_params_complete.py`：每个声明 params 的 entry，其 handler（含**模块内 helper 调用图**，仅 _helpers/ 跨文件共享）读的 cfg 键必须 ⊆ 声明的 params 名（防 under-declare 假警告回归）。informational 测另列「读 cfg 但未声明 params」的回填候选（不 fail）。
+- **主脑集成修 subagent B 两个 bug**：① helper 索引原按名跨**所有 branch 模块**取并集→`_resolve_xy` 在 spatial_extra(读 x/y) 与 ml_supervised(读 outcome/predictors) 撞名→svm 误判读 x/y；改为**模块内 + _helpers/ 全局**解析；② `_declared_params` 原过滤 `executor_ref.startswith("py::")`，但 executor_ref 是自由字符串(numpy/semopy/…)→ topsis 等被误判「declares []」；改为映射全部 entry。
+- **guard 抓到 3 个真漏**（前次手工回填漏的）：getis_ord/join_count/spatial_panel 读 `knn_k` 未声明→已补（用户传 knn_k 本会得假「未知参数」警告）。**现 183/219 entry 有 params，guard 全绿。**
+
 **设计感知田间试验冷审（2026-06-23，field_trials：rcbd/latin_square/split_plot）—— ZERO MUST-FIX：**
 - 冷启动 inference-reviewer **逐位核验**：split-plot SS 分解对齐 statsmodels 全模型 Type-II（<1e-6，含 m=2 行洗牌→证明 map/merge 按标签对齐非行序）、误差层路由（主区 A 对区组×A 误差、df=(a-1,(r-1)(a-1))，非裸 MS_A/MS_sub）、latin 残差 df=(t-1)(t-2)、RCBD 相对效率 Fisher 公式、角色集合运算优先级——全对。
 - ✅ **SHOULD-FIX 已修**：latin_square 原仅校验边际(t==row==col、n≥t²)，非真正拉丁方(如处理混叠到列、n==t²)会被静默当正交分析。已加真拉丁方校验（t² 不重复单元/每单元一次/每处理每行每列各一次，否则诚实跳过）+ 测试。
