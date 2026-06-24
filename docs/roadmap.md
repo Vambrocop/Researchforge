@@ -1,9 +1,13 @@
 # ResearchForge 路线图（Roadmap）— 活文档
 
 > **1.0 不是终点,是里程碑。** 北极星 = 方法学大杂烩 + 越来越聪明的自动选模 —— 永不"完工",
-> **持续优化是常态**;版本号只是路上的桩。当前 **v0.9.0**。本文件是活的:做完一档就更新、补新方法波。
+> **持续优化是常态**;版本号只是路上的桩。当前 **v1.0.0**。本文件是活的:做完一档就更新、补新方法波。
 >
-> **已达成（v0.9.0，2026-06-24）**：222 法 / 32 族 / 973 测绿；ML 可解释性(PDP/SHAP/ALE/H/surrogate/quantile)、空间依赖(bivariate_moran/local_geary/skater)、中介扩展、设计感知田间试验、config schema+CI guard 均上线。详见下方阶段 ②/③ 的 [x] 项与「方法熔炉扩张」回填。
+> **🎯 v1.0.0 已达成（2026-06-24）**：可用(CLI+Web+Python API) + 综合(225 法 / 33 族) + 稳定
+> (987 测绿 + 4 真实公开数据集端到端验证零崩溃) + 有文档(README + USER_GUIDE + loop-decisions + roadmap)。
+> **1.0 后持续优化**：更聪明自动选模(语义化 outcome 检测,治整数目标被判 count 的默认坑)、Web 纵深、
+> discover phase-2、更多方法族(UMAP/ERGM/AIPW/Bayesian)。
+> **已达成（v0.9.0，2026-06-23）**：脏数据鲁棒、config schema+CI guard、ML 可解释性、空间依赖、中介扩展、设计感知田间试验。
 >
 > **路线选择:厚 1.0（用户 2026-06-16 选 B,大格局派)** —— 1.0 不只"能用",还要"方法够全"。
 > 所以 1.0 前不止做 UI/鲁棒,还把下面方法波的高需求部分(实验设计/测量/因果/ML)做进去;
@@ -42,8 +46,8 @@
 - [x] **因果扩张(部分)**:模糊 RDD、事件研究、交错 DiD(Callaway-Sant'Anna)、PSM/IPW —— 已上线 `fuzzy_rdd`/`event_study`(causal/)、`callaway_santanna`(causal_did)、`psm`/`ipw`(causal/)。〔仍开:合成 DiD(需编译器)、2SLS/IV 占位转实、AIPW —— 见 1.0 之后/暂缓〕
 - [x] **ML/预测(部分)**:lasso/ridge/elasticnet、SVM、梯度提升、SHAP、ETS、GARCH、changepoint、t-SNE —— 已上线 `regularized_regression`/`svm_model`/`gradient_boosting`(ml_supervised)、`shap_values`(interpretability)、`exponential_smoothing`(forecasting)、`garch`/`structural_breaks`(timeseries,后者即 changepoint)、`tsne`(dimensionality_extra);ML 可解释性另含 `partial_dependence`(PDP)/`accumulated_local_effects`(ALE)/`feature_interaction`(H 统计)/`surrogate_model`/`quantile_intervals`。〔仍开:Prophet、UMAP —— 见暂缓清单〕
 
-### 🎯 v1.0 — 可用 + 综合 + 稳定 + 有文档（里程碑,非终点）
-研究者拿真实数据端到端出可信报告;**方法库已大幅扩充(v0.9.0 已 222 法 / 32 族 / 973 测绿,远超原定 ~100+)**;稳定、错误处理、文档齐。**仍开(收口 v1.0)**:真实数据端到端验收(e2e)、面向用户的使用文档、Web 前端深度打磨、discover phase-2(自标暂缓)。
+### 🎯 v1.0 — 可用 + 综合 + 稳定 + 有文档（里程碑,非终点）✅ 达成 2026-06-24（v1.0.0）
+研究者拿真实数据端到端出可信报告 ✅(tests/test_end_to_end.py 在 sklearn diabetes/breast_cancer、statsmodels co2/grunfeld 四真实数据集跑通管线、26+ 分析零崩溃);**方法库 225 法 / 33 族 / 987 测绿**(远超原定 ~100+);稳定 + 诚实错误处理 + 文档齐(README + docs/USER_GUIDE.md)。**1.0 后续(持续优化,非门槛)**:Web 前端深度、discover phase-2(自标暂缓)、更聪明自动选模。
 
 ## 1.0 之后(继续慢慢优化)
 
