@@ -48,6 +48,12 @@ class DataFingerprint(BaseModel):
     has_geo: bool = False
     treatment_candidates: list[str] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
+    # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
+    # run-time defaults — only suggest a `config` to the user.
+    likely_outcome: Optional[str] = None
+    likely_treatment: Optional[str] = None
+    likely_time: Optional[str] = None
+    role_hint_reason: str = ""
 
     def column(self, name: str) -> Optional[ColumnInfo]:
         for c in self.columns:

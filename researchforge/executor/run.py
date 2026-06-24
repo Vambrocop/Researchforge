@@ -122,6 +122,16 @@ def run_analysis(
     summary: list[str] = []
     if _cfg_warns:
         summary.append("⚠ 配置参数提示：" + " ".join(_cfg_warns))
+    # Smart-selection nudge (non-binding): if this method takes an `outcome` and the
+    # user didn't set one, surface the detected likely outcome so they can config it
+    # deliberately (the auto default is "first continuous", which can miss an
+    # integer-valued / non-first target). See profiler/roles.py.
+    if (fp.likely_outcome and not (cfg.get("outcome") or cfg.get("y"))
+            and any(p.name in ("outcome", "y") for p in entry.params)):
+        summary.append(
+            f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
+            "若引擎默认选取不符，用 config outcome 指定。"
+        )
     estimates: dict[str, float] = {}
     code: list[str] = ["import pandas as pd", f"df = pd.read_csv(r'{fp.path}')", ""]
 

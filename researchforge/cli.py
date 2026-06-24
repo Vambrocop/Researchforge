@@ -37,6 +37,12 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     )
     if fp.issues:
         print(f"质量问题：{len(fp.issues)} 项（运行清洗可处理）")
+    if fp.likely_outcome:
+        hint = f"💡 可能的结果变量：{fp.likely_outcome}（{fp.role_hint_reason}）"
+        if fp.likely_treatment:
+            hint += f"；处理变量：{fp.likely_treatment}"
+        hint += " —— 运行建模方法时可用 --config 指定"
+        print(hint)
 
     gk = resolve_goal(goal)
     if goal and not gk:

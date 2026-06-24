@@ -40,6 +40,14 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
     )
     _detect_structure(df, fp)
     fp.issues = diagnose(df)
+    # non-binding semantic role hints (do not change run-time defaults)
+    from researchforge.profiler.roles import detect_roles
+
+    roles = detect_roles(columns)
+    fp.likely_outcome = roles["likely_outcome"]
+    fp.likely_treatment = roles["likely_treatment"]
+    fp.likely_time = roles["likely_time"]
+    fp.role_hint_reason = roles["reason"]
     return fp
 
 

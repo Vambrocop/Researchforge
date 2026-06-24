@@ -60,6 +60,8 @@ SLOW_MODULES = {
     "test_end_to_end",
     # AIPW fits propensity + per-arm outcome (GBM) models; UMAP embedding
     "test_aipw", "test_umap",
+    # techno-economic: Monte-Carlo cash-flow simulation
+    "test_techno_economic",
 }
 
 

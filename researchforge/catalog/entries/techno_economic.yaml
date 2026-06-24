@@ -1,0 +1,334 @@
+# Techno-economic analysis catalog entries (engineering economics / project
+# appraisal). Built on a per-period cash-flow series — pure Python (numpy).
+
+- id: npv_irr
+  method: Net Present Value + Internal Rate of Return (NPV / IRR)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Discounted-cash-flow project appraisal of a per-period net cash-flow series.
+    Computes Net Present Value NPV = sum CF_t/(1+r)^t at a config discount rate
+    (config rate, default 0.10), the Internal Rate of Return IRR (the rate solving
+    NPV(r)=0, found by grid sign-change bracketing then brentq / bisection
+    root-finding, with honest handling of no-real-root and multiple-IRR cases),
+    and both the simple and the discounted payback period (linearly interpolated).
+    Reports the accept/reject decision (NPV>0 accept). Period 0 is the first row
+    (an up-front capital outlay is a negative CF_0). Input = a single net cash-flow
+    column (config cashflow) OR cost & revenue columns (net = revenue - cost). An
+    optional period column only orders rows; t is the row index 0,1,2,...
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - NPV at the discount rate + accept/reject decision
+    - IRR (with no-root / multiple-root disclosure) + simple & discounted payback
+    - per-period discounting schedule (CSV) + cumulative-discounted-CF plot
+  executor_ref: numpy
+  params:
+    - name: cashflow
+      type: column
+      description: 每期净现金流列（期 0 = 第一行）
+      default: 第一个数值列
+    - name: cost
+      type: column
+      description: 成本列（与 revenue 合成净现金流 = revenue − cost）
+      default: 无
+    - name: revenue
+      type: column
+      description: 收入列（与 cost 合成净现金流）
+      default: 无
+    - name: benefit
+      type: column
+      description: revenue 的别名
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.10"
+    - name: period
+      type: column
+      description: 期/时间列（仅用于排序，t 仍取行序号）
+      default: 自动/行序
+  biases:
+    - NPV is highly sensitive to the discount rate r — a small change in r can flip the decision (see sensitivity_tornado / monte_carlo_cashflow)
+    - IRR can have no real root or MULTIPLE roots for non-conventional cash flows (sign changes more than once); the engine flags this and decisions should rely on NPV
+    - IRR implicitly assumes intermediate cash flows are reinvested at the IRR itself, which overstates return when IRR is far from the cost of capital (MIRR is not computed here)
+    - payback period ignores all cash flows after payback and (for simple payback) the time value of money
+    - discounting period t = row index 0,1,2,...; a period column only orders rows and its raw values are NOT used as t
+
+- id: cost_benefit
+  method: Cost-Benefit Analysis (discounted Benefit-Cost Ratio)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Discounted cost-benefit analysis of two per-period streams. Discounts a cost
+    stream and a benefit stream at a config rate (default 0.10) and reports the
+    Benefit-Cost Ratio BCR = PV(benefits)/PV(costs), the Net Present Benefit
+    NPB = PV(benefits) - PV(costs), and the accept/reject decision (BCR>1 accept).
+    Needs a cost stream and a benefit stream — config cost & benefit (or revenue);
+    if unspecified it takes the first two numeric columns (cost, benefit) and
+    discloses. Fails honestly if PV(cost) is non-positive (BCR undefined).
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 2
+  produces:
+    - discounted Benefit-Cost Ratio (BCR) + accept/reject decision
+    - Net Present Benefit (PV benefit - PV cost) + PV of each stream
+    - per-period discounted cost-vs-benefit table (CSV) + grouped bar plot
+  executor_ref: numpy
+  params:
+    - name: cost
+      type: column
+      description: 每期成本流列
+      default: 第一个数值列
+    - name: benefit
+      type: column
+      description: 每期效益流列
+      default: 第二个数值列
+    - name: revenue
+      type: column
+      description: benefit 的别名
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.10"
+    - name: period
+      type: column
+      description: 期/时间列（仅排序）
+      default: 自动/行序
+  biases:
+    - BCR depends on the discount rate AND on how items are classified — netting an item out of benefits vs counting it as a cost (or a negative benefit) changes BCR even when net present benefit is identical
+    - BCR is a ratio (scale-free) and should NOT be used to compare projects of different size; Net Present Benefit / NPV is the size-robust criterion
+    - no shadow pricing, externality valuation, or distributional weighting is applied — market cost/benefit figures may not reflect social value
+
+- id: breakeven_analysis
+  method: Break-even / Cost-Volume-Profit (CVP) analysis
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Cost-volume-profit break-even analysis from unit economics. Given fixed cost,
+    unit variable cost and unit price (config fixed_cost / var_cost / price, or
+    inferred from same-named numeric columns' means), computes the unit contribution
+    margin (price - var_cost) and ratio, the break-even quantity (fixed_cost /
+    contribution_margin), the break-even sales revenue, and — if an expected sales
+    volume is given (config units) — the margin of safety (units and ratio), the
+    profit at that volume, and the break-even price at that volume. Produces a CVP
+    table and a cost-vs-revenue break-even chart. Fails honestly if the contribution
+    margin is non-positive (no break-even point exists).
+  preconditions:
+    min_rows: 1
+  produces:
+    - break-even quantity + break-even sales revenue
+    - unit contribution margin + contribution-margin ratio + (optional) break-even price
+    - margin of safety (units & ratio) + cost-volume-profit table and chart
+  executor_ref: numpy
+  params:
+    - name: fixed_cost
+      type: float
+      description: 固定成本（总额）
+      default: 同名列均值（若有）
+    - name: var_cost
+      type: float
+      description: 单位变动成本
+      default: 同名列均值（若有）
+    - name: price
+      type: float
+      description: 单位售价
+      default: 同名列均值（若有）
+    - name: units
+      type: float
+      description: 预期/当前销量（用于安全边际、保本单价）
+      default: 无
+  biases:
+    - the linear CVP model assumes constant unit price and unit variable cost (no economies of scale, volume discounts, or learning), a single product or fixed product mix, and that production equals sales
+    - costs are assumed cleanly split into fixed vs variable; semi-variable / step costs break this dichotomy
+    - break-even ignores risk and the time value of money — it is a static, single-period snapshot
+
+- id: sensitivity_tornado
+  method: One-at-a-time sensitivity analysis (tornado chart)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Deterministic one-at-a-time (OAT) sensitivity of project NPV. Perturbs each
+    input — the discount rate and each non-zero per-period cash flow — by +/- a
+    config percentage (config sensitivity_pct, default 20%), recomputes NPV at the
+    low and high settings, ranks the inputs by the resulting NPV swing
+    (|NPV_high - NPV_low|), and draws a tornado bar chart (widest swing on top).
+    Identifies which inputs drive project value. Input cash-flow series resolved like
+    npv_irr (config cashflow OR cost/revenue). Discount rate from config rate.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - NPV swing of each input under a +/-% shock, ranked
+    - tornado bar chart of the largest drivers
+    - base-case NPV + full ranked sensitivity table (CSV)
+  executor_ref: numpy
+  params:
+    - name: cashflow
+      type: column
+      description: 每期净现金流列
+      default: 第一个数值列
+    - name: cost
+      type: column
+      description: 成本列（与 revenue 合成净现金流）
+      default: 无
+    - name: revenue
+      type: column
+      description: 收入列（与 cost 合成净现金流）
+      default: 无
+    - name: benefit
+      type: column
+      description: revenue 的别名
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.10"
+    - name: period
+      type: column
+      description: 期/时间列（仅排序）
+      default: 自动/行序
+    - name: sensitivity_pct
+      type: float
+      description: 单因素扰动幅度（百分比）
+      default: "20"
+  biases:
+    - one-at-a-time sensitivity holds all other inputs fixed, so it ignores interactions and correlations between parameters (joint uncertainty is addressed by monte_carlo_cashflow)
+    - the ranking depends on the chosen +/-% shock — applying the same relative shock to every parameter is not always equally plausible across parameters
+    - it is a LOCAL sensitivity around the base case and does not characterise the full distribution of NPV
+
+- id: monte_carlo_cashflow
+  method: Monte-Carlo simulation of NPV (project risk)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Monte-Carlo risk analysis of project NPV. Treats each per-period cash flow as an
+    independent random variable centred at its point estimate with standard deviation
+    sd_t = cv * |CF_t| (config cv, default 0.15), drawn from a normal or symmetric
+    triangular distribution (config dist), simulates N draws (config n_sim, default
+    10000; config seed for reproducibility), discounts each draw at config rate, and
+    reports the NPV distribution mean & sd, the probability of loss P(NPV<0), an NPV
+    value-at-risk percentile (config var_pct, default the 5th percentile), the
+    P5/P50/P95, and a histogram of simulated NPV with the mean, zero and VaR marked.
+    The distributional assumptions are disclosed (they drive the result).
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - NPV distribution mean & standard deviation across N simulations
+    - probability of loss P(NPV<0) + NPV value-at-risk percentile + P5/P50/P95
+    - simulated-NPV histogram + summary CSV
+  executor_ref: numpy
+  params:
+    - name: cashflow
+      type: column
+      description: 每期净现金流列
+      default: 第一个数值列
+    - name: cost
+      type: column
+      description: 成本列（与 revenue 合成净现金流）
+      default: 无
+    - name: revenue
+      type: column
+      description: 收入列（与 cost 合成净现金流）
+      default: 无
+    - name: benefit
+      type: column
+      description: revenue 的别名
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.10"
+    - name: period
+      type: column
+      description: 期/时间列（仅排序）
+      default: 自动/行序
+    - name: n_sim
+      type: int
+      description: 模拟次数（100..500000）
+      default: "10000"
+    - name: seed
+      type: int
+      description: 随机种子（复现）
+      default: "12345"
+    - name: cv
+      type: float
+      description: 每期现金流变异系数（sd = cv·|CF_t|）
+      default: "0.15"
+    - name: dist
+      type: choice
+      description: 每期现金流分布
+      choices:
+        - normal
+        - triangular
+      default: normal
+    - name: var_pct
+      type: float
+      description: NPV 风险价值百分位（如 5 = 第 5 百分位）
+      default: "5"
+  biases:
+    - the distributional assumption is key and subjective — each CF_t is assumed normal (or symmetric triangular) with sd = cv*|CF_t|; the chosen cv and distribution shape drive P(loss) and VaR
+    - per-period cash flows are simulated INDEPENDENTLY — no autocorrelation or common shocks are modelled, which understates joint tail risk (correlated downturns)
+    - the normal distribution is unbounded and can draw negative values for items that should stay positive (e.g. revenue); cv is assumed constant across all periods
+    - results carry Monte-Carlo sampling error (reduced by larger n_sim; reproducible via the fixed seed) and should be read as a scenario distribution, not a point forecast
+
+- id: lcoe
+  method: Levelized Cost of Energy / output (LCOE)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Levelized cost of energy / output for energy and agricultural projects.
+    LCOE = sum cost_t/(1+r)^t / sum output_t/(1+r)^t — the discounted total cost per
+    discounted unit of output, i.e. the constant unit price that would exactly break
+    even in present-value terms. Discounts a per-period cost stream and a per-period
+    output (energy / production) stream at config rate (default 0.10) and reports the
+    LCOE alongside the undiscounted simple average cost for comparison. Needs cost &
+    output streams (config cost & output / energy / production, else the first two
+    numeric columns, disclosed). Fails honestly if discounted output is non-positive.
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 2
+  produces:
+    - levelized unit cost (LCOE) = PV(cost) / PV(output)
+    - PV of cost and PV of output streams + undiscounted simple average cost
+    - per-period discounted cost & output table (CSV) + dual-axis plot
+  executor_ref: numpy
+  params:
+    - name: cost
+      type: column
+      description: 每期成本流列
+      default: 第一个数值列
+    - name: output
+      type: column
+      description: 每期产出/能源流列
+      default: 第二个数值列
+    - name: energy
+      type: column
+      description: output 的别名
+      default: 无
+    - name: production
+      type: column
+      description: output 的别名
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.10"
+    - name: period
+      type: column
+      description: 期/时间列（仅排序）
+      default: 自动/行序
+  biases:
+    - LCOE is very sensitive to the discount rate and the assumed project lifetime — both materially change the levelized cost
+    - output is discounted too (standard for energy/production), which makes a unit of output today worth more than one in the future; this is a modelling choice that should be stated
+    - LCOE excludes revenue / electricity price and ignores the differing time-of-use value of output (peak vs off-peak, dispatchability), so it should not drive technology choice alone — combine with NPV / subsidies / system value
+    - cost and output must share consistent units for the ratio to be meaningful
