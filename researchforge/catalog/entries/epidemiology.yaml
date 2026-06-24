@@ -1,0 +1,146 @@
+# Epidemiology / clinical-biostatistics family — a coherent diagnostic triangle:
+#   discrimination (diagnostic_test_eval) + association (epi_risk_measures)
+#   + calibration (calibration_assessment).
+# Pure Python (numpy/scipy/pandas/matplotlib). Each method honestly degrades when its
+# preconditions aren't met. All proportions get Wilson 95% CIs; ratios get log CIs.
+
+- id: diagnostic_test_eval
+  method: 诊断试验评价 (ROC / AUC / sensitivity-specificity / likelihood ratios)
+  domain: epidemiology
+  family: epidemiology
+  goal: describe
+  description: >-
+    Diagnostic accuracy of a test against a binary gold standard. If the test is a
+    continuous score/probability: the empirical ROC curve, AUC with a DeLong 95% CI
+    (Hanley-McNeil fallback when DeLong is degenerate, disclosed in the summary), and
+    the Youden-J optimal cutoff. At that cutoff (or directly from the 2x2 when the test
+    is binary) it reports sensitivity, specificity, PPV, NPV, LR+, LR-, and accuracy,
+    each with a Wilson 95% CI. Truth and test columns are config-overridable.
+  preconditions:
+    requires_binary_outcome: true
+    min_rows: 4
+  produces:
+    - ROC curve PNG (Youden point marked, chance diagonal) when the test is continuous
+    - metrics CSV (sensitivity / specificity / PPV / NPV / accuracy with Wilson 95% CIs)
+    - "estimates dict (auc, auc_ci, youden_cutoff, sens, spec, ppv, npv, lr_plus, lr_minus, accuracy)"
+  executor_ref: py::diagnostic_test_eval
+  params:
+    - name: truth
+      type: column
+      description: 二值金标准/疾病列（真值）
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: truth 的同义键（二值金标准）
+      default: 第一个二值列
+    - name: test
+      type: column
+      description: 检验列（连续评分/概率，或第二个二值结果）
+      default: 第一个连续列，否则第二个二值列
+    - name: score
+      type: column
+      description: test 的同义键（连续评分列）
+      default: 第一个连续列
+    - name: ci
+      type: float
+      description: 置信区间水平（0-1）
+      default: "0.95"
+  biases:
+    - PPV and NPV depend on prevalence — here computed at the sample prevalence, not the population's
+    - LR+ and LR- are prevalence-independent, so they transfer across populations better than PPV/NPV
+    - small-cell Wilson CIs are wide when a class is rare — the point estimates are then unstable
+    - the Youden cutoff is data-driven and optimistic in-sample; validate it on held-out data
+    - AUC summarises ranking only — a high AUC can still be poorly calibrated (see calibration_assessment)
+
+- id: epi_risk_measures
+  method: 流行病学风险测度 (RR / OR / RD / NNT / attributable risk)
+  domain: epidemiology
+  family: epidemiology
+  goal: explain
+  description: >-
+    Association measures from a 2x2 of a binary exposure against a binary outcome.
+    Reports the Risk Ratio and Odds Ratio (both with log/Woolf 95% CIs; a Haldane-
+    Anscombe 0.5 continuity correction is applied and disclosed if any cell is zero),
+    the Risk Difference (Wald 95% CI), the Number Needed to Treat/Harm (NNT = 1/|RD|
+    with the benefit-vs-harm reading), the attributable risk percent in the exposed
+    ((RR-1)/RR), and the population attributable risk percent (Levin) from the observed
+    exposure prevalence. Exposure and outcome are config-overridable.
+  preconditions:
+    requires_binary_outcome: true
+    min_categorical_cols: 2
+    min_rows: 4
+  produces:
+    - 2x2 contingency table CSV (exposed/unexposed by case/noncase with margins)
+    - forest-style PNG of RR / OR / RD with 95% CIs and null reference lines
+    - "estimates dict (rr, rr_ci, or, or_ci, rd, rd_ci, nnt, ar_pct, par_pct)"
+  executor_ref: py::epi_risk_measures
+  params:
+    - name: exposure
+      type: column
+      description: 二值暴露列
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 二值结局/疾病列
+      default: 另一个二值列
+    - name: ci
+      type: float
+      description: 置信区间水平（0-1）
+      default: "0.95"
+  biases:
+    - "OR approximates RR only when the outcome is rare; otherwise the OR exaggerates the RR"
+    - these are associational, not causal — no confounding has been adjusted for
+    - a zero cell triggers a Haldane-Anscombe 0.5 correction, which mildly biases OR/RR toward the null
+    - the Wald CI for RD can stray outside [-1, 1] / give poor coverage at extreme risks or tiny n
+    - NNT is unstable and its CI can be discontinuous when the RD CI spans zero (no effect)
+
+- id: calibration_assessment
+  method: 校准评估 (Brier / Hosmer-Lemeshow / calibration curve)
+  domain: epidemiology
+  family: epidemiology
+  goal: describe
+  description: >-
+    Calibration of predicted probabilities against a binary outcome. Reports the Brier
+    score with its Murphy three-component decomposition (reliability / resolution /
+    uncertainty), the Hosmer-Lemeshow C-statistic (grouping by deciles of predicted
+    probability, chi-square with df = g-2), and a reliability diagram (observed
+    frequency vs mean predicted per bin, with Wilson CIs) plus the calibration slope
+    and intercept from a logistic recalibration of the outcome on logit(p). Honestly
+    degrades when no column lies in [0,1]. Prediction and outcome columns are
+    config-overridable.
+  preconditions:
+    requires_binary_outcome: true
+    min_continuous: 1
+    min_rows: 20
+  produces:
+    - calibration plot PNG (reliability diagram with diagonal reference, English labels)
+    - per-bin CSV (n, mean predicted, observed frequency, Wilson 95% CI per bin)
+    - "estimates dict (brier, brier decomposition, hl_stat, hl_p, cal_slope, cal_intercept)"
+  executor_ref: py::calibration_assessment
+  params:
+    - name: prob
+      type: column
+      description: 预测概率列（取值在 0-1）
+      default: 第一个落在 [0,1] 的连续列
+    - name: predicted
+      type: column
+      description: prob 的同义键（预测概率列）
+      default: 第一个落在 [0,1] 的连续列
+    - name: outcome
+      type: column
+      description: 二值结局列
+      default: 第一个二值列
+    - name: bins
+      type: int
+      description: 校准分箱数 / HL 分组数（3-20）
+      default: "10"
+    - name: groups
+      type: int
+      description: bins 的同义键（HL 分组数）
+      default: "10"
+  biases:
+    - the Hosmer-Lemeshow test is sensitive to the grouping and to n — large n over-rejects, small n under-powers
+    - a calibration slope below 1 indicates over-fit / over-confident predictions (extreme probabilities shrink)
+    - calibration is distinct from discrimination — a model can rank well (high AUC) yet be miscalibrated
+    - the Brier decomposition identity holds only approximately under binning, so read the bins alongside it
+    - in-sample calibration flatters a model fit on the same data — assess it on held-out predictions

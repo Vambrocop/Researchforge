@@ -164,6 +164,29 @@ def test_analyze_includes_issues(tmp_path):
             assert key in iss, f"issue missing key '{key}': {iss}"
 
 
+def test_analyze_includes_diagnostic_plan(tmp_path):
+    """analyze payload carries the smarter-selection diagnostic plan + role hints."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"x": rng.normal(size=300),
+                       "events": rng.negative_binomial(2, 0.2, 300)})  # overdispersed
+    csv = tmp_path / "od.csv"
+    df.to_csv(csv, index=False)
+    result = analyze_path(csv)
+
+    assert "diagnostic_plan" in result
+    plan = result["diagnostic_plan"]
+    assert "diagnostics" in plan and isinstance(plan["diagnostics"], list)
+    codes = {d["code"] for d in plan["diagnostics"]}
+    assert "overdispersion" in codes
+    od = next(d for d in plan["diagnostics"] if d["code"] == "overdispersion")
+    assert "negative_binomial_regression" in od["prefer"]
+    # role hints are surfaced on the fingerprint
+    fp = result["fingerprint"]
+    assert "likely_outcome" in fp
+
+
 # ---------------------------------------------------------------------------
 # Download endpoint tests
 # ---------------------------------------------------------------------------

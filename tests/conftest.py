@@ -62,6 +62,12 @@ SLOW_MODULES = {
     "test_aipw", "test_umap",
     # techno-economic: Monte-Carlo cash-flow simulation
     "test_techno_economic",
+    # auto-diagnose engine: profiles many datasets + fits BP/VIF regressions per test
+    "test_diagnostics",
+    # epidemiology: ROC/DeLong + calibration GLM fits per test
+    "test_epidemiology",
+    # SPC: gage R&R fits two-way ANOVA (OLS + anova_lm) per test
+    "test_spc",
 }
 
 

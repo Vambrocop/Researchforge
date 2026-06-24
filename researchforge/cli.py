@@ -25,8 +25,9 @@ def _markers() -> dict[str, str]:
 
 
 def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
+    from researchforge.catalog.registry import Catalog
     from researchforge.profiler import profile_dataset
-    from researchforge.recommender import GOALS, select_top
+    from researchforge.recommender import GOALS, build_plan, select_top
     from researchforge.recommender.goals import resolve_goal
 
     fp = profile_dataset(path)
@@ -58,6 +59,17 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
             f"        方法学评分 总{s.overall} | 契合{s.fit} 流行{s.popularity} "
             f"可发表{s.publishability} 美观{s.aesthetics} 新颖{s.novelty} 难度{s.difficulty}"
         )
+    # 数据诊断 → 选模建议（v1.5「带方案的推荐」；不改运行默认，只给可执行提示）
+    catalog = Catalog.load()
+    plan = build_plan(fp, catalog=catalog)
+    if plan.diagnostics:
+        print("\n📋 数据诊断 → 选模建议（基于真实取值，非仅列类型）：")
+        for dgn in plan.diagnostics:
+            print(f"  ⚠ {dgn.finding}")
+            print(f"      {dgn.detail}")
+            print(f"      建议优先：{ '、'.join(dgn.prefer) }"
+                  + (f"（而非 {'、'.join(dgn.over)}）" if dgn.over else ""))
+
     if not gk:
         print("\n聚焦目标：" + " / ".join(GOALS)
               + "\n  例：py -3 -m researchforge.cli recommend <data> --goal causal")

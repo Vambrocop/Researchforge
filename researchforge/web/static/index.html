@@ -173,6 +173,11 @@
       <div class="card" id="issues-list"></div>
     </div>
 
+    <div id="plan-section" style="display:none">
+      <h2>📋 数据诊断 → 选模建议</h2>
+      <div class="card" id="plan-list"></div>
+    </div>
+
     <div id="clean-section">
       <h2>清洗方案</h2>
       <div class="card">
@@ -258,7 +263,7 @@ function mdToHtml(md){
 // --------------------------------------------------------------------------
 async function doAnalyze(){
   clearError();
-  ['profile-section','result-section','issues-section','clean-section'].forEach(id=>document.getElementById(id).style.display='none');
+  ['profile-section','result-section','issues-section','plan-section','clean-section'].forEach(id=>document.getElementById(id).style.display='none');
   cleanedFileId=null;
   const input=document.getElementById('csv-input');
   if(!input.files.length){showError('请先选择一个 CSV / Excel 文件');return;}
@@ -274,6 +279,7 @@ async function doAnalyze(){
   currentFileId=data.file_id;
   renderProfile(data.fingerprint);
   renderIssues(data.fingerprint.issues||[]);
+  renderPlan(data.diagnostic_plan);
   lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
   lastRecs=data.recommendations||[];
   goalList=data.goals||[];
@@ -303,6 +309,21 @@ function renderIssues(issues){
       <span class="issue-col">${i.column?escHtml(i.column):'—'}</span>
       <span>${escHtml(i.detail)}</span>
       <span class="issue-sev">[${escHtml(i.severity)}]</span>
+    </div>`).join('');
+  sec.style.display='';
+}
+
+function renderPlan(plan){
+  // value-level diagnostics -> model-choice nudges (smarter auto-selection; advisory only)
+  const sec=document.getElementById('plan-section');
+  const diags=(plan&&plan.diagnostics)||[];
+  if(!diags.length){sec.style.display='none';return;}
+  document.getElementById('plan-list').innerHTML=diags.map(d=>`
+    <div class="issue-row" style="display:block">
+      <div><b>⚠ ${escHtml(d.finding)}</b></div>
+      <div class="meta">${escHtml(d.detail||'')}</div>
+      <div>建议优先：${(d.prefer||[]).map(m=>`<span class="pill">${escHtml(m)}</span>`).join(' ')}
+        ${(d.over&&d.over.length)?`<span class="meta">（而非 ${d.over.map(escHtml).join('、')}）</span>`:''}</div>
     </div>`).join('');
   sec.style.display='';
 }
@@ -504,7 +525,7 @@ async function doReanalyze(){
   currentFileId=cleanedFileId;cleanedFileId=null;
   document.getElementById('clean-section').style.display='none';
   document.getElementById('result-section').style.display='none';
-  renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);
+  renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);renderPlan(data.diagnostic_plan);
   lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
   lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;renderGoals();renderRecs();
   document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});

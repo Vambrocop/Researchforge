@@ -1,0 +1,143 @@
+# Statistical Process Control / quality-engineering family (family: spc,
+# domain: quality). A coherent trio — monitor -> assess capability -> assess the
+# gauge. Pure Python (numpy / pandas / matplotlib; statsmodels for the Gage R&R
+# two-way ANOVA). No R.
+
+- id: control_chart
+  method: Shewhart Control Chart (X-bar & R / I-MR)
+  domain: quality
+  family: spc
+  goal: describe
+  description: >-
+    Shewhart statistical-process-control chart of a numeric measurement column.
+    If an equal-size subgroup column is available (config subgroup, else a
+    low-cardinality grouping column with constant size n in 2..10) it builds an
+    X-bar & R chart from subgroup means and ranges using the standard A2 / D3 / D4
+    constants and estimates sigma as R-bar / d2. Otherwise it builds an I-MR
+    (individuals + moving-range) chart with control limits x-bar +/- 2.66*MR-bar
+    (d2 = 1.128 for a moving range of 2). Out-of-control points are detected by the
+    basic 3-sigma rule plus Western Electric runs rules (2 of 3 beyond 2 sigma,
+    8 in a row on one side), with the firing rule labelled per point. Control
+    limits are the process's own voice, NOT specification limits.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - control chart (PNG) with center line, UCL/LCL and out-of-control points in red
+    - per-point table (CSV) with in/out-of-control flags and Western-Electric rule labels
+    - center line, control limits and the estimated process sigma (R-bar/d2 or MR-bar/d2)
+  executor_ref: "py::control_chart"
+  params:
+    - name: measurement
+      type: column
+      description: 数值测量列（监控对象）
+      default: 第一个数值列
+    - name: subgroup
+      type: column
+      description: "子组/样本分组列（每组等大小 n=2..10 则建 X-bar & R 图，否则用 I-MR 个体图）"
+      default: 自动（低基数分组列，否则 I-MR）
+  biases:
+    - control limits are the process's OWN variation (the voice of the process), NOT specification limits — a point inside the limits is not necessarily within spec, and vice versa (use process_capability for conformance to spec)
+    - control limits assume the process was stable when they were estimated; estimating limits from data that already contain out-of-control points contaminates the limits (remove assignable causes and recompute)
+    - the I-MR chart assumes individual values are approximately independent and identically distributed; autocorrelation or trend deflates the moving-range sigma estimate, narrows the limits and inflates false alarms
+    - the R chart and the Western Electric runs rules are sensitive to non-normality; the X-bar chart is more robust by the central limit theorem
+    - Western Electric multi-rule testing raises the overall false-alarm rate relative to the single 3-sigma rule
+
+- id: process_capability
+  method: Process Capability (Cp / Cpk / Pp / Ppk)
+  domain: quality
+  family: spc
+  goal: evaluate
+  description: >-
+    Process-capability analysis of a numeric measurement column against
+    specification limits. Computes Cp = (USL-LSL)/(6*sigma_within) and
+    Cpk = min((USL-xbar)/(3*sigma), (xbar-LSL)/(3*sigma)) using the within-subgroup
+    sigma (R-bar/d2 when an equal-size subgroup column is present, else the sample SD
+    and saying the two coincide), plus Pp / Ppk using the overall long-term sample SD.
+    Handles one-sided specs (only LSL or only USL -> only the relevant Cpk side) and
+    reports the estimated fraction out of spec in ppm under the normal model. Requires
+    specification limits (config lsl / usl / target); honestly degrades if neither
+    LSL nor USL is provided.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - "capability histogram (PNG) with spec limits, target and a fitted normal overlay"
+    - "capability indices table (CSV): Cp, Cpk, Pp, Ppk, one-sided Cpu/Cpl, sigma, ppm out of spec"
+    - estimated parts-per-million out of specification under the normal model
+  executor_ref: "py::process_capability"
+  params:
+    - name: measurement
+      type: column
+      description: 数值测量列（被评估的质量特性）
+      default: 第一个数值列
+    - name: lsl
+      type: float
+      description: 规格下限 LSL（单侧可只给一侧）
+      default: 无（须提供 LSL 或 USL）
+    - name: usl
+      type: float
+      description: 规格上限 USL（单侧可只给一侧）
+      default: 无（须提供 LSL 或 USL）
+    - name: target
+      type: float
+      description: 目标值（仅画图标注，不参与指数）
+      default: 无
+    - name: subgroup
+      type: column
+      description: "子组分组列（用于组内σ=R̄/d2；缺省则组内σ=整体σ）"
+      default: 无（组内σ取整体样本标准差）
+  biases:
+    - all capability indices and the ppm estimate assume the data are approximately normal and the process is stable; for non-normal data use a transform (e.g. Box-Cox) or a distribution-specific capability index, otherwise Cpk and the ppm are misleading
+    - Cp / Cpk use the within-subgroup (short-term) sigma to gauge process POTENTIAL, while Pp / Ppk use the overall (long-term) sample sigma to gauge actual PERFORMANCE; Cpk much larger than Ppk signals between-subgroup drift (an unstable process)
+    - specification limits are an engineering / customer requirement and are unrelated to control limits — control charts judge stability, capability indices judge conformance to spec; a process can be in control yet incapable, or capable yet out of control
+    - capability indices are point estimates from a finite sample and carry sampling uncertainty; small samples give unreliable Cpk / Ppk
+    - without an equal-size subgroup column the within-sigma is taken equal to the overall sample SD, so Cp/Cpk and Pp/Ppk coincide and no short/long-term distinction is available
+
+- id: gage_rr
+  method: Gauge R&R / Measurement System Analysis (ANOVA method)
+  domain: quality
+  family: spc
+  goal: evaluate
+  description: >-
+    Gauge Repeatability and Reproducibility (Measurement System Analysis) by the
+    AIAG ANOVA method on a crossed parts x operators x replicates design. Fits the
+    two-way random-effects model measurement ~ part + operator + part:operator,
+    derives the variance components (repeatability = MS_error; reproducibility from
+    the operator and interaction mean squares via the standard balanced-design
+    expected-mean-square formulas; part-to-part) and reports each component's
+    %Contribution (of total variance), %Study Variation (ratio of 6-sigma spreads,
+    i.e. of standard deviations), the total Gage R&R %, and the number of distinct
+    categories ndc = 1.41*(sigma_part/sigma_gagerr). A non-significant interaction
+    (p > 0.25) is pooled into the error and the reduced model refit. Negative variance
+    estimates are truncated to 0 (disclosed). Degrades honestly if the design is not a
+    clean balanced crossed design with replicates.
+  preconditions:
+    min_rows: 4
+    min_numeric_cols: 1
+    min_categorical_cols: 1
+  produces:
+    - variance-components table (CSV) with %Contribution and %Study Variation per source
+    - components bar chart (PNG) of %Contribution and %Study Variation with 10%/30% guide lines
+    - "%Gage R&R, %repeatability, %reproducibility, %part-to-part and the number of distinct categories (ndc)"
+  executor_ref: "py::gage_rr"
+  params:
+    - name: measurement
+      type: column
+      description: 数值测量值列
+      default: 第一个数值列
+    - name: part
+      type: column
+      description: 零件/样本编号列（被测对象）
+      default: 自动（首个分组类列）
+    - name: operator
+      type: column
+      description: 操作员/评价者列
+      default: 自动（另一分组类列）
+  biases:
+    - acceptance guideline (AIAG) is %Study Variation < 10% good, 10-30% marginal (depends on the application and cost), > 30% unacceptable; ndc >= 5 is desirable for the gauge to distinguish parts
+    - the ANOVA method assumes a balanced crossed design with replicates and approximately normal, homoscedastic measurement error; variance components are method-of-moments estimates from the random-effects expected mean squares
+    - a non-significant part-operator interaction (p > 0.25) is pooled into the repeatability/error term and the reduced model refit (a common AIAG convention) — a different pooling threshold would change the reproducibility split
+    - negative variance-component estimates are truncated to 0, which can bias the affected component upward; this happens when the true component is near 0 or the sample is small (disclosed when it occurs)
+    - the part-to-part variance (and hence %Gage R&R and ndc) depends on the parts sampled covering the real process spread; if parts are hand-picked the study-variation percentages are distorted
+    - "%Contribution (share of variance) and %Study Variation (share of standard deviation / 6-sigma spread) are different scales and are not interchangeable; both are reported"

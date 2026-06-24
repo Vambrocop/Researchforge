@@ -17,13 +17,17 @@ def analyze_path(path: str | Path) -> dict:
                     unit_col, n_issues, columns:[{name, kind},...]}
       recommendations: [{id, method, family, light, score, feasible,
                          note, biases:[...]},...]
+      diagnostic_plan: {outcome, diagnostics:[{code, finding, detail,
+                         prefer:[...], over:[...]},...]}  (smarter auto-selection)
     """
+    from researchforge.catalog.registry import Catalog
     from researchforge.profiler import profile_dataset
-    from researchforge.recommender import recommend
+    from researchforge.recommender import build_plan, recommend
     from researchforge.recommender.goals import GOALS, entry_matches_goal
 
     fp = profile_dataset(Path(path))
-    recs = recommend(fp)
+    catalog = Catalog.load()
+    recs = recommend(fp, catalog=catalog)
 
     fingerprint = {
         "n_rows": fp.n_rows,
@@ -38,6 +42,18 @@ def analyze_path(path: str | Path) -> dict:
             {"kind": i.kind, "column": i.column, "severity": i.severity, "detail": i.detail}
             for i in fp.issues
         ],
+        # non-binding semantic role hints (smarter auto-selection slice 1)
+        "likely_outcome": fp.likely_outcome,
+        "likely_treatment": fp.likely_treatment,
+        "role_hint_reason": fp.role_hint_reason,
+    }
+
+    # auto-diagnose → recommend-with-a-plan (smarter auto-selection slice 2): value-level
+    # findings mapped to model-choice nudges; advisory only, does not change run defaults.
+    plan = build_plan(fp, catalog=catalog)
+    diagnostic_plan = {
+        "outcome": plan.outcome,
+        "diagnostics": [d.model_dump() for d in plan.diagnostics],
     }
 
     recommendations = [
@@ -63,7 +79,12 @@ def analyze_path(path: str | Path) -> dict:
     # goal taxonomy (key + label, in canonical order) so the frontend never drifts from goals.py
     goals = [{"key": k, "label": GOALS[k]["label"]} for k in GOALS]
 
-    return {"fingerprint": fingerprint, "recommendations": recommendations, "goals": goals}
+    return {
+        "fingerprint": fingerprint,
+        "recommendations": recommendations,
+        "goals": goals,
+        "diagnostic_plan": diagnostic_plan,
+    }
 
 
 def clean_path(path: str | Path, cleaned_out: str | Path) -> dict:
