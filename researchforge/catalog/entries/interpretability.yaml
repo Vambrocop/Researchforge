@@ -1,0 +1,150 @@
+# Interpretability catalog entries — model-agnostic post-hoc explainers for a fitted
+# predictive model (sklearn / shap; no R). Each id maps to a @register handler in
+# executor/branches/interpretability.py. Family reuses ml (groups with the predictive
+# methods these explain). All fit a default tree model on a continuous outcome
+# (regression) or a binary outcome (classification); config outcome/predictors override.
+#
+# NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
+
+- id: partial_dependence
+  method: Partial dependence (PDP + ICE)
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    Explain a fitted tree model with Partial Dependence Plots: the marginal effect of
+    each feature on the prediction, averaging over the other features
+    (sklearn.inspection). Fits a gradient-boosting model (or random forest via config
+    model) on the outcome, then computes the PDP for the most influential features (or
+    a config-chosen set) and reports the PD range per feature (how much the prediction
+    moves across that feature's range). Produces a long PDP table (CSV) and a small-
+    multiples PDP plot (PNG). For seeing the SHAPE (linear / threshold / non-monotone)
+    of each driver.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - partial-dependence curve per explained feature (long CSV)
+    - PD range per feature (how strongly it moves the prediction)
+    - small-multiples PDP plot (PNG)
+  executor_ref: py::partial_dependence
+  biases:
+    - PDP assumes the plotted feature is INDEPENDENT of the others; with correlated features it extrapolates to unrealistic combinations and is biased (use accumulated_local_effects / ALE instead)
+    - it shows an associational marginal effect learned by the model, not a causal effect
+    - the result reflects the fitted model (and its bias/variance), not ground truth
+    - averaging hides heterogeneity across individuals (ICE curves expose it)
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: features
+      type: columns
+      description: 要画 PDP 的特征子集
+      default: 模型重要性前 4 个
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 基模型（梯度提升 / 随机森林）
+      default: gbm
+    - name: grid_resolution
+      type: int
+      description: PDP 网格点数
+      default: "30"
+
+- id: shap_values
+  method: SHAP feature attribution
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    Explain a fitted tree model with SHAP (Shapley Additive exPlanations) via the
+    TreeExplainer. Reports global feature importance as the mean absolute SHAP value
+    per feature, plus the sign of each feature's average effect (whether larger values
+    push the prediction up or down). SHAP values additively decompose every individual
+    prediction into a base value plus per-feature contributions, with strong
+    game-theoretic consistency guarantees. Fits a gradient-boosting model (or random
+    forest via config model). Produces a SHAP importance table (CSV) and a direction-
+    coloured importance bar chart (PNG). Degrades honestly if the shap package is absent.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - mean(|SHAP|) global importance + effect direction per feature (CSV)
+    - model base (expected) value
+    - direction-coloured SHAP importance bar chart (PNG)
+  executor_ref: py::shap_values
+  biases:
+    - SHAP explains the MODEL's learned associations (including any bias/confounding it absorbed), not causal effects in the data
+    - TreeExplainer uses conditional expectations, so attribution among strongly correlated features can shift between them
+    - the explanation is only as trustworthy as the fitted model
+    - requires the shap package; absent it the analysis degrades and points to feature-importance / partial_dependence alternatives
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 基模型（梯度提升 / 随机森林）
+      default: gbm
+
+- id: accumulated_local_effects
+  method: Accumulated local effects (ALE)
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    Explain a fitted tree model with Accumulated Local Effects (Apley & Zhu 2020) — the
+    correlation-robust alternative to PDP. ALE divides a feature's range into quantile
+    bins, computes the model's LOCAL prediction difference across each bin (replacing the
+    feature with the bin edges only for points actually in that bin), averages within the
+    bin, accumulates across bins, and centers the curve to mean zero. Because it uses
+    only local, in-distribution differences it does NOT extrapolate to unrealistic
+    feature combinations the way PDP does under correlation. Fits a gradient-boosting
+    model (or random forest via config model) and ALEs the top continuous features (or a
+    config set). Produces an ALE table (CSV) and small-multiples ALE plot (PNG).
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - centered ALE curve per explained feature (long CSV)
+    - ALE range per feature (effect magnitude)
+    - small-multiples ALE plot (PNG)
+  executor_ref: py::accumulated_local_effects
+  biases:
+    - ALE is robust to correlated features (its advantage over PDP) but the curve is only defined where data exist; sparsely populated bins are noisy
+    - it explains the fitted model's associations, not causal effects
+    - first-order ALE ignores interactions (a 2-D ALE would be needed to see them)
+    - needs reasonably continuous features (enough distinct values to form quantile bins)
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: features
+      type: columns
+      description: 要画 ALE 的特征子集（需连续）
+      default: 重要性前 4 的连续特征
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 基模型（梯度提升 / 随机森林）
+      default: gbm
+    - name: n_bins
+      type: int
+      description: 分位分箱数
+      default: "20"

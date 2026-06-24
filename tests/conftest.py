@@ -48,6 +48,8 @@ SLOW_MODULES = {
     "test_tsne", "test_factor_analysis", "test_linear_discriminant",
     # bootstrap-heavy mediation extensions (serial/parallel refit B=2000)
     "test_mediation_extra",
+    # ML explainers fit GBM/RF + SHAP TreeExplainer per test
+    "test_interpretability",
 }
 
 
