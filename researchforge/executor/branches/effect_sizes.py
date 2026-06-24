@@ -156,6 +156,83 @@ def _band_smd(absd: float) -> str:
     return "大 (large, ≥0.8)"
 
 
+def _normal_smd_ci(d_val: float, n1: int, n2: int, ci_level: float):
+    """Large-sample normal-approximation CI for a standardized mean difference d
+    (Hedges & Olkin 1985 variance). Used as the FALLBACK when the exact
+    noncentral-t pivot fails to converge. Returns (ci_low, ci_high)."""
+    import numpy as np
+    from scipy import stats as _sps
+
+    z = float(_sps.norm.ppf(1.0 - (1.0 - ci_level) / 2.0))
+    se_d = float(np.sqrt((n1 + n2) / (n1 * n2) + d_val ** 2 / (2.0 * (n1 + n2))))
+    return d_val - z * se_d, d_val + z * se_d
+
+
+def _noncentral_t_ci(d_val: float, n1: int, n2: int, ci_level: float):
+    """EXACT confidence interval for Cohen's d via the noncentral-t pivot.
+
+    Standard method (Cumming 2012; Steiger & Fouladi 1997): the two-sample t
+    statistic ``t_obs = d * sqrt(n1*n2/(n1+n2))`` follows a noncentral t with
+    df = n1+n2-2 and noncentrality λ = δ * sqrt(n1*n2/(n1+n2)), where δ is the
+    population effect. We invert the cdf for the noncentrality bounds:
+        nct.cdf(t_obs, df, λ_hi) = α/2          (upper effect bound)
+        nct.cdf(t_obs, df, λ_lo) = 1 - α/2      (lower effect bound)
+    then map λ back to the d-scale by multiplying by sqrt((n1+n2)/(n1*n2))
+    (= 1 / sqrt(n1*n2/(n1+n2))).
+
+    Returns (ci_low, ci_high, ok). When the inversion fails to bracket/converge,
+    ``ok`` is False and the bounds fall back to the normal approximation, so the
+    caller can disclose the degradation.
+    """
+    import numpy as np
+    from scipy import optimize as _opt
+    from scipy import stats as _sps
+
+    df = n1 + n2 - 2
+    scale = float(np.sqrt(n1 * n2 / (n1 + n2)))   # t_obs = d * scale ; λ = δ * scale
+    t_obs = d_val * scale
+    alpha = 1.0 - ci_level
+
+    def _solve(target_p: float):
+        # find λ such that nct.cdf(t_obs, df, λ) == target_p. cdf is strictly
+        # decreasing in λ for fixed t_obs, so widen the bracket until it spans the root.
+        f = lambda lam: float(_sps.nct.cdf(t_obs, df, lam) - target_p)
+        lo, hi = t_obs - 1.0, t_obs + 1.0
+        flo, fhi = f(lo), f(hi)
+        for _ in range(60):
+            if not np.isfinite(flo) or not np.isfinite(fhi):
+                return None
+            if flo * fhi <= 0:
+                break
+            # cdf decreasing in λ: f(lo) should be >0 (small λ), f(hi) <0 (large λ)
+            if flo < 0:
+                lo -= max(1.0, abs(lo))
+                flo = f(lo)
+            elif fhi > 0:
+                hi += max(1.0, abs(hi))
+                fhi = f(hi)
+            else:  # both same sign but not bracketed by the rule above — give up
+                return None
+        else:
+            return None
+        try:
+            return float(_opt.brentq(f, lo, hi, xtol=1e-8, maxiter=200))
+        except (ValueError, RuntimeError):
+            return None
+
+    # upper effect bound from α/2; lower effect bound from 1-α/2
+    lam_hi = _solve(alpha / 2.0)
+    lam_lo = _solve(1.0 - alpha / 2.0)
+    if lam_hi is None or lam_lo is None or not (np.isfinite(lam_hi) and np.isfinite(lam_lo)):
+        lo, hi = _normal_smd_ci(d_val, n1, n2, ci_level)
+        return lo, hi, False
+    back = float(np.sqrt((n1 + n2) / (n1 * n2)))   # λ -> d scale
+    ci_low, ci_high = lam_lo * back, lam_hi * back
+    if ci_low > ci_high:
+        ci_low, ci_high = ci_high, ci_low
+    return ci_low, ci_high, True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. cohens_d — pooled-SD standardized mean difference + CI + CLES + Glass's delta
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,17 +259,14 @@ def _branch_cohens_d(ctx: Ctx) -> None:
         # Cohen's d = (mean1 - mean2) / pooled_sd. Sign: positive => group `lvl1` higher.
         d_val = (m1 - m2) / sp
 
-        # Analytic 95% CI for d (Hedges & Olkin 1985 large-sample variance):
-        #   var(d) = (n1+n2)/(n1 n2) + d^2 / (2 (n1+n2))   ; CI = d ± z_{.975} sqrt(var).
-        from scipy import stats as _sps
-
+        # EXACT 95% CI for d via the noncentral-t pivot (Cumming 2012; Steiger &
+        # Fouladi 1997): invert nct.cdf for the noncentrality bounds, map back to
+        # the d-scale. Falls back to the normal approximation iff the inversion
+        # fails to converge (flagged below).
         ci_level = float(cfg.get("ci", 0.95))
         if not (0.0 < ci_level < 1.0):
             ci_level = 0.95
-        z = float(_sps.norm.ppf(1.0 - (1.0 - ci_level) / 2.0))
-        se_d = float(np.sqrt((n1 + n2) / (n1 * n2) + d_val ** 2 / (2.0 * (n1 + n2))))
-        ci_low = d_val - z * se_d
-        ci_high = d_val + z * se_d
+        ci_low, ci_high, ci_exact = _noncentral_t_ci(d_val, n1, n2, ci_level)
 
         # Common-language effect size P(X1 > X2) (Mann-Whitney AUC; normality-free).
         cles = _cles(x1, x2)
@@ -240,30 +314,42 @@ def _branch_cohens_d(ctx: Ctx) -> None:
             f"Glass's delta（以 {lvl2} 组标准差为基准）={glass:.3f}。组均值 {lvl1}={m1:.4g}、{lvl2}={m2:.4g}，"
             f"合并标准差={sp:.4g}（n1={n1}, n2={n2}）。"
         )
+        ci_kind = "非中心 t 精确" if ci_exact else "正态近似（精确法未收敛已回退）"
         summary.append(
-            "⚠ 假定：Cohen's d 的解析 95% CI 假定两组方差大致相等且近正态；"
+            f"⚠ 假定：Cohen's d 的 {ci_kind} {int(round(ci_level * 100))}% CI 假定两组方差大致相等且近正态；"
             "若方差明显不等，改看同时报告的 Glass's delta（以对照组标准差为基准）；"
             "若明显非正态/为序数数据，改用 cliffs_delta（分布无关）。小样本时 d 会高估 |效应|，可用 hedges_g。"
             f"小/中/大 阈值 0.2/0.5/0.8（Cohen 1988）。config 可指定 outcome/group（置信水平默认 0.95，本次 {ci_level}）。"
         )
-        summary.append(
-            "⚠ 该解析 CI 为大样本正态近似（Hedges-Olkin 方差），小 n 时会欠覆盖（under-cover）——"
-            "即区间偏窄、实际覆盖率低于名义水平，请当作近似区间看待（小样本可优先 hedges_g 或自助法 CI）。"
-            "另：CLES 用非参数方法（Mann-Whitney AUC）估计，并非正态理论的 Φ(d/√2)；"
-            "故非正态下 CLES 与 d 不必满足 CLES=Φ(d/√2)。"
-            f"Glass's delta 的对照取「数据中第二个出现的水平」（{lvl2}），其参考标准差即该水平的组内标准差。"
-        )
+        if ci_exact:
+            summary.append(
+                "⚠ 该 CI 为**非中心 t 精确区间**（pivot：t_obs=d·√(n1n2/(n1+n2))~noncentral-t，df=n1+n2−2，"
+                "反解非中心参数 λ 边界后换回 d 尺度），小样本下覆盖率正确、不再像正态近似那样欠覆盖。"
+                "另：CLES 用非参数方法（Mann-Whitney AUC）估计，并非正态理论的 Φ(d/√2)；"
+                "故非正态下 CLES 与 d 不必满足 CLES=Φ(d/√2)。"
+                f"Glass's delta 的对照取「数据中第二个出现的水平」（{lvl2}），其参考标准差即该水平的组内标准差。"
+            )
+        else:
+            summary.append(
+                "⚠ 非中心 t 精确区间求解未收敛，已回退大样本正态近似（Hedges-Olkin 方差），"
+                "小 n 时可能欠覆盖（区间偏窄）——请当作近似区间看待。"
+                "另：CLES 用非参数方法（Mann-Whitney AUC）估计，并非正态理论的 Φ(d/√2)。"
+                f"Glass's delta 的对照取「数据中第二个出现的水平」（{lvl2}）。"
+            )
 
         code += [
             "import numpy as np; from scipy import stats",
             f"sub = df[['{group_col}', '{outcome}']].dropna()",
             f"x1 = sub.loc[sub['{group_col}']=={lvl1!r}, '{outcome}'].to_numpy(float)",
             f"x2 = sub.loc[sub['{group_col}']=={lvl2!r}, '{outcome}'].to_numpy(float)",
-            "n1, n2 = x1.size, x2.size",
-            "sp = np.sqrt(((n1-1)*x1.var(ddof=1) + (n2-1)*x2.var(ddof=1)) / (n1+n2-2))  # pooled SD",
+            "from scipy.optimize import brentq",
+            "n1, n2 = x1.size, x2.size; df = n1+n2-2",
+            "sp = np.sqrt(((n1-1)*x1.var(ddof=1) + (n2-1)*x2.var(ddof=1)) / df)  # pooled SD",
             "d = (x1.mean() - x2.mean()) / sp  # Cohen's d",
-            "se = np.sqrt((n1+n2)/(n1*n2) + d**2/(2*(n1+n2)))  # Hedges-Olkin variance",
-            "ci = d + np.array([-1, 1]) * stats.norm.ppf(0.975) * se  # analytic 95% CI",
+            "scale = np.sqrt(n1*n2/(n1+n2)); t_obs = d*scale  # noncentral-t pivot",
+            "lam_hi = brentq(lambda L: stats.nct.cdf(t_obs, df, L) - 0.025, t_obs-10, t_obs+10)",
+            "lam_lo = brentq(lambda L: stats.nct.cdf(t_obs, df, L) - 0.975, t_obs-10, t_obs+10)",
+            "ci = np.array([lam_lo, lam_hi]) * np.sqrt((n1+n2)/(n1*n2))  # exact noncentral-t 95% CI",
             "glass = (x1.mean() - x2.mean()) / x2.std(ddof=1)  # control-SD variant",
         ]
     except Exception as err:
@@ -285,7 +371,6 @@ def _branch_hedges_g(ctx: Ctx) -> None:
         return
     try:
         import pandas as pd
-        from scipy import stats as _sps
 
         n1, n2 = x1.size, x2.size
         m1, m2 = float(np.mean(x1)), float(np.mean(x2))
@@ -301,16 +386,15 @@ def _branch_hedges_g(ctx: Ctx) -> None:
         j = 1.0 - 3.0 / (4.0 * N - 9.0)
         g_val = j * d_val
 
-        # CI: scale the analytic d-CI by J (var(g) = J^2 var(d)); same equal-variance /
-        # normality caveat as Cohen's d.
+        # CI: exact noncentral-t interval for d, then multiply BOTH bounds by the J
+        # correction (g = J·d is a monotone scaling, so g's CI = J · d's noncentral CI).
+        # Falls back to the normal approximation (also J-scaled) iff inversion fails.
         ci_level = float(cfg.get("ci", 0.95))
         if not (0.0 < ci_level < 1.0):
             ci_level = 0.95
-        z = float(_sps.norm.ppf(1.0 - (1.0 - ci_level) / 2.0))
-        se_d = float(np.sqrt(N / (n1 * n2) + d_val ** 2 / (2.0 * N)))
-        se_g = j * se_d
-        ci_low = g_val - z * se_g
-        ci_high = g_val + z * se_g
+        d_lo, d_hi, ci_exact = _noncentral_t_ci(d_val, n1, n2, ci_level)
+        ci_low = j * d_lo
+        ci_high = j * d_hi
 
         band = _band_smd(abs(g_val))
 
@@ -352,23 +436,34 @@ def _branch_hedges_g(ctx: Ctx) -> None:
             "CI 仍沿用与 d 相同的方差大致相等 + 近正态假定；非正态/序数请改用 cliffs_delta。"
             "小/中/大 阈值 0.2/0.5/0.8。config 可指定 outcome/group。"
         )
-        summary.append(
-            "⚠ 该解析 CI 仍是大样本正态近似（由 d 的 Hedges-Olkin 方差按 J 缩放得到），小 n 时会欠覆盖"
-            "（under-cover）——区间偏窄、实际覆盖率低于名义水平，请当作近似区间看待（必要时用自助法 CI）。"
-        )
+        if ci_exact:
+            summary.append(
+                "⚠ 该 CI 为**非中心 t 精确区间**：先对 d 反解非中心 t 的非中心参数边界（df=n1+n2−2），"
+                "再把两端乘以 J 校正（g=J·d 是单调缩放，故 g 的 CI = J × d 的非中心 t CI）；"
+                "小样本下覆盖率正确，不再像正态近似那样欠覆盖。"
+            )
+        else:
+            summary.append(
+                "⚠ 非中心 t 精确区间求解未收敛，已回退大样本正态近似（d 的 Hedges-Olkin 方差按 J 缩放），"
+                "小 n 时可能欠覆盖（区间偏窄）——请当作近似区间看待。"
+            )
 
         code += [
             "import numpy as np; from scipy import stats",
             f"sub = df[['{group_col}', '{outcome}']].dropna()",
             f"x1 = sub.loc[sub['{group_col}']=={lvl1!r}, '{outcome}'].to_numpy(float)",
             f"x2 = sub.loc[sub['{group_col}']=={lvl2!r}, '{outcome}'].to_numpy(float)",
-            "n1, n2 = x1.size, x2.size; N = n1 + n2",
-            "sp = np.sqrt(((n1-1)*x1.var(ddof=1) + (n2-1)*x2.var(ddof=1)) / (N-2))",
+            "from scipy.optimize import brentq",
+            "n1, n2 = x1.size, x2.size; N = n1 + n2; df = N - 2",
+            "sp = np.sqrt(((n1-1)*x1.var(ddof=1) + (n2-1)*x2.var(ddof=1)) / df)",
             "d = (x1.mean() - x2.mean()) / sp",
             "J = 1 - 3/(4*N - 9)            # Hedges small-sample correction",
             "g = J * d                       # bias-corrected SMD",
-            "se = J * np.sqrt(N/(n1*n2) + d**2/(2*N))",
-            "ci = g + np.array([-1, 1]) * stats.norm.ppf(0.975) * se",
+            "scale = np.sqrt(n1*n2/N); t_obs = d*scale  # noncentral-t pivot on d",
+            "lam_hi = brentq(lambda L: stats.nct.cdf(t_obs, df, L) - 0.025, t_obs-10, t_obs+10)",
+            "lam_lo = brentq(lambda L: stats.nct.cdf(t_obs, df, L) - 0.975, t_obs-10, t_obs+10)",
+            "d_ci = np.array([lam_lo, lam_hi]) * np.sqrt(N/(n1*n2))  # exact d CI",
+            "ci = J * d_ci                   # g's CI = J * d's noncentral-t CI",
         ]
     except Exception as err:
         summary.append(f"Hedges' g 失败：{err}")

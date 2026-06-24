@@ -1,0 +1,126 @@
+# Text-mining catalog entries (pure Python — scikit-learn; sentiment via an OPTIONAL backend).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+# All three operate on a free-text column auto-detected from the data (config `text` overrides):
+# a string/object column whose values average ~3+ whitespace tokens (or ~20+ chars) and that
+# is high-cardinality. If no such column exists, every handler degrades honestly (跳过).
+
+- id: lda_topic_model
+  method: LDA topic model (Latent Dirichlet Allocation)
+  domain: text
+  family: nlp
+  goal: explore
+  description: >-
+    Unsupervised topic discovery over a free-text column (sklearn CountVectorizer with
+    english stop-words and min_df, then LatentDirichletAllocation). Auto-detects the text
+    column (config text overrides), builds a document-term matrix, fits an LDA model with
+    n_topics topics (config, default 5), and reports the top words per topic, each
+    document's dominant topic with its probability, the topic sizes, and an approximate
+    perplexity. LDA is a generative bag-of-words probabilistic model — the topics are a
+    model, not ground truth, and are sensitive to preprocessing and the topic count.
+  preconditions:
+    min_rows: 5
+  produces:
+    - top words per topic (topic x rank x word x weight)
+    - per-document dominant topic and its probability
+    - topic sizes (documents whose dominant topic is each topic) with top-5 words
+    - top-words-per-topic bar panels (PNG) and an approximate perplexity
+  executor_ref: py::lda_topic_model
+  params:
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: n_topics
+      type: int
+      description: 主题数
+      default: "5"
+    - name: min_df
+      type: int
+      description: 一个词至少出现在多少篇文档才入词表
+      default: "2"
+    - name: max_features
+      type: int
+      description: 词表上限（按词频取 top-N 词）
+      default: 无上限
+  biases:
+    - the text column is auto-detected (config text overrides) — multi-word / long high-cardinality string columns qualify; if none exists the analysis degrades honestly
+    - LDA is a generative bag-of-words probabilistic model — the topics are a model, NOT ground truth
+    - topics are highly sensitive to preprocessing (stop-words / tokenization / min_df) and to the chosen n_topics — change the settings and the topics change
+    - bag-of-words ignores word order and context (negation, idioms distort), and topic numbering/order is arbitrary
+    - perplexity is descriptive (lower is better) and is NOT a measure of interpretability; random_state fixed at 0 for reproducibility, but topics still need human naming/validation
+
+- id: tfidf_keywords
+  method: TF-IDF keyword extraction
+  domain: text
+  family: nlp
+  goal: describe
+  description: >-
+    Salient-term extraction over a free-text column (sklearn TfidfVectorizer with english
+    stop-words and min_df). Auto-detects the text column (config text overrides) and reports
+    the top terms overall by mean TF-IDF, plus per-group top terms when a low-cardinality
+    grouping column is present (config group). TF-IDF is a frequency statistic, not a
+    semantic measure — high-scoring terms are merely distinctive and frequent in this corpus.
+  preconditions:
+    min_rows: 2
+  produces:
+    - top terms overall by mean TF-IDF (rank x term x score)
+    - per-group top terms when a low-cardinality grouping column exists
+    - top-terms bar chart (PNG)
+  executor_ref: py::tfidf_keywords
+  params:
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: group
+      type: column
+      description: 低基数分组列，用于分组关键词
+      default: 自动选最低基数的类别/二值列（无则不分组）
+    - name: min_df
+      type: int
+      description: 一个词至少出现在多少篇文档才入词表
+      default: "1"
+    - name: top_n
+      type: int
+      description: 输出的关键词数量
+      default: "20"
+  biases:
+    - the text column is auto-detected (config text overrides); if no free-text column exists the analysis degrades honestly
+    - TF-IDF is a frequency statistic, NOT semantics — high-scoring terms only reflect being distinctive and frequent in THIS corpus
+    - results depend on tokenization and the stop-word list (english stop-words; only words of >=2 letters kept) and are sensitive to corpus composition and document length
+    - TF-IDF does not understand word meaning / synonymy / context — use it for a keyword overview, not for topic or sentiment conclusions
+
+- id: sentiment_analysis
+  method: Sentiment analysis (lexicon/model polarity)
+  domain: text
+  family: nlp
+  goal: describe
+  description: >-
+    Per-document sentiment polarity over a free-text column via an OPTIONAL backend, mirroring
+    the engine's optional-library pattern: tries vaderSentiment, else textblob (which also adds
+    subjectivity), else nltk's VADER. If NO backend is installed it degrades HONESTLY (跳过 with
+    a pip hint) rather than shipping a crude hand lexicon and calling it sentiment. When a
+    backend is available it reports per-document polarity, a positive/neutral/negative
+    distribution, and per-group mean polarity when a grouping column exists (config group).
+  preconditions:
+    min_rows: 2
+  produces:
+    - per-document polarity and a positive/neutral/negative label (+ subjectivity if textblob)
+    - sentiment distribution (counts and proportions)
+    - per-group mean polarity when a low-cardinality grouping column exists
+    - polarity histogram (PNG)
+  executor_ref: py::sentiment_analysis
+  params:
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: group
+      type: column
+      description: 低基数分组列，用于分组情感均值
+      default: 自动选最低基数的类别/二值列（无则不分组）
+  biases:
+    - the text column is auto-detected (config text overrides); if no free-text column exists the analysis degrades honestly
+    - requires an OPTIONAL sentiment backend (vaderSentiment / textblob / nltk VADER) — with none installed it degrades honestly and does NOT fabricate scores from a hand lexicon
+    - sentiment scores are lexicon/model-dependent (a model's judgement, NOT ground truth) and highly domain-sensitive — general lexicons often err on technical / sarcastic / negated / idiomatic text
+    - the positive/negative threshold (+/-0.05) is a convention; short texts and cross-language texts are especially unreliable — treat scores as an approximate signal and human-verify important conclusions

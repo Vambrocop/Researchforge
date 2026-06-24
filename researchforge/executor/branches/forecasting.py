@@ -173,14 +173,45 @@ def _branch_exponential_smoothing(ctx: Ctx) -> None:
         sse = float(np.sum(resid ** 2))
         sigma = float(np.std(resid, ddof=1)) if n > 1 else 0.0
 
-        fc = np.asarray(res.forecast(h), dtype=float)
-        # prediction interval: SES-style sqrt(step) widening of the residual sd (95%).
-        # (statsmodels HW gives point forecasts only; widen with horizon as a simple PI.)
-        z = 1.959963985
-        steps = np.arange(1, h + 1)
-        widen = z * sigma * np.sqrt(steps)
-        lower = fc - widen
-        upper = fc + widen
+        # Prediction interval: prefer statsmodels' state-space ETS, whose
+        # get_prediction(...).summary_frame gives a MODEL-CONSISTENT (analytic
+        # state-space) 95% interval that widens correctly under the fitted
+        # trend/seasonal structure. Same trend/seasonal/seasonal_periods spec as
+        # the Holt-Winters fit above. Fall back to the SES √step approximation iff
+        # ETSModel import/fit fails (disclosed in the summary).
+        pi_method = "state-space"
+        try:
+            from statsmodels.tsa.exponential_smoothing.ets import ETSModel
+
+            error_spec = "mul" if (trend == "mul" or seasonal == "mul") else "add"
+            ets_model = ETSModel(
+                y, error=error_spec, trend=trend, seasonal=seasonal,
+                seasonal_periods=sp if seasonal else None,
+                initialization_method="estimated",
+            )
+            ets_res = ets_model.fit(disp=False)
+            pred = ets_res.get_prediction(start=n, end=n + h - 1)
+            sf = pred.summary_frame(alpha=0.05)
+            fc = np.asarray(sf["mean"], dtype=float)
+            # column names vary by statsmodels version (pi_lower/pi_upper or lower/upper)
+            lo_col = next((c for c in sf.columns if "lower" in c.lower()), None)
+            hi_col = next((c for c in sf.columns if "upper" in c.lower()), None)
+            if lo_col is None or hi_col is None:
+                raise RuntimeError("ETS summary_frame missing interval columns")
+            lower = np.asarray(sf[lo_col], dtype=float)
+            upper = np.asarray(sf[hi_col], dtype=float)
+            if not (np.all(np.isfinite(fc)) and np.all(np.isfinite(lower))
+                    and np.all(np.isfinite(upper))):
+                raise RuntimeError("ETS interval produced non-finite values")
+        except Exception:
+            # honest degrade: SES-style sqrt(step) widening of the residual sd (95%).
+            pi_method = "approx"
+            fc = np.asarray(res.forecast(h), dtype=float)
+            z = 1.959963985
+            steps = np.arange(1, h + 1)
+            widen = z * sigma * np.sqrt(steps)
+            lower = fc - widen
+            upper = fc + widen
 
         params = res.params
         alpha = float(params.get("smoothing_level", float("nan")))
@@ -239,20 +270,28 @@ def _branch_exponential_smoothing(ctx: Ctx) -> None:
         seas_zh = f"加性季节(周期={sp})" if sp else "无季节"
         src = "自动判定" if auto_trend else "config 指定"
         time_warn = "" if fp.time_col else "；⚠ 无时间列，按行序当作时间序处理（请确认行序即时序）"
+        pi_zh = (
+            "预测区间为**状态空间 ETS 模型一致区间**（statsmodels ETSModel.get_prediction，"
+            "按拟合的趋势/季节结构正确随步长展宽，非手搓近似）"
+            if pi_method == "state-space" else
+            "⚠ 状态空间 ETS 区间不可用，已回退残差 sd×√h 近似区间（趋势/季节下可能偏窄）"
+        )
         summary.append(
             f"{entry.method} 完成：对 {value_col}（n={n}）拟合 Holt-Winters（{trend_zh}、{seas_zh}，趋势{src}）；"
             f"α={alpha:.3f}" + (f"、β={beta:.3f}" if np.isfinite(beta) else "")
             + (f"、γ={gamma:.3f}" if np.isfinite(gamma) else "")
             + f"；AIC={aic:.2f}、SSE={sse:.3g}；未来 {h} 期预测见 forecast.csv（含 95% 预测区间），"
             f"下一期点预测={fc[0]:.4g}。{time_warn}"
-            " ⚠ 指数平滑假定平滑结构稳定、外推延续历史模式；预测区间按残差 sd 随步长 √h 放大（近似 SES 区间，"
-            "可能偏窄）；季节周期需正确（自动取周期图主峰，可 config seasonal_periods 覆盖）；"
+            f" ⚠ 指数平滑假定平滑结构稳定、外推延续历史模式；{pi_zh}；"
+            "季节周期需正确（自动取周期图主峰，可 config seasonal_periods 覆盖）；"
             "趋势/季节自动判定为启发式，可用 config trend/seasonal 强制。"
         )
         code += [
-            "from statsmodels.tsa.holtwinters import ExponentialSmoothing  # Holt-Winters 指数平滑",
-            f"# ExponentialSmoothing(y, trend={trend!r}, seasonal={seasonal!r}, seasonal_periods={sp})"
-            f".fit(); res.forecast({h})",
+            "from statsmodels.tsa.holtwinters import ExponentialSmoothing  # 点预测/参数",
+            "from statsmodels.tsa.exponential_smoothing.ets import ETSModel  # 状态空间区间",
+            f"# ExponentialSmoothing(y, trend={trend!r}, seasonal={seasonal!r}, seasonal_periods={sp}).fit()",
+            f"# ETSModel(y, error='add', trend={trend!r}, seasonal={seasonal!r}, seasonal_periods={sp}).fit()",
+            f"# .get_prediction(start=n, end=n+{h}-1).summary_frame(alpha=0.05)  # mean + pi_lower/pi_upper",
         ]
     except Exception as err:
         summary.append(f"指数平滑失败：{err}")

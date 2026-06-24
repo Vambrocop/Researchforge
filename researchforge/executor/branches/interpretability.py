@@ -329,29 +329,44 @@ def _branch_accumulated_local_effects(ctx: Ctx) -> None:
             jloc = X.columns.get_loc(feat)
             # assign each point to an interval (1..K); points at the min go to bin 1
             idx = np.clip(np.searchsorted(edges, xj, side="left"), 1, K)
-            local = np.zeros(K)
-            counts = np.zeros(K)
+            # Empty bins contribute NO local effect (standard ALEPlot behavior): we
+            # skip them entirely so they inject no spurious 0-slope segment. We keep
+            # only non-empty bins; accumulation runs over that reduced sequence, and
+            # the x-axis nodes are the edges bordering the non-empty bins.
+            local_list = []   # mean local diff per kept (non-empty) bin
+            count_list = []   # its sample count (for count-weighted centering)
+            node_edges = []   # edge values of the kept ALE curve (length = #kept + 1)
+            first = True
             for k in range(1, K + 1):
                 m = idx == k
                 nk = int(m.sum())
-                counts[k - 1] = nk
                 if nk == 0:
-                    continue
+                    continue   # skip empty bin: no local effect, no node
                 Xlo = X[m].copy(); Xhi = X[m].copy()
                 Xlo.iloc[:, jloc] = edges[k - 1]
                 Xhi.iloc[:, jloc] = edges[k]
                 # pass DataFrames (keep feature names) so sklearn doesn't warn
                 diff = predict(Xhi) - predict(Xlo)
-                local[k - 1] = float(np.mean(diff))
+                local_list.append(float(np.mean(diff)))
+                count_list.append(nk)
+                if first:
+                    node_edges.append(float(edges[k - 1]))   # left edge of first kept bin
+                    first = False
+                node_edges.append(float(edges[k]))           # right edge of this kept bin
+            if not local_list:
+                continue
+            local = np.asarray(local_list, dtype=float)
+            counts = np.asarray(count_list, dtype=float)
+            node_edges = np.asarray(node_edges, dtype=float)
             # accumulate, then center by the count-weighted mean (so E[ALE]=0)
-            acc = np.concatenate([[0.0], np.cumsum(local)])   # length K+1, at the edges
-            # value at each edge; center using midpoint values weighted by bin counts
+            acc = np.concatenate([[0.0], np.cumsum(local)])   # length kept+1, at the nodes
+            # value at each node; center using midpoint values weighted by bin counts
             mid = 0.5 * (acc[:-1] + acc[1:])
             total = counts.sum()
             cbar = float(np.sum(mid * counts) / total) if total > 0 else 0.0
             ale = acc - cbar
             ale_ranges[feat] = float(ale.max() - ale.min())
-            for e, a in zip(edges, ale):
+            for e, a in zip(node_edges, ale):
                 all_rows.append({"feature": feat, "value": float(e), "ale": float(a)})
 
         if not all_rows:
@@ -401,7 +416,8 @@ def _branch_accumulated_local_effects(ctx: Ctx) -> None:
             f"结果={info['outcome']}，ALE 解释了 {len(ranked)} 个特征。效应跨度最大的特征：{top}"
             f"（ALE 跨度={ale_ranges.get(top, float('nan')):.4f}）。"
             " ⚠ ALE 用**局部**（箱内）预测差分并累积，故对相关特征**比 PDP 更稳健**（不外推到不真实组合）；"
-            "曲线已中心化（均值 0），读作相对平均预测的偏移；仍是模型关联非因果。"
+            "曲线已中心化（均值 0），读作相对平均预测的偏移；空箱（无观测的分位区间）按标准 ALEPlot 约定**跳过**"
+            "（不贡献局部效应、不注入伪 0 斜率段）；仍是模型关联非因果。"
         )
     except Exception as e:
         summary.append(f"累积局部效应分析失败：{type(e).__name__}: {e}")
@@ -487,6 +503,8 @@ def _branch_quantile_intervals(ctx: Ctx) -> None:
         summary.append(
             f"{entry.method}（GBM 分位数回归）：结果={info['outcome']}，{int(nominal*100)}% 预测区间"
             f"在留出集的**经验覆盖率={coverage:.1%}**（名义 {nominal:.0%}，{verdict}），平均区间宽={width:.4f}。"
+            f" ⚠ 经验覆盖率来自**单次随机留出**（test_size=0.25, random_state=0，n_test={int(len(yt))}），"
+            "本身有抽样噪声——小留出集上的覆盖率估计可能偏离名义值数个百分点，换种子/做 CV 会有波动。"
             " ⚠ 分位数回归区间是**条件分位的模型估计**，覆盖率依赖模型拟合优度与分位交叉处理"
             "（已取 min/max 防交叉）；非分布无关保证（要严格覆盖用 conformal_prediction）；反映模型而非真值。"
         )
@@ -528,8 +546,11 @@ def _branch_feature_interaction(ctx: Ctx) -> None:
 
         X = info["X"]
         predict = _predict_fn(info)
-        feats = [c for c in (cfg.get("features") or []) if c in info["features"]] or _top_features(info)
-        feats = feats[:4]
+        requested = [c for c in (cfg.get("features") or []) if c in info["features"]]
+        feats = requested or _top_features(info)
+        n_requested = len(feats)
+        feats = feats[:4]   # cap pairwise cost at C(4,2)=6 pairs
+        truncated = n_requested > 4   # config gave more than we use -> disclose
         if len(feats) < 2:
             summary.append("特征交互跳过：需要 ≥2 个特征。")
             return
@@ -542,12 +563,15 @@ def _branch_feature_interaction(ctx: Ctx) -> None:
 
         pd1 = {f: _pd_at_points(info["model"], ev, base, [f], predict) for f in feats}
         rows = []
+        tiny_den_pairs = []   # pairs whose joint-PD magnitude is negligible -> H noisy
         for a in range(len(feats)):
             for b in range(a + 1, len(feats)):
                 fa, fb = feats[a], feats[b]
                 pjk = _pd_at_points(info["model"], ev, base, [fa, fb], predict)
                 num = float(np.sum((pjk - pd1[fa] - pd1[fb]) ** 2))
                 den = float(np.sum(pjk ** 2))
+                if den < 1e-6:   # Σpjk² ~ 0: H is a ratio of two tiny numbers -> unstable
+                    tiny_den_pairs.append(f"{fa}×{fb}")
                 h = float(np.sqrt(num / den)) if den > 1e-12 else 0.0
                 rows.append({"feature_1": fa, "feature_2": fb,
                              "H_statistic": round(min(h, 1.0), 6)})
@@ -581,10 +605,16 @@ def _branch_feature_interaction(ctx: Ctx) -> None:
             "# evaluated at the data points (partial dependence at observed feature values)",
         ]
         top = tab.iloc[0]
+        trunc_note = (f" ⚠ config 提供了 {n_requested} 个特征，仅用本模型重要性最高的前 4 个"
+                      f"（{'、'.join(feats)}）控制成对成本。" if truncated else "")
+        tiny_note = (f" ⚠ 以下特征对的联合部分依赖幅度极小（Σpjk²≈0）：{'、'.join(tiny_den_pairs)}——"
+                     "其 H 是两个微小量之比，数值不稳/噪声大，不应据以排序交互强弱。"
+                     if tiny_den_pairs else "")
         summary.append(
             f"{entry.method}（{info['model_name'].upper()} 基模型）：结果={info['outcome']}，"
             f"交互最强的特征对：{top['feature_1']}×{top['feature_2']}（H={top['H_statistic']:.3f}）。"
             f"H≈0 表示该对无交互（效应可加），越接近 1 交互越主导。"
+            f"{trunc_note}{tiny_note}"
             " ⚠ H 统计量基于模型的部分依赖（在数据点上估计、已子采样以控成本），反映**模型**学到的交互"
             "而非数据中的因果交互；相关特征下 PD 外推可使 H 偏高；H 是相对量纲。"
         )

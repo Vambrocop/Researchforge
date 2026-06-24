@@ -54,6 +54,8 @@ SLOW_MODULES = {
     "test_spatial_dependence",
     # meta-guard: parses every branch module's AST + loads catalog
     "test_config_params_complete",
+    # text mining: LDA fit + TF-IDF vectorization per test
+    "test_text_mining",
 }
 
 

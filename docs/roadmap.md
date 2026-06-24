@@ -1,7 +1,9 @@
 # ResearchForge 路线图（Roadmap）— 活文档
 
 > **1.0 不是终点,是里程碑。** 北极星 = 方法学大杂烩 + 越来越聪明的自动选模 —— 永不"完工",
-> **持续优化是常态**;版本号只是路上的桩。当前 **v0.7**。本文件是活的:做完一档就更新、补新方法波。
+> **持续优化是常态**;版本号只是路上的桩。当前 **v0.9.0**。本文件是活的:做完一档就更新、补新方法波。
+>
+> **已达成（v0.9.0，2026-06-24）**：222 法 / 32 族 / 973 测绿；ML 可解释性(PDP/SHAP/ALE/H/surrogate/quantile)、空间依赖(bivariate_moran/local_geary/skater)、中介扩展、设计感知田间试验、config schema+CI guard 均上线。详见下方阶段 ②/③ 的 [x] 项与「方法熔炉扩张」回填。
 >
 > **路线选择:厚 1.0（用户 2026-06-16 选 B,大格局派)** —— 1.0 不只"能用",还要"方法够全"。
 > 所以 1.0 前不止做 UI/鲁棒,还把下面方法波的高需求部分(实验设计/测量/因果/ML)做进去;
@@ -31,24 +33,24 @@
 
 ### 阶段 ③ 方法熔炉扩张（折入 1.0,使其"厚"）
 高需求方法族,多为纯 Python(`/add-analysis` + 双审):
-- [ ] **实验设计/经典统计**:ANOVA(单/双/重复测量)、ANCOVA、MANOVA、功效/样本量、Tukey、卡方/Fisher、非参(KW/Friedman)
-- [ ] **设计感知田间试验**(农学高频、误分析风险高,Codex 审提):RCBD、split-plot/split-split、nested、repeated —— 做成**强制声明 block/plot/subplot/repeated 角色的 mixed-model wrapper**,而非裸 ANOVA
+- [x] **实验设计/经典统计**:ANOVA(单/双/重复测量)、ANCOVA、MANOVA、功效/样本量、卡方/Fisher、非参(KW/Friedman) —— 已上线 `anova_oneway`/`ancova`/`repeated_measures_anova`(experimental_stats)、`manova`(multivariate)、`power_analysis`(experimental_design)、`chi_square_test`/`fisher_exact`(categorical_tests)、`kruskal_wallis`/`friedman_test`(nonparametric_tests)。〔Tukey 事后多重比较仍可作后续细化〕
+- [x] **设计感知田间试验**(农学高频、误分析风险高,Codex 审提):RCBD、latin-square、split-plot —— 已上线 `rcbd_anova`/`latin_square_anova`/`split_plot_anova`(field_trials.py),声明 block/plot/subplot 角色的设计感知 ANOVA;并配套 `experimental_design/` 布局族(rcbd/latin_square/split_plot/factorial_anova/response_surface/ammi/gge_biplot)。〔nested/split-split 仍可续扩〕
 - **★ 新能力·北极星:实验设计顾问 / DoE**(用户 2026-06-16 提):**数据前** —— 给因子/水平/约束 → 推荐设计 + 算重复数/功效 + 出随机化布局 + 配套分析模板。新模式(问题→设计)。
   - [x] **首切片已上线(2026-06-16)**:`power_analysis`(所需样本量,避事后功效坑)+ `researchforge.design` 模块 + **`cli design` 命令**(rcbd/factorial/latin_square 随机化布局,确定性可复现,指向对应分析)。
-  - [ ] 续:从数据画像**自动推荐**设计、analysis-template 串联、Web 表单入口、更多设计(split-plot 布局/不完全区组/响应面)。
-- [ ] **测量/信度**:Cronbach α、ICC、Cohen's κ、Bland-Altman、IRT/Rasch
-- [ ] **因果扩张**:模糊 RDD、事件研究、交错 DiD(Callaway-Sant'Anna)、合成 DiD、2SLS/IV(现占位)、PSM/IPW/AIPW
-- [ ] **ML/预测**:lasso/ridge/elasticnet、SVM、梯度提升、SHAP、Prophet/ETS、GARCH、changepoint、UMAP/t-SNE
+  - [x] 续:更多设计(split-plot 布局/响应面/factorial)已上线(`experimental_design/` 布局族);Web 表单入口已接(config 表单)。〔余:从数据画像**自动推荐**设计、analysis-template 串联、不完全区组仍待做〕
+- [x] **测量/信度**:Cronbach α、McDonald ω、ICC、Cohen's κ、Bland-Altman、IRT/Rasch —— 已上线 `cronbach_alpha`/`mcdonald_omega`/`icc`(psychometrics)、`cohens_kappa`/`bland_altman`(agreement)、IRT 全家(`irt_2pl`/`irt_rasch`/`irt_grm`/`irt_pcm`)。
+- [x] **因果扩张(部分)**:模糊 RDD、事件研究、交错 DiD(Callaway-Sant'Anna)、PSM/IPW —— 已上线 `fuzzy_rdd`/`event_study`(causal/)、`callaway_santanna`(causal_did)、`psm`/`ipw`(causal/)。〔仍开:合成 DiD(需编译器)、2SLS/IV 占位转实、AIPW —— 见 1.0 之后/暂缓〕
+- [x] **ML/预测(部分)**:lasso/ridge/elasticnet、SVM、梯度提升、SHAP、ETS、GARCH、changepoint、t-SNE —— 已上线 `regularized_regression`/`svm_model`/`gradient_boosting`(ml_supervised)、`shap_values`(interpretability)、`exponential_smoothing`(forecasting)、`garch`/`structural_breaks`(timeseries,后者即 changepoint)、`tsne`(dimensionality_extra);ML 可解释性另含 `partial_dependence`(PDP)/`accumulated_local_effects`(ALE)/`feature_interaction`(H 统计)/`surrogate_model`/`quantile_intervals`。〔仍开:Prophet、UMAP —— 见暂缓清单〕
 
 ### 🎯 v1.0 — 可用 + 综合 + 稳定 + 有文档（里程碑,非终点）
-研究者拿真实数据端到端出可信报告;**方法库已大幅扩充(~100+ 法)**;稳定、错误处理、文档齐。
+研究者拿真实数据端到端出可信报告;**方法库已大幅扩充(v0.9.0 已 222 法 / 32 族 / 973 测绿,远超原定 ~100+)**;稳定、错误处理、文档齐。**仍开(收口 v1.0)**:真实数据端到端验收(e2e)、面向用户的使用文档、Web 前端深度打磨、discover phase-2(自标暂缓)。
 
 ## 1.0 之后(继续慢慢优化)
 
 ### v1.1 → v1.5 — 余下方法波 + 选模变聪明
-- [ ] **贝叶斯/生存/缺失**:贝叶斯回归·分层(待 Stan/JAGS)、竞争风险、时变协变量、MICE 多重插补
+- [ ] **贝叶斯/生存/缺失**:贝叶斯回归·分层(待 Stan/JAGS)、竞争风险、时变协变量、MICE 多重插补 —— **仍开**(全 MCMC 待编译器);〔注:轻量共轭先验贝叶斯已有 `bayesian_ab_test`/`bayesian_proportion`/`bayesian_poisson_rate`,非分层 MCMC〕
   - **领域聚焦(用户 2026-06-16 定)**:主战场 = **生态 / 农学 / 经济 / 环境 / 社科**;**医学暂缓**(MICE/竞争风险/生存缺失等临床向后推,不进 1.0 前序)。方法扩张优先这五域高频法。
-- [ ] **文本/网络/空间**:LDA 主题、情感、ERGM、空间面板、GWR、网络 meta
+- [~] **文本/网络/空间**:空间侧已大幅上线 —— GWR(`gwr`)、空间依赖(`moran_i`/`local_moran`/`getis_ord_gi`/`getis_ord`/`bivariate_moran`/`local_geary`/`skater`/`ripleys_k`/`join_count`)、空间回归(`spatial_regression`)、网络科学(`community_detection`/`centrality_suite`/`epidemic_model`);**仍开**:文本挖掘(LDA 主题/情感)、ERGM、网络 meta。
 - [x] **快速选择器已上线(2026-06-16)**:目标感知 `recommend --goal <compare/relate/causal/…>` → 聚焦 top-N + 讲清"为什么"(14 目标分类 `recommender/goals.py` + `select_top`)。治"方法多到不知道用啥"。
 - [ ] **自动选模更聪明(续)**:precondition/严谨度规则细化、按数据画像直接荐目标、Web UI 接选择器。
 - [ ] ~~自我进化 discover 真抓取~~ **暂缓(用户 2026-06-16 定)**:选得准 > 加得多;75 法对五域够用,等选择器+Web 成形再回头。

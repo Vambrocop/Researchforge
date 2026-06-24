@@ -19,6 +19,12 @@
     - result depends on the spatial weights definition (k, distance metric)
     - euclidean distance on lat/lon approximates true geodesic neighbours
     - non-stationarity and edge effects
+  params:
+    - name: knn_k
+      type: int
+      description: >-
+        k-NN 空间权重的近邻数（行标准化）；越大邻域越平滑。坐标与连续值变量由 profiler 自动识别，无需配置。
+      default: 约 √n、上限 8（钳到 [1, n-1]）
 
 - id: kriging
   method: Ordinary kriging (geostatistical interpolation)
@@ -59,6 +65,12 @@
     - result depends on the spatial weights definition (k, distance metric)
     - SAR vs SEM choice is data-driven (AIC) — confirm against theory
     - euclidean distance on lat/lon approximates true geodesic distance
+  params:
+    - name: knn_k
+      type: int
+      description: >-
+        k-NN 空间权重的近邻数（行标准化），用于 SAR/SEM 的空间权重矩阵。结果变量/预测变量/经纬度由 profiler 自动识别（第一个连续列为结果），无需配置。
+      default: 默认 6（钳到 [1, n-1]）
 
 - id: local_moran
   method: Local Moran's I (LISA)
@@ -79,6 +91,12 @@
     - per-location tests are not corrected for multiple comparisons
     - result depends on the spatial weights definition (k, distance metric)
     - cluster labels meaningful only where p < 0.05
+  params:
+    - name: knn_k
+      type: int
+      description: >-
+        k-NN 空间权重的近邻数（行标准化）；影响每点局部簇判定。坐标与连续值变量由 profiler 自动识别，无需配置。
+      default: 约 √n、上限 8（钳到 [1, n-2]）
 
 - id: getis_ord_gi
   method: Getis-Ord Gi* (hotspot analysis)
@@ -99,3 +117,9 @@
     - z-scores not corrected for multiple testing (FDR inflates apparent hotspots)
     - result depends on the spatial weights definition (k, distance metric)
     - euclidean distance on lat/lon approximates true geodesic neighbours
+  params:
+    - name: knn_k
+      type: int
+      description: >-
+        k-NN 空间权重的近邻数（Gi* 含自身焦点）；影响热点/冷点判定。坐标与连续值变量由 profiler 自动识别，无需配置。
+      default: 约 √n、上限 8（钳到 [1, n-2]）

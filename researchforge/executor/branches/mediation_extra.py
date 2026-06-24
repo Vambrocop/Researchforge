@@ -64,6 +64,68 @@ def _ci(arr, lo=2.5, hi=97.5):
     return float(np.percentile(a, lo)), float(np.percentile(a, hi))
 
 
+def _bca_ci(boot, obs, jack, alpha=0.05):
+    """Bias-corrected & accelerated (BCa) bootstrap CI (Efron 1987).
+
+    boot : array of bootstrap replicates of the statistic.
+    obs  : the observed (full-sample) statistic.
+    jack : array of jackknife (leave-one-out) replicates of the SAME statistic.
+
+    z0 = Φ⁻¹( #{boot < obs} / B )  (bias-correction; tie-aware mean rank, clamped
+         away from 0/1 so the inverse-normal is finite).
+    a  = Σ(θ̄_(·) − θ̂_(i))³ / (6·[Σ(θ̄_(·) − θ̂_(i))²]^1.5)  (acceleration from jackknife).
+    α1 = Φ( z0 + (z0+z_lo)/(1−a(z0+z_lo)) ), α2 = Φ( z0 + (z0+z_hi)/(1−a(z0+z_hi)) )
+    with z_lo=Φ⁻¹(α/2), z_hi=Φ⁻¹(1−α/2); CI = those percentiles of the bootstrap dist.
+
+    Degrades to the plain percentile interval if the jackknife/bootstrap is
+    degenerate (constant acceleration denominator or <3 distinct bootstrap values).
+    """
+    import numpy as np
+    from scipy import stats as _sps
+
+    b = np.asarray(boot, dtype=float)
+    b = b[np.isfinite(b)]
+    if b.size < 10 or not np.isfinite(obs):
+        return float("nan"), float("nan")
+
+    B = b.size
+    # tie-aware proportion-below (matches scipy's percentile-of-score convention)
+    prop = (float(np.sum(b < obs)) + 0.5 * float(np.sum(b == obs))) / B
+    prop = min(max(prop, 1.0 / (2 * B)), 1.0 - 1.0 / (2 * B))
+    z0 = float(_sps.norm.ppf(prop))
+
+    j = np.asarray(jack, dtype=float)
+    j = j[np.isfinite(j)]
+    sumsq = float(np.sum((j.mean() - j) ** 2)) if j.size >= 2 else 0.0
+    if sumsq > 0 and j.size >= 2:
+        num = float(np.sum((j.mean() - j) ** 3))
+        a = num / (6.0 * sumsq ** 1.5)
+    else:
+        a = 0.0
+
+    # degenerate -> just the percentile interval (still BCa-shaped fallback)
+    if int(np.unique(b).size) < 3:
+        return float(np.percentile(b, 100 * (alpha / 2))), float(np.percentile(b, 100 * (1 - alpha / 2)))
+
+    z_lo = float(_sps.norm.ppf(alpha / 2.0))
+    z_hi = float(_sps.norm.ppf(1.0 - alpha / 2.0))
+
+    def _pct(zq):
+        denom = 1.0 - a * (z0 + zq)
+        if denom == 0:
+            denom = 1e-12
+        return float(_sps.norm.cdf(z0 + (z0 + zq) / denom))
+
+    a1, a2 = _pct(z_lo), _pct(z_hi)
+    a1 = min(max(a1, 0.0), 1.0)
+    a2 = min(max(a2, 0.0), 1.0)
+    lo = float(np.percentile(b, 100 * a1))
+    hi = float(np.percentile(b, 100 * a2))
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo, hi
+
+
 def _ols(y, X):
     """OLS of y on X (X already has a constant). Returns the fitted results."""
     import statsmodels.api as sm
@@ -148,7 +210,25 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
             bser[i] = qa1 * qd21 * qb2
             btot[i] = bm1[i] + bm2[i] + bser[i]
 
-        ci_m1, ci_m2, ci_ser, ci_tot = _ci(bm1), _ci(bm2), _ci(bser), _ci(btot)
+        # jackknife (leave-one-out) of the SAME four indirect statistics, for BCa
+        # acceleration. n refits — fine for the test sizes (see CLAUDE.md note).
+        jm1 = np.full(n, np.nan); jm2 = np.full(n, np.nan)
+        jser = np.full(n, np.nan); jtot = np.full(n, np.nan)
+        for i in range(n):
+            loo = sub.drop(sub.index[i])
+            try:
+                ja1, ja2, jd21, jb1, jb2, _ = _paths(loo)
+            except Exception:
+                continue
+            jm1[i] = ja1 * jb1
+            jm2[i] = ja2 * jb2
+            jser[i] = ja1 * jd21 * jb2
+            jtot[i] = jm1[i] + jm2[i] + jser[i]
+
+        ci_m1 = _bca_ci(bm1, ind_m1, jm1)
+        ci_m2 = _bca_ci(bm2, ind_m2, jm2)
+        ci_ser = _bca_ci(bser, ind_serial, jser)
+        ci_tot = _bca_ci(btot, total_ind, jtot)
 
         def _sig(ci):
             return "显著" if (np.isfinite(ci[0]) and (ci[0] > 0 or ci[1] < 0)) else "不显著"
@@ -204,16 +284,19 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
 
         code += [
             "import numpy as np, statsmodels.api as sm",
-            "# M1~X; M2~X+M1; Y~X+M1+M2 ; serial indirect = a1*d21*b2 (bootstrap CI)",
+            "# M1~X; M2~X+M1; Y~X+M1+M2 ; serial indirect = a1*d21*b2",
+            "# CI = bootstrap BCa (z0 from #{boot<obs}/B; accel a from jackknife LOO refits)",
         ]
         summary.append(
             f"{entry.method}（PROCESS model 6）：X={x} → M1={m1} → M2={m2} → Y={y}（n={n}）。"
             f"特定间接：经 M1 (a1·b1)={ind_m1:.4f}（{_sig(ci_m1)}，CI[{ci_m1[0]:.4f},{ci_m1[1]:.4f}]）；"
             f"经 M2 (a2·b2)={ind_m2:.4f}（{_sig(ci_m2)}）；**序列 (a1·d21·b2)={ind_serial:.4f}**"
             f"（{_sig(ci_ser)}，CI[{ci_ser[0]:.4f},{ci_ser[1]:.4f}]）。总间接={total_ind:.4f}"
-            f"（{_sig(ci_tot)}），直接 c'={cprime:.4f}。bootstrap B={_N_BOOT}、seed={_SEED}。"
+            f"（{_sig(ci_tot)}），直接 c'={cprime:.4f}。bootstrap BCa 95% CI（B={_N_BOOT}、seed={_SEED}、"
+            "jackknife 加速度校正）。"
             " ⚠ 中介=**相关性分解非因果证明**，需 X 时序先于 M、M 先于 Y 且无未测混杂（强假定）；"
-            "序列方向 M1→M2 由你设定，反向需重设 config；bootstrap 百分位 CI 不含 0 即显著。"
+            "序列方向 M1→M2 由你设定，反向需重设 config；CI 为偏差校正+加速度(BCa)的 bootstrap 95% CI，"
+            "不含 0 即显著（优于朴素百分位法）。"
         )
     except Exception as e:
         summary.append(f"序列中介分析失败：{type(e).__name__}: {e}")
@@ -288,12 +371,25 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
             bspec[i] = qa * qb
             btot[i] = float((qa * qb).sum())
 
+        # jackknife (leave-one-out) of the specific indirects + total, for BCa
+        # acceleration. n refits — fine for the test sizes (see CLAUDE.md note).
+        jspec = np.full((n, k), np.nan)
+        jtot = np.full(n, np.nan)
+        for i in range(n):
+            loo = sub.drop(sub.index[i])
+            try:
+                ja, jb, _ = _paths(loo)
+            except Exception:
+                continue
+            jspec[i] = ja * jb
+            jtot[i] = float((ja * jb).sum())
+
         def _sig(lo, hi):
             return "显著" if (np.isfinite(lo) and (lo > 0 or hi < 0)) else "不显著"
 
         rows = []
         for j, m in enumerate(meds):
-            lo, hi = _ci(bspec[:, j])
+            lo, hi = _bca_ci(bspec[:, j], float(spec[j]), jspec[:, j])
             estimates.update({
                 f"a_{m}": round(float(a[j]), 6), f"b_{m}": round(float(b[j]), 6),
                 f"indirect_{m}": round(float(spec[j]), 6),
@@ -301,7 +397,7 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
             })
             rows.append({"mediator": m, "a": a[j], "b": b[j], "indirect": spec[j],
                          "ci_lo": lo, "ci_hi": hi, "sig": _sig(lo, hi)})
-        ci_tot = _ci(btot)
+        ci_tot = _bca_ci(btot, total_ind, jtot)
         estimates.update({
             "total_indirect": round(total_ind, 6),
             "total_indirect_lo": round(ci_tot[0], 6), "total_indirect_hi": round(ci_tot[1], 6),
@@ -316,7 +412,8 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
         for j1 in range(k):
             for j2 in range(j1 + 1, k):
                 diff = float(spec[j1] - spec[j2])
-                clo, chi = _ci(bspec[:, j1] - bspec[:, j2])
+                clo, chi = _bca_ci(bspec[:, j1] - bspec[:, j2], diff,
+                                   jspec[:, j1] - jspec[:, j2])
                 contrasts.append({"contrast": f"{meds[j1]} - {meds[j2]}", "diff": diff,
                                   "ci_lo": clo, "ci_hi": chi, "sig": _sig(clo, chi)})
         if contrasts:
@@ -348,16 +445,18 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
 
         code += [
             "import numpy as np, statsmodels.api as sm",
-            "# each Mi~X (a_i); Y~X+M1+..+Mk (b_i, c'); specific indirect_i = a_i*b_i (bootstrap CI)",
+            "# each Mi~X (a_i); Y~X+M1+..+Mk (b_i, c'); specific indirect_i = a_i*b_i",
+            "# CI = bootstrap BCa (z0 from #{boot<obs}/B; accel a from jackknife LOO refits)",
         ]
         sig_meds = [r["mediator"] for r in rows if r["sig"] == "显著"]
         summary.append(
             f"{entry.method}（PROCESS model 4，{k} 个并行中介）：X={x} → Y={y}，中介={'、'.join(meds)}（n={n}）。"
             f"总间接={total_ind:.4f}（{_sig(ci_tot[0], ci_tot[1])}，CI[{ci_tot[0]:.4f},{ci_tot[1]:.4f}]），"
             f"直接 c'={cprime:.4f}。显著的特定中介：{('、'.join(sig_meds)) if sig_meds else '无'}。"
-            f"成对对比见 contrasts.csv。bootstrap B={_N_BOOT}、seed={_SEED}。"
+            f"成对对比见 contrasts.csv。bootstrap BCa 95% CI（B={_N_BOOT}、seed={_SEED}、jackknife 加速度校正）。"
             " ⚠ 中介=相关分解非因果；并行中介**相互控制**（每个 b_i 已偏其余中介），"
-            "故并行结果与各自单中介模型可不同；需无未测混杂、X 先于 M 先于 Y；CI 不含 0 即显著。"
+            "故并行结果与各自单中介模型可不同；需无未测混杂、X 先于 M 先于 Y；"
+            "CI 为偏差校正+加速度(BCa)的 bootstrap 95% CI，不含 0 即显著。"
         )
     except Exception as e:
         summary.append(f"并行中介分析失败：{type(e).__name__}: {e}")

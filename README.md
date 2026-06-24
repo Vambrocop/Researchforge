@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~222 analyses across ~32 method families (causal, regression, survival,
+> spans ~225 analyses across ~33 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics,
 > nonparametric, machine learning, and more — see [What's inside](#whats-inside)).
 
@@ -127,7 +127,7 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~222 analyses, grouped by methodology family. Highlights by
+The catalog holds ~225 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
@@ -152,7 +152,7 @@ domain:
 - **Nonparametric & classical statistics** — t-tests, ANOVA family, chi-square /
   contingency tables, distribution fitting, rank-based tests.
 - **Machine learning (predictive)** — gradient boosting, SVM, BART, conformal
-  prediction, dimensionality reduction, network science / community detection.
+  prediction, dimensionality reduction, network science / community detection, model interpretability (PDP/SHAP/ALE).
 - **Specialized** — MCDA (multi-criteria decision analysis), DEA/SFA efficiency,
   configurational/QCA, finance, ecology, microbiology, experimental design / DoE.
 
