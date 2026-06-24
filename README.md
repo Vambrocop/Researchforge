@@ -18,6 +18,10 @@ ResearchForge is research-grade and actively evolving; it is not a finished
 1.0 product. The method recommendation/run UI surfaces text in Chinese; this
 README and the developer docs are in English.
 
+> **New here?** The [User Guide](docs/USER_GUIDE.md) walks through the workflow,
+> how to read recommendations, configuring column roles, the method families, and
+> reading outputs.
+
 ---
 
 ## Install

@@ -56,6 +56,8 @@ SLOW_MODULES = {
     "test_config_params_complete",
     # text mining: LDA fit + TF-IDF vectorization per test
     "test_text_mining",
+    # end-to-end: runs many analyses on real datasets through the full pipeline
+    "test_end_to_end",
 }
 
 
