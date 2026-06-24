@@ -46,4 +46,5 @@ researchforge/catalog/candidate_queue/discovered.yaml
 
 # AI scratch test logs (never commit) — write scratch output to %TEMP% instead
 *log.txt
+*log*.txt
 v[0-9]*.txt
