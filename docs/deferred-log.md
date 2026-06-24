@@ -130,7 +130,7 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - 冷启动 inference-reviewer **逐位核验**：split-plot SS 分解对齐 statsmodels 全模型 Type-II（<1e-6，含 m=2 行洗牌→证明 map/merge 按标签对齐非行序）、误差层路由（主区 A 对区组×A 误差、df=(a-1,(r-1)(a-1))，非裸 MS_A/MS_sub）、latin 残差 df=(t-1)(t-2)、RCBD 相对效率 Fisher 公式、角色集合运算优先级——全对。
 - ✅ **SHOULD-FIX 已修**：latin_square 原仅校验边际(t==row==col、n≥t²)，非真正拉丁方(如处理混叠到列、n==t²)会被静默当正交分析。已加真拉丁方校验（t² 不重复单元/每单元一次/每处理每行每列各一次，否则诚实跳过）+ 测试。
 - ✅ **NICE 已做**：split-plot summary 加复合对称假定披露（裂区水平>2 指向 MixedLM/GG）。
-- **NICE 待办**：rcbd/latin 报 η²/偏η² 未标小样本上偏（ω²/ε² 偏差更小）——可加一句或补 ω²。split-plot 不平衡已诚实跳过指向 MixedLM；将来可接 MixedLM 通用协方差版裂区。
+- ✅ **NICE 已做（2026-06-24，披露波）**：rcbd/latin summary 各加一句 η²/偏η² 小设计上偏、ω²/ε² 偏差更小的 ⚠。（仍可后续补算 ω² 数值。）split-plot 不平衡已诚实跳过指向 MixedLM；将来可接 MixedLM 通用协方差版裂区。
 
 **v0.9 config schema（2026-06-23）—— infra 已做 + 回填 backlog：**
 - ✅ **已做**：`ParamSpec` 模型 + `AnalysisEntry.params`；`catalog/config_schema.py` `validate_config`（未知键/坏 choice/列不存在/类型错，**非阻塞**警告）；`run_analysis` 接入（⚠ 进 summary）；`cli params <id>`；recommend payload 带 `params`；correlation_suite/effect_sizes 两族填好范例；`tests/test_config_schema.py`。
@@ -146,10 +146,10 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 
 **波⑦ 6 方法族冷审（2026-06-23，6 个 inference-reviewer；4 ZERO / 2 MUST-FIX 已当场修）：**
 - ✅ **MUST-FIX 已修**：① correlation_suite 偏相关 Fisher-z CI off-by-one（`_fisher_ci(dof+3)`→`dof+2`，SE 1/√(n−k−2)→正确 1/√(n−k−3)，k=0 时正确退回零阶 1/√(n−3)）；② time_series_diagnostics 阶数提示**标签**说"末位显著滞后"但代码实为 Box-Jenkins 截断（初始连续显著段）——summary+yaml 已对齐（数值一直对，纯诚实标签 bug）。
-- **effect_sizes（should-fix，择机）**：d/g 的 CI 用大样本正态近似，小 n 欠覆盖——可换**非中心 t（Hedges 精确）CI**，或 ⚠ 补一句"小 n CI 近似、偏窄"；CLES 用非参 AUC（不假定正态、优于 Φ(d/√2)）但 summary 未点明，补一句。Glass's δ 对照=数据第二个出现水平（任意），可加 `config["control"]`。
-- **dimensionality_extra（should-fix，择机）**：t-SNE 轮廓在**嵌入空间**算与"距离非度量"自相矛盾——改在标准化输入 `Xs` 上算（或改标签/删）；FA 缺 **Heywood/低共同度告警**（min_communality<~0.2 或 max>~0.98 时 ⚠）；NaN 显示为字面 "nan%"（honest 但难看，加 N/A 守卫）；载荷符号任意性可加一句 ⚠。
+- ✅ **effect_sizes 披露已补（2026-06-24，披露波）**：d/g summary 加 ⚠ 大样本正态近似 CI 小 n 欠覆盖、偏窄；cohens_d 加 ⚠ CLES=非参 Mann-Whitney AUC（非 Φ(d/√2)，非正态下二者不必相等）+ Glass's δ 对照=数据第二个出现水平的披露。**仍待办（择机）**：换非中心 t（Hedges 精确）/自助法 CI；加 `config["control"]` 让 Glass δ 可指定对照组。
+- ✅ **dimensionality_extra 已修（2026-06-24，披露波）**：t-SNE 轮廓改在标准化输入 `Xs` 上算（不再用嵌入，标签+披露改为「输入空间可分性描述」，test_tsne 仍绿）；FA 加 Heywood/低共同度条件 ⚠（min<0.2 或 max>0.98 才触发，从已有 communalities 算）；FA/LDA 各加载荷/判别轴符号任意性 ⚠；total_var/var_ld1/cv_acc/KL 的 NaN 插值加 N/A 守卫（显示，不再 "nan%"/"nan"）。
 - **forecasting（should-fix，择机）**：ETS PI 用 SES √step 律，trend/季节下偏窄（已披露）——可换 statsmodels `ETSModel.get_prediction().conf_int()` 给模型一致区间；theta 仅点预测（可加残差自助 PI）；croston 间歇阈值硬 25%（可换 CV²/ADI 象限分类）。
-- **correlation_suite（should-fix，择机）**：matrix 分支列表删除缺失→某列多缺会拉低全配对 n，summary 补一句披露。
+- ✅ **correlation_suite 披露已补（2026-06-24，披露波）**：correlation_matrix summary 加 ⚠ n=完整个案数（complete-case / listwise 删除），某列多缺会同时拉低每一对的 n。
 - **categorical_tests（nice-to-have）**：估计 dict 里 p_value round 到 0.0（summary `:.4g` 仍显小值，dict 可保精度/设 ε 下限）；无 `config["mode"]="gof"` 强制 GoF 钩子（多列时只能跑独立性）。
 - **spatial_panel（SAR/SEM/SDM, splm）impacts 的 SE**：当前 direct/indirect/total 用 LeSage-Pace **解析点估计**（exact，`S=(I-ρW)^{-1}(Ib+Wθ)`），**未附模拟标准误/CI**。原因：splm 自带 `impacts()` 在本机 spdep/spatialreg 版本下易碎（`trW`、`as_dgRMatrix_listw` 已移位/改名，且 `impacts(spml)` 报 `have_factor_preds` 断言失败），故绕过自带实现、自算点估计。**补全**：用 ρ、β 的协方差（`vcov(m)`）做 delta-method 或参数自助（draw ρ/β ~ N(est, vcov)，重算 S，取分位）给 impacts 的 SE/CI。
 - **spatial_panel 的 W 仅 k-NN**：默认行标准化 k-NN（k=6，欧氏经纬度）。**待优化**：可配距离阈值/contiguity/反距离权重，以及真测地距离（与截面 spatial_regression 同一 backlog 第 6 条）。

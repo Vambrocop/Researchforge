@@ -136,3 +136,84 @@ def test_ale_monotone_direction(tmp_path: Path) -> None:
     tab = pd.read_csv(Path(res.output_dir) / "accumulated_local_effects.csv")
     x1a = tab[tab["feature"] == "x1"]["ale"]
     assert x1a.iloc[-1] < x1a.iloc[0]                 # decreasing
+
+
+# --------------------------------------------------------------------------- #
+# quantile_intervals
+# --------------------------------------------------------------------------- #
+def test_quantile_intervals_coverage_near_nominal(tmp_path: Path) -> None:
+    csv = tmp_path / "qi.csv"
+    _signal_df(n=500).to_csv(csv, index=False)
+    res = _run(csv, "quantile_intervals", tmp_path)
+    e = res.estimates
+    assert e["nominal_coverage"] == 0.9
+    assert 0.7 < e["empirical_coverage"] <= 1.0      # roughly calibrated
+    assert e["mean_interval_width"] > 0
+    assert (Path(res.output_dir) / "quantile_intervals.csv").exists()
+
+
+def test_quantile_intervals_skips_classification(tmp_path: Path) -> None:
+    rng = np.random.default_rng(2)
+    n = 120
+    df = pd.DataFrame({"label": rng.integers(0, 2, n), "x1": rng.normal(0, 1, n),
+                       "x2": rng.normal(0, 1, n)})
+    csv = tmp_path / "clf.csv"
+    df.to_csv(csv, index=False)
+    res = _run(csv, "quantile_intervals", tmp_path, config={"outcome": "label"})
+    assert "跳过" in res.summary
+
+
+# --------------------------------------------------------------------------- #
+# feature_interaction (Friedman's H)
+# --------------------------------------------------------------------------- #
+def test_feature_interaction_detects_product_term(tmp_path: Path) -> None:
+    rng = np.random.default_rng(0)
+    n = 400
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(0, 1, n)
+    x3 = rng.normal(0, 1, n)
+    y = 3.0 * x1 * x2 + 0.5 * x3 + rng.normal(0, 0.3, n)   # x1×x2 pure interaction
+    csv = tmp_path / "fi.csv"
+    pd.DataFrame({"y": y, "x1": x1, "x2": x2, "x3": x3}).to_csv(csv, index=False)
+    res = _run(csv, "feature_interaction", tmp_path)
+    e = res.estimates
+    h_12 = e.get("H_x1__x2", e.get("H_x2__x1", 0.0))
+    h_13 = e.get("H_x1__x3", e.get("H_x3__x1", 0.0))
+    assert h_12 > h_13                                # interacting pair ranks above noise pair
+    assert e["max_H"] > 0.1
+    assert (Path(res.output_dir) / "feature_interaction_H.csv").exists()
+
+
+def test_feature_interaction_low_for_additive(tmp_path: Path) -> None:
+    # additive signal -> small interaction
+    csv = tmp_path / "add.csv"
+    _signal_df(n=400, seed=2).to_csv(csv, index=False)
+    res = _run(csv, "feature_interaction", tmp_path)
+    assert res.estimates["max_H"] < 0.5              # no dominant interaction
+
+
+# --------------------------------------------------------------------------- #
+# surrogate_model
+# --------------------------------------------------------------------------- #
+def test_surrogate_fidelity_high_for_simple_signal(tmp_path: Path) -> None:
+    csv = tmp_path / "sur.csv"
+    _signal_df(n=400).to_csv(csv, index=False)
+    res = _run(csv, "surrogate_model", tmp_path, config={"max_depth": 4})
+    e = res.estimates
+    assert e["fidelity_r2"] > 0.5                     # shallow tree mimics a near-linear GBM
+    assert e["surrogate_max_depth"] == 4.0
+    assert (Path(res.output_dir) / "surrogate_tree_rules.txt").exists()
+    assert (Path(res.output_dir) / "surrogate_importance.csv").exists()
+
+
+def test_surrogate_classification_fidelity(tmp_path: Path) -> None:
+    rng = np.random.default_rng(5)
+    n = 300
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(0, 1, n)
+    label = (x1 + 0.3 * rng.normal(0, 1, n) > 0).astype(int)
+    csv = tmp_path / "surclf.csv"
+    pd.DataFrame({"label": label, "x1": x1, "x2": x2}).to_csv(csv, index=False)
+    res = _run(csv, "surrogate_model", tmp_path, config={"outcome": "label"})
+    assert "fidelity_accuracy" in res.estimates
+    assert res.estimates["fidelity_accuracy"] > 0.7

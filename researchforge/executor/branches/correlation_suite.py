@@ -491,6 +491,8 @@ def _branch_correlation_matrix(ctx: Ctx) -> None:
         f"最强关联 {top['var1']}–{top['var2']}（r={top['r']:.3f}），平均 |r|={mean_abs:.3f}；"
         f"BH-FDR 控制后 {n_sig_fdr}/{m} 对显著（α=0.05）。{coll_txt}"
         " ⚠ 大量两两检验会膨胀假阳性（已用 BH-FDR 校正，见 p_fdr 列）；"
+        f" ⚠ n={n} 为完整个案数（complete-case，对所选列做 listwise 删除）——"
+        "某列缺失多会同时拉低每一对的 n（所有相关都基于同一批完整行）；"
         "pearson=线性、spearman=单调；config 可指定 method（pearson/spearman）与 columns。"
     )
     code += [

@@ -59,7 +59,9 @@ def test_executor_blobs_with_label(tmp_path):
     assert "perplexity" in res.estimates
     assert res.estimates["n_features"] >= 2
     assert res.estimates["n"] >= 5
-    # well-separated blobs -> the embedding silhouette by the true label is positive.
+    # well-separated blobs -> the label's silhouette in the STANDARDIZED INPUT
+    # feature space (an input-space separability descriptor, not from the
+    # non-metric embedding) is positive.
     assert res.estimates["silhouette_by_label"] == res.estimates["silhouette_by_label"]
     assert res.estimates["silhouette_by_label"] > 0.0
 

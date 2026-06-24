@@ -405,3 +405,271 @@ def _branch_accumulated_local_effects(ctx: Ctx) -> None:
         )
     except Exception as e:
         summary.append(f"累积局部效应分析失败：{type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 4. quantile_intervals — GBM quantile-regression prediction intervals
+# ---------------------------------------------------------------------------
+@register("quantile_intervals")
+def _branch_quantile_intervals(ctx: Ctx) -> None:
+    d, entry, cfg = ctx.d, ctx.entry, ctx.cfg
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    info, err = _build_model(ctx, "分位数预测区间")
+    if err:
+        summary.append(err)
+        return
+    if info["is_clf"]:
+        summary.append("分位数预测区间跳过：仅适用于连续结果（回归）；分类不确定性见 calibration / conformal。")
+        return
+    try:
+        import numpy as np
+        import pandas as pd
+        from sklearn.ensemble import GradientBoostingRegressor
+        from sklearn.model_selection import train_test_split
+
+        X, y = info["X"], info["y"]
+        lo_q = min(0.49, max(0.001, float(cfg.get("lower", 0.05))))
+        hi_q = max(0.51, min(0.999, float(cfg.get("upper", 0.95))))
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.25, random_state=0)
+        preds = {}
+        for q in (lo_q, 0.5, hi_q):
+            m = GradientBoostingRegressor(loss="quantile", alpha=q, random_state=0)
+            m.fit(Xtr, ytr)
+            preds[q] = m.predict(Xte)
+        lo = np.minimum(preds[lo_q], preds[hi_q])   # guard against quantile crossing
+        hi = np.maximum(preds[lo_q], preds[hi_q])
+        med = preds[0.5]
+        yt = yte.to_numpy(float)
+        coverage = float(np.mean((yt >= lo) & (yt <= hi)))
+        width = float(np.mean(hi - lo))
+        nominal = hi_q - lo_q
+
+        estimates.update({
+            "nominal_coverage": round(nominal, 4), "empirical_coverage": round(coverage, 4),
+            "mean_interval_width": round(width, 6),
+            "lower_quantile": lo_q, "upper_quantile": hi_q,
+            "n_test": float(len(yt)), "n": float(len(X)),
+        })
+
+        order = np.argsort(yt)
+        pd.DataFrame({"actual": yt, "pred_median": med, "lower": lo, "upper": hi,
+                      "covered": (yt >= lo) & (yt <= hi)}).to_csv(
+            d / "quantile_intervals.csv", index=False, encoding="utf-8")
+        files.append("quantile_intervals.csv")
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            xs = np.arange(len(yt))
+            fig, ax = plt.subplots(figsize=(7, 4))
+            ax.fill_between(xs, lo[order], hi[order], alpha=0.3, color="#4C72B0",
+                            label=f"{int(nominal*100)}% interval")
+            ax.plot(xs, med[order], color="#4C72B0", lw=1, label="median pred")
+            ax.scatter(xs, yt[order], s=10, color="#C44E52", label="actual", zorder=3)
+            ax.set_xlabel("test points (sorted by actual)")
+            ax.set_ylabel(info["outcome"])
+            ax.set_title(f"Quantile prediction intervals (coverage={coverage:.0%} vs {nominal:.0%})")
+            ax.legend(fontsize=8)
+            fig.tight_layout(); fig.savefig(d / "quantile_intervals.png", dpi=150)
+            plt.close(fig); files.append("quantile_intervals.png")
+        except Exception:
+            pass
+
+        code += [
+            "from sklearn.ensemble import GradientBoostingRegressor",
+            "# fit quantile regressors at lower/0.5/upper; interval = [q_lo, q_hi]; check holdout coverage",
+        ]
+        verdict = ("接近名义" if abs(coverage - nominal) < 0.1
+                   else ("偏窄（覆盖不足）" if coverage < nominal else "偏宽（覆盖过度）"))
+        summary.append(
+            f"{entry.method}（GBM 分位数回归）：结果={info['outcome']}，{int(nominal*100)}% 预测区间"
+            f"在留出集的**经验覆盖率={coverage:.1%}**（名义 {nominal:.0%}，{verdict}），平均区间宽={width:.4f}。"
+            " ⚠ 分位数回归区间是**条件分位的模型估计**，覆盖率依赖模型拟合优度与分位交叉处理"
+            "（已取 min/max 防交叉）；非分布无关保证（要严格覆盖用 conformal_prediction）；反映模型而非真值。"
+        )
+    except Exception as e:
+        summary.append(f"分位数预测区间失败：{type(e).__name__}: {e}")
+
+
+def _pd_at_points(model, eval_df, base_df, cols, predict):
+    """Centered partial dependence evaluated AT each row's values of `cols`
+    (Friedman's definition): for each eval row, fix `cols` to that row's values,
+    average the model prediction over all of base_df. Returns a centered vector."""
+    import numpy as np
+
+    out = np.empty(len(eval_df))
+    base = base_df
+    for i in range(len(eval_df)):
+        tmp = base.copy()
+        for c in cols:
+            tmp[c] = eval_df.iloc[i][c]
+        out[i] = float(np.mean(predict(tmp)))
+    return out - out.mean()
+
+
+# ---------------------------------------------------------------------------
+# 5. feature_interaction — Friedman's H-statistic (pairwise)
+# ---------------------------------------------------------------------------
+@register("feature_interaction")
+def _branch_feature_interaction(ctx: Ctx) -> None:
+    d, entry, cfg = ctx.d, ctx.entry, ctx.cfg
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    info, err = _build_model(ctx, "特征交互(H 统计量)")
+    if err:
+        summary.append(err)
+        return
+    try:
+        import numpy as np
+        import pandas as pd
+
+        X = info["X"]
+        predict = _predict_fn(info)
+        feats = [c for c in (cfg.get("features") or []) if c in info["features"]] or _top_features(info)
+        feats = feats[:4]
+        if len(feats) < 2:
+            summary.append("特征交互跳过：需要 ≥2 个特征。")
+            return
+        # subsample to bound the O(m^2) partial-dependence-at-points cost
+        m = min(len(X), int(cfg.get("sample", 120)))
+        rng = np.random.default_rng(0)
+        idx = rng.choice(len(X), m, replace=False) if len(X) > m else np.arange(len(X))
+        ev = X.iloc[idx]
+        base = X.iloc[idx]
+
+        pd1 = {f: _pd_at_points(info["model"], ev, base, [f], predict) for f in feats}
+        rows = []
+        for a in range(len(feats)):
+            for b in range(a + 1, len(feats)):
+                fa, fb = feats[a], feats[b]
+                pjk = _pd_at_points(info["model"], ev, base, [fa, fb], predict)
+                num = float(np.sum((pjk - pd1[fa] - pd1[fb]) ** 2))
+                den = float(np.sum(pjk ** 2))
+                h = float(np.sqrt(num / den)) if den > 1e-12 else 0.0
+                rows.append({"feature_1": fa, "feature_2": fb,
+                             "H_statistic": round(min(h, 1.0), 6)})
+        tab = pd.DataFrame(rows).sort_values("H_statistic", ascending=False)
+        tab.to_csv(d / "feature_interaction_H.csv", index=False, encoding="utf-8")
+        files.append("feature_interaction_H.csv")
+        for _, r in tab.iterrows():
+            estimates[f"H_{r['feature_1']}__{r['feature_2']}"] = float(r["H_statistic"])
+        estimates["max_H"] = float(tab["H_statistic"].max())
+        estimates["n_pairs"] = float(len(tab))
+        estimates["n"] = float(len(X))
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            top = tab.head(10)[::-1]
+            labels = [f"{a}×{b}" for a, b in zip(top["feature_1"], top["feature_2"])]
+            fig, ax = plt.subplots(figsize=(6, max(3, len(top) * 0.4)))
+            ax.barh(labels, top["H_statistic"], color="#8172B3")
+            ax.set_xlabel("Friedman's H (0=no interaction, 1=pure interaction)")
+            ax.set_title(f"Pairwise feature interaction — {info['outcome']}")
+            fig.tight_layout(); fig.savefig(d / "feature_interaction.png", dpi=150)
+            plt.close(fig); files.append("feature_interaction.png")
+        except Exception:
+            pass
+
+        code += [
+            "# Friedman's H_jk = sqrt( Σ(PD_jk - PD_j - PD_k)^2 / Σ PD_jk^2 ), centered PDs",
+            "# evaluated at the data points (partial dependence at observed feature values)",
+        ]
+        top = tab.iloc[0]
+        summary.append(
+            f"{entry.method}（{info['model_name'].upper()} 基模型）：结果={info['outcome']}，"
+            f"交互最强的特征对：{top['feature_1']}×{top['feature_2']}（H={top['H_statistic']:.3f}）。"
+            f"H≈0 表示该对无交互（效应可加），越接近 1 交互越主导。"
+            " ⚠ H 统计量基于模型的部分依赖（在数据点上估计、已子采样以控成本），反映**模型**学到的交互"
+            "而非数据中的因果交互；相关特征下 PD 外推可使 H 偏高；H 是相对量纲。"
+        )
+    except Exception as e:
+        summary.append(f"特征交互失败：{type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 6. surrogate_model — interpretable global surrogate (shallow tree) + fidelity
+# ---------------------------------------------------------------------------
+@register("surrogate_model")
+def _branch_surrogate_model(ctx: Ctx) -> None:
+    d, entry, cfg = ctx.d, ctx.entry, ctx.cfg
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    info, err = _build_model(ctx, "代理模型")
+    if err:
+        summary.append(err)
+        return
+    try:
+        import numpy as np
+        import pandas as pd
+        from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_text
+
+        X, feats, is_clf = info["X"], info["features"], info["is_clf"]
+        max_depth = max(2, min(6, int(cfg.get("max_depth", 3))))
+        bb = info["model"]
+
+        if is_clf:
+            target = bb.predict(X)                 # mimic the black box's labels
+            surr = DecisionTreeClassifier(max_depth=max_depth, random_state=0).fit(X, target)
+            from sklearn.metrics import accuracy_score
+            fidelity = float(accuracy_score(target, surr.predict(X)))
+            fid_name = "fidelity_accuracy"
+        else:
+            target = bb.predict(X)
+            surr = DecisionTreeRegressor(max_depth=max_depth, random_state=0).fit(X, target)
+            ss_res = float(np.sum((target - surr.predict(X)) ** 2))
+            ss_tot = float(np.sum((target - np.mean(target)) ** 2))
+            fidelity = float(1 - ss_res / ss_tot) if ss_tot > 1e-12 else float("nan")
+            fid_name = "fidelity_r2"
+
+        rules = export_text(surr, feature_names=list(feats))
+        (d / "surrogate_tree_rules.txt").write_text(rules, encoding="utf-8")
+        files.append("surrogate_tree_rules.txt")
+
+        imp = pd.DataFrame({"feature": feats, "surrogate_importance": surr.feature_importances_}
+                           ).sort_values("surrogate_importance", ascending=False)
+        imp.to_csv(d / "surrogate_importance.csv", index=False, encoding="utf-8")
+        files.append("surrogate_importance.csv")
+
+        estimates.update({
+            fid_name: round(fidelity, 6), "surrogate_max_depth": float(max_depth),
+            "surrogate_n_leaves": float(surr.get_n_leaves()), "n": float(len(X)),
+        })
+        for _, r in imp.iterrows():
+            estimates[f"surrogate_imp_{r['feature']}"] = round(float(r["surrogate_importance"]), 6)
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            from sklearn.tree import plot_tree
+
+            fig, ax = plt.subplots(figsize=(min(16, 3 + 2 * max_depth), 6))
+            plot_tree(surr, feature_names=list(feats), filled=True, fontsize=7,
+                      max_depth=max_depth, ax=ax, impurity=False)
+            ax.set_title(f"Global surrogate tree — {info['outcome']} ({fid_name}={fidelity:.2f})")
+            fig.tight_layout(); fig.savefig(d / "surrogate_tree.png", dpi=140)
+            plt.close(fig); files.append("surrogate_tree.png")
+        except Exception:
+            pass
+
+        code += [
+            "from sklearn.tree import DecisionTreeRegressor, export_text",
+            "# fit a shallow tree to the BLACK BOX's predictions; fidelity = how well it mimics",
+        ]
+        trust = ("高保真，可信地用树解释黑箱" if fidelity >= 0.8
+                 else "中等保真，树仅近似" if fidelity >= 0.6 else "**低保真，树不能代表黑箱**")
+        summary.append(
+            f"{entry.method}（深度≤{max_depth} 决策树代理 {info['model_name'].upper()} 黑箱，"
+            f"{'分类' if is_clf else '回归'}）：结果={info['outcome']}，"
+            f"保真度（{fid_name}）={fidelity:.3f} —— {trust}。规则见 surrogate_tree_rules.txt。"
+            " ⚠ 代理树解释的是**黑箱模型**（非真实数据关系），且**仅在保真度高时**可信；"
+            "低保真说明黑箱含树无法捕捉的交互/非线性——勿用树过度简化解读。"
+        )
+    except Exception as e:
+        summary.append(f"代理模型失败：{type(e).__name__}: {e}")

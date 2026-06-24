@@ -246,6 +246,13 @@ def _branch_cohens_d(ctx: Ctx) -> None:
             "若明显非正态/为序数数据，改用 cliffs_delta（分布无关）。小样本时 d 会高估 |效应|，可用 hedges_g。"
             f"小/中/大 阈值 0.2/0.5/0.8（Cohen 1988）。config 可指定 outcome/group（置信水平默认 0.95，本次 {ci_level}）。"
         )
+        summary.append(
+            "⚠ 该解析 CI 为大样本正态近似（Hedges-Olkin 方差），小 n 时会欠覆盖（under-cover）——"
+            "即区间偏窄、实际覆盖率低于名义水平，请当作近似区间看待（小样本可优先 hedges_g 或自助法 CI）。"
+            "另：CLES 用非参数方法（Mann-Whitney AUC）估计，并非正态理论的 Φ(d/√2)；"
+            "故非正态下 CLES 与 d 不必满足 CLES=Φ(d/√2)。"
+            f"Glass's delta 的对照取「数据中第二个出现的水平」（{lvl2}），其参考标准差即该水平的组内标准差。"
+        )
 
         code += [
             "import numpy as np; from scipy import stats",
@@ -344,6 +351,10 @@ def _branch_hedges_g(ctx: Ctx) -> None:
             "J=1−3/(4N−9) 把它收缩回去（N 大时 J→1、g≈d）；n 小时优先报告 g。"
             "CI 仍沿用与 d 相同的方差大致相等 + 近正态假定；非正态/序数请改用 cliffs_delta。"
             "小/中/大 阈值 0.2/0.5/0.8。config 可指定 outcome/group。"
+        )
+        summary.append(
+            "⚠ 该解析 CI 仍是大样本正态近似（由 d 的 Hedges-Olkin 方差按 J 缩放得到），小 n 时会欠覆盖"
+            "（under-cover）——区间偏窄、实际覆盖率低于名义水平，请当作近似区间看待（必要时用自助法 CI）。"
         )
 
         code += [

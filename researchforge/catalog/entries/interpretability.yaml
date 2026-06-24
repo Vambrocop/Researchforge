@@ -148,3 +148,144 @@
       type: int
       description: 分位分箱数
       default: "20"
+
+- id: quantile_intervals
+  method: Quantile-regression prediction intervals
+  domain: ml
+  family: ml
+  goal: predict
+  description: >-
+    Distribution-aware prediction intervals from gradient-boosting QUANTILE regression.
+    Fits separate GBM quantile regressors at the lower / median / upper quantiles
+    (config lower/upper, default 0.05/0.95) and reports the interval per held-out point,
+    its mean width, and the EMPIRICAL coverage on the holdout vs the nominal level — so
+    you can see whether the model's stated uncertainty is honest. Regression only.
+    Produces a per-point interval table (CSV) and a sorted actual-vs-interval band (PNG).
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - per-point lower/median/upper prediction interval + covered flag (CSV)
+    - nominal vs empirical coverage + mean interval width
+    - actual-vs-interval band plot (PNG)
+  executor_ref: py::quantile_intervals
+  biases:
+    - quantile-regression intervals are MODEL estimates of conditional quantiles; their validity depends on model fit and there is no distribution-free coverage guarantee (use conformal_prediction for that)
+    - quantile crossing is possible; the engine takes min/max of the lower/upper predictions to guard it
+    - empirical coverage is measured on a single random holdout (n_test small -> noisy)
+    - explains the fitted model's uncertainty, not the true data-generating process
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值列
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 角色解析所用基模型（区间始终由 GBM 分位数回归给出）
+      default: gbm
+    - name: lower
+      type: float
+      description: 下分位（0-0.5）
+      default: "0.05"
+    - name: upper
+      type: float
+      description: 上分位（0.5-1）
+      default: "0.95"
+
+- id: feature_interaction
+  method: Feature interaction (Friedman's H)
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    Quantify pairwise feature INTERACTIONS in a fitted tree model via Friedman's H-statistic:
+    H_jk = sqrt( Σ(PD_jk − PD_j − PD_k)² / Σ PD_jk² ) over centered partial-dependence
+    functions evaluated at the data points. H≈0 means the two features act additively;
+    H near 1 means their joint effect is dominated by interaction. Fits a gradient-boosting
+    (or random-forest via config model) model on the outcome, then computes H for the top
+    feature pairs (sub-sampled to bound cost). Produces an H table (CSV) and a ranked
+    interaction bar chart (PNG).
+  preconditions:
+    min_numeric_cols: 3
+    min_rows: 30
+  produces:
+    - pairwise Friedman's H-statistic per feature pair (CSV)
+    - max H + ranked interaction bar chart (PNG)
+  executor_ref: py::feature_interaction
+  biases:
+    - H is computed from the MODEL's partial dependence (estimated at data points, sub-sampled), so it reflects interactions the model learned, not necessarily causal interactions in the data
+    - correlated features make partial dependence extrapolate, which can inflate H
+    - H is a relative, unitless measure; compare pairs within a run, not across datasets
+    - first-order pairwise H ignores higher-order (3-way+) interactions
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 基模型
+      default: gbm
+    - name: features
+      type: columns
+      description: 要计算交互的特征子集
+      default: 重要性前 4
+    - name: sample
+      type: int
+      description: 计算 PD 的子采样点数
+      default: "120"
+
+- id: surrogate_model
+  method: Global surrogate model (interpretable tree)
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    Explain a black-box model by fitting a single shallow, human-readable DECISION TREE
+    to mimic the black box's predictions (a global surrogate). Reports the FIDELITY — how
+    well the surrogate reproduces the black box (R² for regression, accuracy for
+    classification) — the surrogate's feature importances, and the exported tree rules.
+    High fidelity means the simple tree can be trusted as an explanation; low fidelity
+    means the black box relies on structure the tree cannot capture (do NOT over-simplify).
+    Fits a gradient-boosting (or random-forest) black box, then a depth-≤config tree.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - surrogate fidelity (R² / accuracy vs the black box)
+    - surrogate feature importances (CSV) + exported tree rules (TXT)
+    - surrogate decision-tree plot (PNG)
+  executor_ref: py::surrogate_model
+  biases:
+    - the surrogate explains the BLACK-BOX MODEL, not the real data relationships
+    - the explanation is trustworthy ONLY when fidelity is high; low fidelity means the tree misrepresents the model
+    - a shallow tree necessarily simplifies — interactions/non-linearities beyond its depth are lost
+    - fidelity is measured in-sample on the training features
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 黑箱基模型
+      default: gbm
+    - name: max_depth
+      type: int
+      description: 代理树最大深度（2-6）
+      default: "3"

@@ -5,8 +5,10 @@ Three pure-Python methods (scikit-learn / numpy / pandas / scipy — NO R):
 - ``tsne``                — t-SNE 2-D embedding (sklearn TSNE) for VISUALIZATION
                             only. Reports the embedding coordinates + the final KL
                             divergence; if a low-cardinality label column exists it
-                            colors by it and reports a (descriptive) silhouette of the
-                            embedding by that label. Distances/positions are NOT metric.
+                            colors by it and reports a (descriptive) silhouette of that
+                            label in the STANDARDIZED INPUT feature space (NOT the
+                            embedding — embedding distances are non-metric). Embedding
+                            distances/positions are NOT metric.
 - ``factor_analysis``     — exploratory factor analysis (sklearn FactorAnalysis) with
                             an n_factors rule (config / parallel-analysis / Kaiser>1 on
                             the correlation eigenvalues), varimax rotation if feasible,
@@ -129,7 +131,11 @@ def _branch_tsne(ctx: Ctx) -> None:
         emb = tsne.fit_transform(Xs)
         kl = float(getattr(tsne, "kl_divergence_", float("nan")))
 
-        # --- descriptive silhouette of the embedding BY the label (not a fit metric) ---
+        # --- descriptive silhouette of the LABEL in INPUT space (not a fit metric) ---
+        # Computed on the standardized INPUT features `Xs` (the matrix fed to t-SNE),
+        # NOT on the 2-D embedding: the embedding's distances are non-metric, so a
+        # silhouette there would contradict our own disclosure. This is an input-space
+        # separability descriptor (how distinct the labels are in feature space).
         sil = float("nan")
         if label_col is not None:
             try:
@@ -138,7 +144,7 @@ def _branch_tsne(ctx: Ctx) -> None:
                 lab = sub[label_col].values
                 n_lab = int(pd.Series(lab).nunique())
                 if 2 <= n_lab < n:
-                    sil = float(silhouette_score(emb, lab))
+                    sil = float(silhouette_score(Xs, lab))
             except Exception:
                 sil = float("nan")
 
@@ -180,13 +186,15 @@ def _branch_tsne(ctx: Ctx) -> None:
         estimates["silhouette_by_label"] = round(sil, 6) if sil == sil else float("nan")
 
         lab_txt = (
-            f"，按 {label_col} 着色，嵌入对该标签的轮廓系数={sil:.3f}（仅描述性）"
+            f"，按 {label_col} 着色，该标签在标准化输入特征空间的轮廓系数={sil:.3f}"
+            f"（输入空间可分性描述，非来自嵌入；仅描述性）"
             if (label_col is not None and sil == sil)
             else "，无低基数标签列可着色"
         )
+        kl_txt = f"{kl:.4f}" if kl == kl else "N/A"
         summary.append(
             f"{entry.method} 完成（t-SNE，{len(features)} 个特征 × {n} 个样本 → 2D，"
-            f"perplexity={perplexity:.0f}，KL 散度={kl:.4f}{lab_txt}）。"
+            f"perplexity={perplexity:.0f}，KL 散度={kl_txt}{lab_txt}）。"
             f"⚠ t-SNE 仅用于可视化——低维图中的距离、簇大小、簇间相对位置都不具度量意义，"
             f"不要据此算距离或做下游度量分析；结果对 perplexity 敏感且为随机优化"
             f"（已固定 random_state=42，换种子图会变），别把它当稳定坐标；"
@@ -362,15 +370,34 @@ def _branch_factor_analysis(ctx: Ctx) -> None:
         estimates["n"] = float(n)
 
         rot_txt = "varimax 旋转后" if rotated else "未旋转"
+        min_comm = float(np.min(communalities))
+        max_comm = float(np.max(communalities))
+        tv_txt = f"{total_var:.1%}" if total_var == total_var else "N/A"
+        comm_txt = (
+            f"{min_comm:.2f}–{max_comm:.2f}"
+            if (min_comm == min_comm and max_comm == max_comm)
+            else "N/A"
+        )
         summary.append(
             f"{entry.method} 完成（探索性因子分析 EFA，{p} 个指标 × {n} 个样本 → {n_factors} 个因子，"
-            f"{rule}）：{rot_txt}共解释 {total_var:.1%} 的方差，"
-            f"共同度(communality) 范围 {float(np.min(communalities)):.2f}–{float(np.max(communalities)):.2f}"
+            f"{rule}）：{rot_txt}共解释 {tv_txt} 的方差，"
+            f"共同度(communality) 范围 {comm_txt}"
             f"（详见 factor_loadings.csv）。"
             f"⚠ EFA 假定存在线性的潜在结构并需足够样本（n/p={n/p:.1f}；KMO 抽样适切性未计算——请自行评估）；"
             f"旋转只帮助解释、不改变拟合优度；因子数是一个选择（此处规则：{rule}，已固定 random_state=0）；"
             f"EFA 建模的是共同方差，与 PCA（建模总方差）不同——可用 config features/n_factors 覆盖。"
+            f" ⚠ 载荷的符号是任意的（整列可同时翻转，不改变解）——解释时只看相对模式，别纠结正负。"
         )
+        # Conditional Heywood / low-communality warning (only when triggered).
+        comm_flags = []
+        if min_comm == min_comm and min_comm < 0.2:
+            comm_flags.append(f"最低共同度仅 {min_comm:.2f}（<0.2），该指标几乎未被因子解释（可能不属于本结构）")
+        if max_comm == max_comm and max_comm > 0.98:
+            comm_flags.append(
+                f"最高共同度达 {max_comm:.2f}（接近/超过 1，疑似 Heywood case），解可能不稳定，请谨慎对待"
+            )
+        if comm_flags:
+            summary.append("⚠ 共同度告警：" + "；".join(comm_flags) + "。")
         code += [
             "from sklearn.decomposition import FactorAnalysis",
             "from sklearn.preprocessing import StandardScaler",
@@ -570,14 +597,17 @@ def _branch_linear_discriminant(ctx: Ctx) -> None:
 
         # baseline = majority-class rate, for honest CV-accuracy context.
         baseline = float(vc.max()) / float(n)
+        cv_txt = f"{cv_acc:.3f}" if cv_acc == cv_acc else "N/A"
+        var_ld1_txt = f"{var_ld1:.1%}" if var_ld1 == var_ld1 else "N/A"
         summary.append(
             f"{entry.method} 完成（LDA 监督降维 + 分类，目标={target}，{n_classes} 类，"
             f"{len(features)} 个特征 × {n} 个样本 → {n_components} 个判别轴）："
-            f"{k_folds}-折交叉验证准确率={cv_acc:.3f}（多数类基线={baseline:.3f}），"
-            f"LD1 解释 {var_ld1:.1%} 的类间方差（详见 lda_scores.csv / lda_class_means_ld1.csv）。"
+            f"{k_folds}-折交叉验证准确率={cv_txt}（多数类基线={baseline:.3f}），"
+            f"LD1 解释 {var_ld1_txt} 的类间方差（详见 lda_scores.csv / lda_class_means_ld1.csv）。"
             f"⚠ LDA 假定各类协方差相等且特征近似正态——若违背请改用 QDA；"
             f"交叉验证准确率是诚实的样本外估计（与基线对比才有意义），样本内拟合会偏乐观；"
             f"需要分类目标——可用 config outcome/features 覆盖；特征已在 CV 管线内标准化（防泄漏，已固定 random_state=0）。"
+            f" ⚠ 判别轴（LD1/LD2…）的符号是任意的（整轴可同时翻转，不改变可分性）——解释方向时只看相对位置。"
         )
         code += [
             "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis",
