@@ -45,23 +45,27 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
         hint += " —— 运行建模方法时可用 --config 指定"
         print(hint)
 
+    # 数据诊断 → 选模计划（先算，既用于重排推荐，又单独展示）
+    catalog = Catalog.load()
+    plan = build_plan(fp, catalog=catalog)
+
     gk = resolve_goal(goal)
     if goal and not gk:
         print(f"\n未知目标 '{goal}'。可选：" + " / ".join(GOALS))
-    picks = select_top(fp, goal=gk, top=top)
+    # 诊断感知排序：让数据真实结构把对路方法在同严谨度层内抬升（plan 复用，不重读文件）
+    picks = select_top(fp, goal=gk, top=top, catalog=catalog, plan=plan)
     head = f"目标「{GOALS[gk]['label']}」" if gk else "全部目标（用 --goal 聚焦）"
     print(f"\n推荐 top {len(picks)} —— {head}（🟢🟡🔴 严谨度，红灯需知情覆盖）：")
     mark = _markers()
     for r in picks:
         s = r.score
-        print(f"  {mark[r.rigor.light]} [{r.rigor.score:3d}] {r.entry.method} — {r.rigor.note}")
+        diag = f"  {r.diagnostic_note}" if r.diagnostic_note else ""
+        print(f"  {mark[r.rigor.light]} [{r.rigor.score:3d}] {r.entry.method} — {r.rigor.note}{diag}")
         print(
             f"        方法学评分 总{s.overall} | 契合{s.fit} 流行{s.popularity} "
             f"可发表{s.publishability} 美观{s.aesthetics} 新颖{s.novelty} 难度{s.difficulty}"
         )
     # 数据诊断 → 选模建议（v1.5「带方案的推荐」；不改运行默认，只给可执行提示）
-    catalog = Catalog.load()
-    plan = build_plan(fp, catalog=catalog)
     if plan.diagnostics:
         print("\n📋 数据诊断 → 选模建议（基于真实取值，非仅列类型）：")
         for dgn in plan.diagnostics:

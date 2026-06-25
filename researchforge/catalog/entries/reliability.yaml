@@ -1,0 +1,173 @@
+# Reliability-engineering family (family: reliability, domain: engineering) — the
+# industrial sibling of the SPC / quality family. A coherent trio:
+# single-unit life data (Weibull) -> repairable-system reliability growth
+# (Crow-AMSAA) -> life-stress extrapolation (accelerated life test). Pure Python
+# (numpy / scipy / pandas / matplotlib). No R.
+
+- id: weibull_life_analysis
+  method: Weibull Life-Data Analysis (censored MLE)
+  domain: engineering
+  family: reliability
+  goal: describe
+  description: >-
+    Life-data (Weibull) analysis of a time-to-failure / cycles-to-failure column
+    with optional right-censoring (an event indicator 1=failure, 0=suspension; all
+    treated as failures if absent). Fits a 2-parameter Weibull by maximum likelihood
+    on possibly right-censored data (log-likelihood = sum over failures of log f(t)
+    plus sum over censored of log S(t), optimised over shape beta and scale eta from
+    a probability-plot start), and also fits a lognormal, selecting the better by AIC
+    (both AICs reported). Reports the shape beta with its hazard interpretation
+    (beta below 1 decreasing hazard / infant mortality, beta = 1 constant / random,
+    beta above 1 increasing / wear-out), the scale eta (characteristic life, the
+    63.2 percentile), B10 and B50 life (10th and 50th percentiles), MTTF =
+    eta * Gamma(1 + 1/beta), and the failure rate at eta. COMPLEMENTS, does not
+    duplicate, parametric_survival (which fits an AFT regression with covariates):
+    here the focus is censored single-distribution life metrics with no covariates.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - "Weibull probability plot (PNG): ln(t) vs ln(-ln(1-F)) with median-rank points and the fitted line"
+    - "life-percentiles table (CSV) of B-lives (B1, B5, B10, B50, characteristic life, B90, ...)"
+    - "shape beta, scale eta, B10/B50 life, MTTF, failure rate at eta, and AIC for Weibull vs lognormal"
+  executor_ref: "py::weibull_life_analysis"
+  params:
+    - name: life
+      type: column
+      description: 寿命/失效时间列（连续时间或循环次数，分析目标）
+      default: 自动（名称含 life/ttf/cycle/hour 的数值列，否则时间列/首个数值列）
+    - name: time
+      type: column
+      description: life 的别名（寿命/失效时间列）
+      default: 同 life
+    - name: event
+      type: column
+      description: "删失指示列（1=失效/观测到事件，0=右删失/悬挂）；缺省则全部视为失效"
+      default: 自动（名称含 event/status/censor 的二值列；无则全失效）
+    - name: status
+      type: column
+      description: event 的别名（删失指示列）
+      default: 同 event
+  biases:
+    - this method COMPLEMENTS parametric_survival (AFT regression with covariates) rather than duplicating it — here the focus is single-distribution censored life metrics (B-life, MTTF, hazard shape, probability plot) with NO covariates
+    - the shape beta distinguishes infant-mortality (beta below 1), random (beta about 1) and wear-out (beta above 1) failure modes — this hazard-shape reading is the core reliability judgement and assumes a single failure mode
+    - small samples or heavy censoring widen every estimate substantially (beta, eta, B-life and MTTF all become uncertain); confidence is not reported here
+    - AIC selection between Weibull and lognormal is only a relative fit comparison and does not guarantee the chosen distribution extrapolates reliably into the tails (B1, B10)
+    - the censored likelihood assumes right-censoring is non-informative (suspensions are unrelated to the failure mechanism); informative censoring biases the fit
+
+- id: reliability_growth
+  method: Reliability Growth (Crow-AMSAA / NHPP power law)
+  domain: engineering
+  family: reliability
+  goal: describe
+  description: >-
+    Crow-AMSAA reliability-growth analysis (non-homogeneous Poisson process with a
+    power-law intensity) for ONE repairable system under a test-fix-test program.
+    Takes the successive failure TIMES (cumulative, or inter-arrival times that are
+    cumulated automatically when the input is not increasing) and fits N(t) =
+    lambda * t^beta by the time-terminated MLE beta = n / sum(ln(T/t_i)),
+    lambda = n / T^beta with T the total test time (last failure time unless a
+    termination_time is given). Reports the growth slope beta (below 1 means
+    reliability IMPROVING / MTBF growing, above 1 worsening, about 1 a homogeneous
+    Poisson process), the cumulative MTBF and the instantaneous MTBF at T, and a
+    projected instantaneous MTBF assuming the same growth law continues. beta here is
+    a growth SLOPE, not the Weibull shape of weibull_life_analysis.
+  preconditions:
+    min_rows: 3
+    min_numeric_cols: 1
+  produces:
+    - "Duane plot (PNG): log cumulative MTBF vs log cumulative time with the fitted growth line"
+    - "cumulative table (CSV): failure number, cumulative time, observed and fitted cumulative MTBF"
+    - "growth slope beta, lambda, cumulative and instantaneous MTBF at T, projected MTBF"
+  executor_ref: "py::reliability_growth"
+  params:
+    - name: life
+      type: column
+      description: 失效时间列（一台可修系统的累积失效时间，或到达间隔时间）
+      default: 自动（名称含 time/life/hour 的数值列，否则时间列/首个数值列）
+    - name: time
+      type: column
+      description: life 的别名（失效时间列）
+      default: 同 life
+    - name: termination_time
+      type: float
+      description: "总试验时间 T（时间截尾停止时刻）；缺省取末次失效时间"
+      default: 末次失效时间
+    - name: projection_time
+      type: float
+      description: 外推投影时刻 t*（计算该时刻的预计瞬时 MTBF）
+      default: "1.5 倍总试验时间"
+    - name: input_type
+      type: choice
+      choices: [cumulative, interarrival]
+      description: "输入是累积失效时间还是到达间隔（默认累积；间隔会自动累加）"
+      default: cumulative
+  biases:
+    - the model assumes a SINGLE repairable system under a test-fix growth program (NHPP power-law intensity u(t) = lambda*beta*t^(beta-1)); it is not valid for a fleet of distinct units or for non-repairable life data
+    - beta here is a GROWTH SLOPE (below 1 = improving), which is conceptually different from the Weibull SHAPE parameter in weibull_life_analysis — do not conflate the two
+    - "the MLE divisor follows the truncation type (Rigdon & Basu): failure-truncated by default (beta = (n-1)/sum ln(t_n/t_i), T = last failure) and time-truncated when termination_time is given (beta = n/sum ln(T/t_i)); the difference matters at small n"
+    - the projected / instantaneous MTBF assumes the same growth law continues unchanged, so any projection beyond the observed test time is an extrapolation and risky
+    - the power-law trend assumption (Duane straight line on log-log) can be violated by step changes, multiple failure modes, or saturation of the growth program
+
+- id: accelerated_life_test
+  method: Accelerated Life Test (Arrhenius / inverse power law)
+  domain: engineering
+  family: reliability
+  goal: predict
+  description: >-
+    Accelerated-life-test life-stress extrapolation. Takes a time-to-failure column
+    and a stress column (temperature, voltage, load, ...) plus an optional censoring
+    indicator, and fits a log-linear life-stress model chosen by stress nature
+    (config model = arrhenius or inverse_power; default Arrhenius when the stress
+    looks like temperature, else inverse power law). Arrhenius is ln(L) = a + b*(1/T)
+    with T in Kelvin (Celsius-looking values get 273.15 added, disclosed); the
+    inverse power law is ln(L) = a + b*ln(stress). The model is fit on the failures
+    by ordinary least squares (a censoring-aware Tobit fit is left as a noted
+    simplification). Reports the coefficients, the acceleration factor between the
+    most severe tested stress and a USE stress (config use_stress, else the minimum
+    observed stress, disclosed), the extrapolated MTTF and B10 at the use stress, and,
+    for Arrhenius, the activation energy Ea = b*k with k = 8.617e-5 eV/K.
+  preconditions:
+    min_rows: 4
+    min_numeric_cols: 2
+  produces:
+    - "life-stress plot (PNG): life vs stress (log life axis) with the fitted line and the use-stress extrapolation marked"
+    - "life-stress data table (CSV) of stress, life and failure/censored flag"
+    - "model coefficients, acceleration factor, extrapolated MTTF and B10 at use stress, and (Arrhenius) the activation energy"
+  executor_ref: "py::accelerated_life_test"
+  params:
+    - name: life
+      type: column
+      description: 寿命/失效时间列
+      default: 自动（名称含 life/ttf/hour 的数值列，否则时间列/首个数值列）
+    - name: time
+      type: column
+      description: life 的别名（寿命列）
+      default: 同 life
+    - name: stress
+      type: column
+      description: 应力列（温度/电压/载荷/压力…）
+      default: 自动（名称含 temp/stress/volt/load 的数值列，否则另一数值列）
+    - name: model
+      type: choice
+      description: "寿命-应力模型：arrhenius（温度类）或 inverse_power（逆幂律）"
+      choices: ["arrhenius", "inverse_power"]
+      default: "自动（温度类应力用 arrhenius，否则 inverse_power）"
+    - name: use_stress
+      type: float
+      description: 使用应力（外推目标的现场工况应力）
+      default: 最低实测应力（并披露）
+    - name: event
+      type: column
+      description: "删失指示列（1=失效，0=右删失）；缺省则全部视为失效"
+      default: 自动（二值列；无则全失效）
+    - name: status
+      type: column
+      description: event 的别名（删失指示列）
+      default: 同 event
+  biases:
+    - extrapolation BEYOND the tested stress range is model-dependent and risky — the acceleration factor and use-stress life depend strongly on whether the chosen life-stress model (Arrhenius vs inverse power law) is correct; a wrong model systematically over- or under-states use life
+    - "the fit is an OLS log-linear regression on the FAILURES only; censored observations are not given a censoring-aware (Tobit) weight, which biases the fit when censoring is heavy (disclosed)"
+    - the B10 at use stress assumes life is lognormal with a CONSTANT log-scatter (sigma) across all stress levels (no stress-dependence of spread), which is a common but strong assumption
+    - "Arrhenius requires absolute temperature; Celsius-looking values (0-300) are converted by adding 273.15 and disclosed, but an ambiguous unit (already-Kelvin vs Celsius) could be mis-converted"
+    - at least 2 distinct stress levels with adequate failures per level are needed for a stable fit; few levels or few failures make the slope (and hence Ea and the acceleration factor) unreliable

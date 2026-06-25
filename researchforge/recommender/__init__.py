@@ -9,7 +9,12 @@ from researchforge.recommender.diagnostics import (
 from researchforge.recommender.goals import GOALS, entry_matches_goal, resolve_goal
 from researchforge.recommender.match import check_preconditions
 from researchforge.recommender.novelty import NoveltyHint, novelty_hint
-from researchforge.recommender.recommend import Recommendation, recommend, select_top
+from researchforge.recommender.recommend import (
+    Recommendation,
+    apply_diagnostic_ranking,
+    recommend,
+    select_top,
+)
 from researchforge.recommender.rigor import RigorVerdict, assess_rigor
 from researchforge.recommender.scoring import MethodologyScore, score_method
 
@@ -23,6 +28,7 @@ __all__ = [
     "RigorVerdict",
     "recommend",
     "select_top",
+    "apply_diagnostic_ranking",
     "Recommendation",
     "novelty_hint",
     "NoveltyHint",

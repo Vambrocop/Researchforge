@@ -68,6 +68,8 @@ SLOW_MODULES = {
     "test_epidemiology",
     # SPC: gage R&R fits two-way ANOVA (OLS + anova_lm) per test
     "test_spc",
+    # reliability: censored Weibull/lognormal MLE optimization + Crow-AMSAA per test
+    "test_reliability",
 }
 
 

@@ -22,12 +22,15 @@ def analyze_path(path: str | Path) -> dict:
     """
     from researchforge.catalog.registry import Catalog
     from researchforge.profiler import profile_dataset
-    from researchforge.recommender import build_plan, recommend
+    from researchforge.recommender import apply_diagnostic_ranking, build_plan, recommend
     from researchforge.recommender.goals import GOALS, entry_matches_goal
 
     fp = profile_dataset(Path(path))
     catalog = Catalog.load()
-    recs = recommend(fp, catalog=catalog)
+    plan = build_plan(fp, catalog=catalog)
+    # diagnostic-aware ranking: the data's actual structure re-ranks the menu within
+    # each rigor tier (preferred methods rise, argued-against fall). Disclosed per rec.
+    recs = apply_diagnostic_ranking(recommend(fp, catalog=catalog), plan)
 
     fingerprint = {
         "n_rows": fp.n_rows,
@@ -50,7 +53,6 @@ def analyze_path(path: str | Path) -> dict:
 
     # auto-diagnose → recommend-with-a-plan (smarter auto-selection slice 2): value-level
     # findings mapped to model-choice nudges; advisory only, does not change run defaults.
-    plan = build_plan(fp, catalog=catalog)
     diagnostic_plan = {
         "outcome": plan.outcome,
         "diagnostics": [d.model_dump() for d in plan.diagnostics],
@@ -68,6 +70,9 @@ def analyze_path(path: str | Path) -> dict:
             "biases": list(r.rigor.biases),
             "methodology_score": r.score.as_dict(),
             "score_note": r.score.note,
+            # diagnostic-aware ranking nudge (smarter auto-selection, deeper)
+            "diagnostic_fit": r.diagnostic_fit,
+            "diagnostic_note": r.diagnostic_note,
             # goal keys this method matches (server-side, mirrors the CLI selector incl. keywords)
             "goals": [k for k in GOALS if entry_matches_goal(r.entry, k)],
             # machine-readable config params (single source of truth for the run form)
