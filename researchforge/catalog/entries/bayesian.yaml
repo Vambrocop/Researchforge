@@ -381,3 +381,180 @@
     - a non-centered parameterization is used for sampling geometry; check convergence (R-hat near 1.0, ESS adequate)
     - this is a varying-INTERCEPT model by default; a single optional predictor adds a population (fixed) slope, not random slopes
     - credible intervals are direct probability statements, not confidence intervals
+
+# ── Bayesian extension: count GLM, robust-t, LOO model comparison ──────────────
+
+- id: bayesian_poisson_regression
+  method: Bayesian count regression (Poisson / Negative-Binomial, PyMC)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Full Bayesian count regression via PyMC NUTS with a log link. Outcome = a count
+    column (config outcome), predictors = the remaining numeric columns. The
+    likelihood is chosen by overdispersion: Poisson when var is approximately the
+    mean, Negative-Binomial when var greatly exceeds the mean (config family =
+    poisson / negbinomial / auto; default auto via var/mean greater than 1.5).
+    Predictors are standardized for sampling; reports each predictor's rate ratio
+    (exp of the back-transformed log-rate) with a 94% HDI credible interval, the
+    dispersion index, and convergence diagnostics. Ties into the auto-diagnose engine
+    (an overdispersed count outcome is exactly what the Negative-Binomial branch is for).
+  preconditions:
+    requires_count_outcome: true
+    min_rows: 12
+  produces:
+    - rate-ratio table (posterior RR, 94% HDI low/high) as CSV
+    - ArviZ forest plot of the posterior log-rates
+    - dispersion index and convergence diagnostics (R-hat, ESS)
+  executor_ref: "py::bayesian_poisson_regression"
+  params:
+    - name: outcome
+      type: column
+      description: 计数结果变量(非负整数)
+      default: 第一个计数列
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值列
+    - name: family
+      type: choice
+      choices: [auto, poisson, negbinomial]
+      description: "似然族(默认 auto:过离散→负二项,否则 Poisson)"
+      default: auto
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - a rate ratio's HDI is a credible interval (direct probability), NOT a confidence interval
+    - Poisson assumes the conditional variance equals the mean; if the data are overdispersed use the Negative-Binomial family (auto-selected by default)
+    - rate ratios are back-transformed to the raw predictor scale (RR = exp(beta_std / sd_x))
+    - the priors are weakly informative on the log-rate scale and are stated; check convergence (R-hat near 1.0)
+    - excess zeros (zero-inflation) are NOT modelled here — consider a zero-inflated model if zeros dominate
+
+- id: bayesian_robust_regression
+  method: Bayesian robust regression (Student-t likelihood, PyMC)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Full Bayesian linear regression with a Student-t likelihood instead of Normal, so
+    heavy tails automatically down-weight outliers (no manual outlier removal). Outcome
+    = first continuous column, predictors = the remaining numeric columns (config
+    outcome/predictors). The degrees-of-freedom nu is estimated (small nu = heavy tails
+    = outliers present; large nu approaches the Normal model). Predictors standardized
+    for sampling and coefficients back-transformed to the raw scale. Reports coefficient
+    posterior means + 94% HDI, the posterior nu, and convergence diagnostics.
+  preconditions:
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - coefficient table (posterior mean, 94% HDI low/high) as CSV
+    - ArviZ forest plot of the robust coefficient posteriors
+    - estimated degrees-of-freedom nu and convergence diagnostics
+  executor_ref: "py::bayesian_robust_regression"
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - the Student-t likelihood down-weights outliers via heavy tails; a very small estimated nu signals influential outliers worth inspecting
+    - coefficients are back-transformed to the raw predictor scale; HDIs are credible intervals, not confidence intervals
+    - the priors are weakly informative and stated; check convergence (R-hat near 1.0, adequate ESS)
+    - robustness is in the likelihood, not a guarantee against a misspecified mean structure or high-leverage design points
+
+- id: bayesian_model_comparison
+  method: Bayesian model comparison (PSIS-LOO, PyMC + ArviZ)
+  domain: statistics
+  family: bayesian
+  goal: evaluate
+  description: >-
+    Compares candidate Bayesian models for the same continuous outcome by leave-one-out
+    cross-validation (PSIS-LOO via ArviZ). Outcome = first continuous column, predictors
+    = the remaining numeric columns. Fits three candidates — intercept-only (null),
+    linear-Normal, and robust Student-t — each with its pointwise log-likelihood, then
+    ranks them by expected log predictive density (ELPD). Reports the ranking, each
+    model's ELPD and LOO stacking weight, and names the best model. Higher ELPD is
+    better; a difference should be judged against its standard error.
+  preconditions:
+    min_continuous: 1
+    min_rows: 15
+  produces:
+    - LOO comparison table (rank, ELPD, dELPD, se, weight) as CSV
+    - the best model and the full ranking with stacking weights
+  executor_ref: "py::bayesian_model_comparison"
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 概率(此法未直接用,沿用采样设置)
+      default: "0.94"
+  biases:
+    - ELPD differences should be interpreted relative to their standard error (dse); a small gap is not decisive
+    - LOO stacking weights are relative predictive support for model averaging, NOT posterior model probabilities
+    - PSIS-LOO can be unreliable when Pareto-k diagnostics are high (very influential points); not surfaced here
+    - the candidate set is fixed (null / linear / robust-t); it does not search over predictor subsets or nonlinear terms

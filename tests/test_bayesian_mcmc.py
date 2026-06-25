@@ -125,3 +125,61 @@ def test_degrade_without_pymc(tmp_path: Path, monkeypatch):
     assert "跳过" in res.summary
     assert "pymc" in res.summary.lower()
     assert not res.estimates  # nothing fabricated
+
+
+# --------------------------------------------------------------------------- #
+# 5) bayesian_poisson_regression — count GLM, auto Negative-Binomial on overdispersion
+# --------------------------------------------------------------------------- #
+def test_bayesian_count_regression_overdispersed(tmp_path: Path):
+    rng = np.random.default_rng(4)
+    n = 200
+    x = rng.normal(size=n)
+    rate = np.exp(0.5 + 0.7 * x)
+    # negative-binomial counts (overdispersed) -> auto family should pick NB
+    events = rng.negative_binomial(3, 3.0 / (3.0 + rate))
+    df = pd.DataFrame({"x": x, "events": events})
+    res = _run(tmp_path, "cnt.csv", df, "bayesian_poisson_regression",
+               "Bayesian count regression", {"outcome": "events", "predictors": ["x"]})
+    e = res.estimates
+    assert e["rr__x"] > 1.0                 # positive log-rate effect -> RR > 1
+    assert e["rr__x__hdi_low"] <= e["rr__x__hdi_high"]
+    assert e["dispersion"] > 1.0
+    assert e["max_rhat"] < 1.15
+    assert "负二项" in res.summary           # auto-selected NB for overdispersion
+
+
+# --------------------------------------------------------------------------- #
+# 6) bayesian_robust_regression — recovers slope despite outliers; small nu
+# --------------------------------------------------------------------------- #
+def test_bayesian_robust_regression_handles_outliers(tmp_path: Path):
+    rng = np.random.default_rng(5)
+    n = 120
+    x = rng.normal(size=n)
+    y = 2.0 + 3.0 * x + rng.normal(0, 1.0, n)
+    y[:8] += rng.normal(40, 5, 8)          # inject gross outliers
+    df = pd.DataFrame({"x": x, "y": y})
+    res = _run(tmp_path, "rob.csv", df, "bayesian_robust_regression",
+               "Bayesian robust regression", {"outcome": "y", "predictors": ["x"]})
+    e = res.estimates
+    assert abs(e["beta__x"] - 3.0) < 1.0    # heavy tails keep the slope near truth
+    assert e["nu"] < 15.0                   # small df flags the heavy-tailed/outlier data
+    assert e["max_rhat"] < 1.15
+    assert "ν" in res.summary or "nu" in res.summary.lower()
+
+
+# --------------------------------------------------------------------------- #
+# 7) bayesian_model_comparison — LOO ranks an informative model above null
+# --------------------------------------------------------------------------- #
+def test_bayesian_model_comparison_loo(tmp_path: Path):
+    rng = np.random.default_rng(6)
+    n = 120
+    x = rng.normal(size=n)
+    y = 1.0 + 2.0 * x + rng.normal(0, 1.0, n)
+    df = pd.DataFrame({"x": x, "y": y})
+    res = _run(tmp_path, "cmp.csv", df, "bayesian_model_comparison",
+               "Bayesian model comparison", {"outcome": "y", "predictors": ["x"]})
+    e = res.estimates
+    assert e["n_models"] == 3.0
+    # an informative predictor -> linear/robust must out-predict the intercept-only model
+    assert e["elpd__linear"] > e["elpd__null"]
+    assert "PSIS-LOO" in res.summary or "LOO" in res.summary
