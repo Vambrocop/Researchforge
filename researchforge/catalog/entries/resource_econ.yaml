@@ -1,0 +1,118 @@
+# Resource-economics bridge (cost <-> physical/resource units) — the decision-
+# economics piece of an Energy-Water-Food (EWF) nexus toolkit. Same "resource"
+# family as resource.yaml / resource_io.yaml (shared via auto-discovery), but owned
+# in this separate file. Pure Python (numpy / pandas).
+
+- id: cost_effectiveness_analysis
+  method: Cost-Effectiveness Analysis (CEA / ICER frontier)
+  domain: economics
+  family: resource
+  goal: evaluate
+  description: >-
+    Compares decision ALTERNATIVES (each row = an option) on cost versus an effect /
+    outcome, the standard tool for "which option is worth paying for". Needs a cost
+    column (config cost, else a column named cost/price/expense) and an effect column
+    (config effect, else a column named effect/outcome/benefit/saving/qaly/co2/water);
+    an optional label column (config option, else the first non-numeric column).
+    Per option it reports the average cost-effectiveness ratio ACER = cost / effect,
+    then builds the cost-effectiveness FRONTIER using the standard iterative dominance
+    algorithm — (1) drop STRONGLY dominated options (another option is at least as
+    cheap AND at least as effective), (2) drop EXTENDED (weakly) dominated options
+    (an option whose incremental ICER is lower than that of a more-effective option,
+    i.e. dominated by a linear combination of neighbours), recomputing ICERs after
+    each removal until all frontier ICERs are non-decreasing — and computes the
+    incremental cost-effectiveness ratio ICER = "delta cost / delta effect" between
+    each surviving option and the previous one on the frontier. If a willingness-to-pay
+    threshold is given (config wtp, per unit effect) it identifies the optimal option
+    (the most-effective frontier option whose incremental ICER is at or below wtp) and
+    each option's net monetary benefit NMB = "wtp times effect minus cost". Rows with a
+    missing or zero effect are dropped (ACER / frontier slope undefined).
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 2
+  produces:
+    - per-option ACER + dominance status (frontier / dominated / extended-dominated)
+    - incremental cost-effectiveness ratios (ICERs) along the frontier, each with its comparator
+    - "optional: optimal option + net monetary benefit (NMB) at a willingness-to-pay threshold"
+    - cost-effectiveness plane plot (effect vs cost, frontier line, dominated points marked) + ranked CSV
+  executor_ref: "py::cost_effectiveness_analysis"
+  params:
+    - name: cost
+      type: column
+      description: 成本列（每行一个备选方案）
+      default: 名为 cost/price/expense 的列，否则第一个数值列
+    - name: effect
+      type: column
+      description: 效果/产出列（效益、节约、QALY、减碳、节水等）
+      default: 名为 effect/outcome/benefit/saving/qaly/co2/water 的列，否则另一个数值列
+    - name: option
+      type: column
+      description: 方案标签列
+      default: 首个非数值列，否则自动编号
+    - name: wtp
+      type: float
+      description: 支付意愿（每单位效果愿付的成本上限）；给定则挑最优方案并算净货币效益 NMB
+      default: "无（不挑最优、不算 NMB）"
+  biases:
+    - ICER 的符号/象限决定其含义 — 更贵更有效的方案，其 ICER 必须对照支付意愿(WTP)阈值才能判断是否值得；更便宜更有效的方案直接占优(dominates)对手，无需 ICER；本报告对每个前沿 ICER 都标注比较对象(comparator)
+    - ACER（平均成本-效果比）只反映单方案性价比，不能用于在方案间做边际取舍 — 决策应看前沿上的增量 ICER 与 WTP 对比，而非最低 ACER
+    - extended (weak) dominance elimination is ITERATIVE (removing one option changes another's ICER); the result is the standard textbook frontier but is sensitive to the exact cost/effect inputs — small input changes can flip an option on/off the frontier
+    - effect is assumed measured on a single consistent scale across options; mixing effect units (e.g. tCO2 for one option, m3 water for another) makes ACER / ICER meaningless
+    - the analysis is static and ignores uncertainty in cost and effect — a probabilistic sensitivity analysis (CEAC) would show how robust the optimal choice is to that uncertainty
+
+- id: marginal_abatement_cost
+  method: Marginal Abatement Cost Curve (MACC)
+  domain: economics
+  family: resource
+  goal: evaluate
+  description: >-
+    Ranks a PORTFOLIO of interventions (each row = a measure) by cost per unit of
+    resource / emission abated — the canonical "which measures, up to what budget /
+    carbon price" curve (McKinsey-style cost curve). Needs a cost column (config cost,
+    else a column named cost/price/expense) and an abatement / saving column (config
+    abatement, else a column named abatement/saving/reduction/co2/avoided); an optional
+    label column (config measure, else the first non-numeric column). Computes the
+    marginal abatement cost MAC = cost / abatement per measure (cost may be NEGATIVE =
+    a "no-regret" / net-saving measure), sorts measures ascending by MAC, and builds
+    the cumulative-abatement (x-axis) versus MAC (y-axis) step-bar curve — each bar's
+    width is the measure's abatement and its height is the MAC. Negative-cost measures
+    are flagged. Measures with abatement at or below zero are dropped (a per-unit cost
+    is undefined) and disclosed. If a carbon price / threshold is given (config
+    carbon_price or price) it reports the total abatement achievable at or below that
+    price and the corresponding total cost.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 2
+  produces:
+    - per-measure MAC (cost per unit abated) + ascending ranking
+    - cumulative-abatement vs MAC step-bar curve (MACC), no-regret measures flagged
+    - "optional: total abatement and total cost achievable at or below a carbon price"
+    - ranked CSV (measure, cost, abatement, mac, cumulative_abatement, no_regret)
+  executor_ref: "py::marginal_abatement_cost"
+  params:
+    - name: cost
+      type: column
+      description: 成本列（每行一个措施；可为负=无悔措施）
+      default: 名为 cost/price/expense 的列，否则第一个数值列
+    - name: abatement
+      type: column
+      description: 减排/节约/避免量列（每单位即按此计 MAC）
+      default: 名为 abatement/saving/reduction/co2/avoided 的列，否则另一个数值列
+    - name: measure
+      type: column
+      description: 措施标签列
+      default: 首个非数值列，否则自动编号
+    - name: carbon_price
+      type: float
+      description: 碳价/阈值；给定则报告 MAC≤该价的总可减排量与总成本
+      default: 无
+    - name: price
+      type: float
+      description: carbon_price 的别名（阈值）
+      default: 无
+  biases:
+    - MAC ignores INTERACTIONS and ORDERING effects between measures — one measure's abatement / cost can depend on whether another has already been adopted; the curve treats them as independent and additive
+    - the MACC is STATIC (a single-period snapshot) and ignores the time value of money, technology learning, and the dynamics of deployment
+    - MAC is highly sensitive to the cost / abatement BOUNDARY assumptions — system boundary, baseline / counterfactual, discount rate and measure lifetime; the same measures under a different set of assumptions can re-order the curve
+    - negative-cost ("no-regret") measures imply unexploited net-saving opportunities, which often signal hidden costs, non-financial barriers, or mis-measured baselines rather than free money
+    - measures with abatement at or below zero are dropped (no per-unit cost is definable); this can hide options that are valuable for reasons other than the chosen abatement metric

@@ -1,0 +1,69 @@
+# Material Flow Analysis (MFA) — resource family / sustainability. Economy-wide /
+# facility mass-balance accounting of PHYSICAL resource flows: inputs = outputs +
+# net stock addition. The physical-balance complement to the monetary Leontief
+# input-output (resource_io.yaml) and the cost methods, for an Energy-Water-Food
+# nexus toolkit. Pure Python (numpy / pandas). This file coexists with the other
+# resource-family yamls via catalog auto-discovery (separate file = no merge).
+
+- id: material_flow_analysis
+  method: Material Flow Analysis (mass-balance accounting)
+  domain: sustainability
+  family: resource
+  goal: describe
+  description: >-
+    Economy-wide / facility material flow analysis (MFA): mass-balance accounting
+    of PHYSICAL resource flows under the material-balance principle "inputs =
+    outputs + net stock addition" (industrial-ecology / Eurostat EW-MFA). Numeric
+    flow columns are each classified as an INPUT flow or an OUTPUT flow — by config
+    input_flows / output_flows (lists of column names) if given, else by column-name
+    keyword (inputs contain input/extraction/import/intake/supply/consumption/
+    withdrawal/use; outputs contain output/emission/waste/export/discharge/disposal/
+    loss/product). Columns matching neither are reported "unclassified" and excluded
+    from the balance (disclosed). It computes total inputs (= throughput), total
+    outputs, the net stock addition NAS = inputs - outputs (the balancing residual:
+    physical accumulation in stock OR unaccounted flow / measurement error, both
+    disclosed; "~0" for a true consistent-unit balance), the balance ratio
+    "outputs/inputs", an optional resource / eco efficiency (useful product output /
+    total input, if config product_flow names an output flow), an optional recycling
+    rate (recycled input / total input, if config recycled_flow names an input flow),
+    and per-flow shares. NaN flow cells are treated as 0 (sparse flow-table
+    convention, disclosed). Products: a flow-balance bar chart (inputs vs outputs vs
+    NAS) and a per-flow CSV (flow, type, value, share).
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 2
+  produces:
+    - total inputs / outputs and net stock addition NAS = inputs - outputs (mass balance)
+    - throughput, balance ratio (outputs/inputs), and per-flow shares
+    - "(optional) resource / eco efficiency = useful product / total input, if a product flow is flagged"
+    - "(optional) recycling rate = recycled input / total input, if a recycled flow is flagged"
+    - per-flow table (CSV) + a flow-balance bar chart (inputs vs outputs vs NAS)
+  executor_ref: "py::material_flow_analysis"
+  params:
+    - name: input_flows
+      type: columns
+      description: 输入流的列名列表（提供则覆盖按名分类）；缺则按列名关键词识别输入流
+      default: 自动（按列名关键词 input/extraction/import/intake/supply/consumption/withdrawal/use 识别）
+    - name: output_flows
+      type: columns
+      description: 输出流的列名列表（提供则覆盖按名分类）；缺则按列名关键词识别输出流
+      default: 自动（按列名关键词 output/emission/waste/export/discharge/disposal/loss/product 识别）
+    - name: product_flow
+      type: column
+      description: 标记为「有用产品」的某个输出流列名；提供则资源效率＝该产出/总输入
+      default: 无（资源效率以总输出/总输入比代报，并披露非真正有用产出效率）
+    - name: recycled_flow
+      type: column
+      description: 标记为「再生(循环)输入」的某个输入流列名；提供则再生率＝该输入/总输入
+      default: 无（再生率=NaN）
+    - name: unit
+      type: column
+      description: 期间/实体标签列（如年份或工厂名），从流量列中排除、不参与平衡
+      default: 自动（profiler 的 unit_col / time_col）
+  biases:
+    - "mass balance requires CONSISTENT UNITS across all flows — every flow must be in the same mass unit (e.g. tonnes); summing flows in different units is meaningless"
+    - "the residual NAS = inputs - outputs conflates GENUINE net stock addition with UNACCOUNTED flows / measurement error — the two cannot be separated from the totals alone (for a true closed balance NAS should be ~0 or = real stock build-up)"
+    - name-based input/output classification is a HEURISTIC default; a column whose name does not match either keyword set is excluded from the balance — verify / override via config input_flows & output_flows
+    - "resource efficiency without a flagged product_flow is reported as the generic outputs/inputs ratio, NOT a true useful-output efficiency; recycling rate is NaN unless a recycled_flow is flagged"
+    - NaN flow cells are treated as 0 (a no-flow convention for sparse flow tables), not as missing data to be imputed — a genuinely missing measurement would understate that flow
+    - this is a static account over the supplied period(s); it captures no timing, no within-period dynamics, and no flow uncertainty
