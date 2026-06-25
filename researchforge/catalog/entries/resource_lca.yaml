@@ -1,0 +1,70 @@
+# Footprint analysis (LCA-style carbon / water / material footprint) — resource
+# family / sustainability. The life-cycle-INVENTORY piece of an Energy-Water-Food
+# nexus & sustainability toolkit; pairs with life_cycle_cost (techno_economic) to
+# complete the life-cycle pair (physical burden vs monetary cost of ownership).
+# Pure Python (numpy / pandas). Coexists with the other resource-family yamls via
+# catalog auto-discovery (separate file = no merge).
+
+- id: footprint_analysis
+  method: Footprint analysis (LCA-style carbon / water / material footprint)
+  domain: sustainability
+  family: resource
+  goal: describe
+  description: >-
+    LCA-style footprint with contribution (hotspot) analysis. A footprint multiplies
+    each activity's physical quantity by an EMISSION / INTENSITY FACTOR and sums the
+    burdens: footprint_a = quantity_a x factor_a, TOTAL = sum_a footprint_a, and the
+    contribution share_a = footprint_a / TOTAL ranks activities so the dominant
+    hotspots are visible. Footprints REQUIRE factors and the system never fabricates
+    them - factors come, in priority order, from (1) config factors = a dict mapping
+    {activity_column_name -> factor} (wide form; each named column's total is
+    multiplied by its factor), else (2) a long-format table where config
+    activity / quantity / factor name the label, amount and per-row factor columns
+    (one row per activity), else (3) config factor_column (a per-row factor column)
+    multiplied against the config quantity column. If a config functional_unit column
+    is given, an intensity per functional unit = TOTAL / sum(functional_unit) is also
+    reported, else only the absolute footprint. If no factor source is resolvable the
+    method degrades honestly. One impact category per run (the one the supplied
+    factors encode); rerun with water / energy / material factors for those.
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 1
+  produces:
+    - total footprint = sum(quantity x factor) over activities
+    - per-activity contribution (hotspot) share and the top contributor share
+    - "intensity per functional unit = total / sum(functional_unit) (if a functional-unit column is given; else absolute only)"
+    - "per-activity footprint table (CSV: activity, quantity, factor, footprint, share_pct) + sorted contribution bar chart"
+  executor_ref: "py::footprint_analysis"
+  params:
+    - name: factors
+      type: str
+      description: >-
+        排放/强度因子字典 {活动列名: 因子}（宽表，首选最明确形式）；每个键是一个活动数量列、值是该列的因子，足迹=列总量×因子
+      default: 无（必须提供因子的三种来源之一，否则诚实跳过——系统不会凭空生成因子）
+    - name: activity
+      type: column
+      description: 长表形式的活动标签列（与 quantity、factor 一起使用，每行一个活动）
+      default: 无
+    - name: quantity
+      type: column
+      description: 数量/活动量列（长表与 factor 配对，或与 factor_column 配对逐行相乘）
+      default: 无
+    - name: factor
+      type: column
+      description: 长表形式的逐行因子列（与 activity、quantity 一起使用）
+      default: 无
+    - name: factor_column
+      type: column
+      description: 逐行因子列名（与 quantity 列逐行相乘；行=活动，标签取 unit/time 列）
+      default: 无
+    - name: functional_unit
+      type: column
+      description: 功能单位列（其总量作分母，强度=总足迹/功能单位总量）
+      default: 无（仅报绝对足迹，强度=NaN）
+  biases:
+    - footprint quality EQUALS factor quality - the emission / intensity factors are user-supplied and the engine neither fabricates nor validates them; a wrong factor scales the whole result
+    - quantity and factor MUST share consistent units (e.g. kWh x kgCO2e/kWh); summing burdens computed in inconsistent units is meaningless
+    - results depend on the SYSTEM BOUNDARY and ALLOCATION choices (which activities are included, how co-products share burden) - these are key subjective LCA assumptions, not computed by the engine
+    - "exactly ONE impact category is computed per run (the category encoded by the supplied factors, e.g. carbon); water / energy / material footprints require a separate run with the corresponding factors"
+    - contribution (hotspot) analysis identifies the largest shares of the CURRENT footprint, which is not the same as identifying where reductions are cheapest or feasible
+    - a missing functional-unit column means only the ABSOLUTE footprint is reported (intensity = NaN); absolute footprints are not comparable across systems of different output scale

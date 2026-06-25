@@ -1,0 +1,75 @@
+# Life-cycle cost (LCC / total cost of ownership) — techno_economic family. The
+# life-cycle-COST piece of the life-cycle pair; complements footprint_analysis
+# (resource, physical burden) and npv_irr (net benefit) by comparing alternatives on
+# discounted COST of ownership. Pure Python (numpy). Coexists with the other
+# techno_economic yamls via catalog auto-discovery (separate file = no merge).
+
+- id: life_cycle_cost
+  method: Life-cycle cost (LCC / total cost of ownership)
+  domain: techno_economic
+  family: techno_economic
+  goal: describe
+  description: >-
+    Total discounted cost of ownership over an asset's life - the cost complement to
+    npv_irr (net benefit). LCC = capex + sum_{t=1..N} opex_t/(1+r)^t - salvage/(1+r)^N
+    is the up-front capital cost plus the present value of recurring operating /
+    maintenance costs minus the present value of any end-of-life salvage value. It
+    also reports the Equivalent Annual Cost EAC = LCC x CRF where the capital recovery
+    factor CRF = r(1+r)^N / ((1+r)^N - 1) (guarded to 1/N when r=0), which puts
+    alternatives of different lifetimes on a like basis, plus the cost-phase breakdown
+    (capex %, opex-PV %, disposal/salvage %) and the discounted vs undiscounted total.
+    Capex comes from config capex, else a capex / capital / investment column, else
+    the first period's cost; opex comes (preferred) from a config opex column of
+    per-period costs, else a config cost cashflow column (row 0 = capex, rows 1..N =
+    opex), else a config scalar annual_opex repeated for N periods. Discount rate from
+    config rate (default 0.08); periods N from config periods / life else inferred
+    from rows; salvage from config salvage (default 0). Degrades honestly if neither
+    capex nor any opex source is resolvable.
+  preconditions:
+    min_rows: 1
+  produces:
+    - "life-cycle cost LCC = capex + sum opex/(1+r)^t - salvage/(1+r)^N (present value)"
+    - "equivalent annual cost EAC = LCC x CRF (CRF = r(1+r)^N/((1+r)^N-1), r=0 -> 1/N)"
+    - cost-phase breakdown (capex %, opex PV %, disposal/salvage %) + discounted vs undiscounted total
+    - "cost-phase table (CSV: phase, present_value, share_pct) + cost-breakdown bar chart"
+  executor_ref: "py::life_cycle_cost"
+  params:
+    - name: capex
+      type: float
+      description: 期初资本性支出（标量）；缺则取 capex/capital/investment 列或 cost 现金流首行
+      default: 自动（capex/capital/investment 列或 cost[0]，再缺按 0）
+    - name: opex
+      type: column
+      description: 每期运维成本列（首选、最明确的 opex 来源）
+      default: 无
+    - name: cost
+      type: column
+      description: 成本现金流列（行 0=capex、行 1..N=opex）；opex 列缺时使用
+      default: 无
+    - name: annual_opex
+      type: float
+      description: 标量年运维成本（重复 N 期）；opex/cost 列均缺时使用
+      default: 无
+    - name: rate
+      type: float
+      description: 每期折现率
+      default: "0.08"
+    - name: periods
+      type: int
+      description: 运营期数 N；缺则用 life 或由行数推断
+      default: 自动/行数
+    - name: life
+      type: int
+      description: periods 的别名（资产寿命，期数）
+      default: 自动/行数
+    - name: salvage
+      type: float
+      description: 期末残值（在第 N 期收回，作成本抵减）
+      default: "0"
+  biases:
+    - LCC compares COST, not value - comparing alternatives by LCC is only fair when they deliver the SAME output / service level; if benefits differ, use npv_irr (net benefit) or cost_benefit instead
+    - LCC and EAC are highly sensitive to the discount rate r and the assumed life N - a small change in either can reorder alternatives, so a sensitivity check is advised
+    - "EAC (= LCC x capital recovery factor) is what makes alternatives of DIFFERENT lifetimes comparable; comparing raw LCC across unequal lives is misleading"
+    - "the cost-phase breakdown is computed over the ABSOLUTE present values so the bars are readable; salvage is a cost REDUCTION (disposal credit) and its sign is shown in the CSV"
+    - opex is resolved from an explicit opex column first, then a cost cashflow (row 0 = capex), then a scalar annual_opex - an ambiguous input can change which costs are treated as capex vs opex, so prefer the explicit opex column
+    - "discounting period t = 1..N for opex (capex at t=0, salvage at t=N); this is the standard LCC timing convention and is not inferred from any date column"

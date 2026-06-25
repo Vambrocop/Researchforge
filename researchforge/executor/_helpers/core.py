@@ -946,6 +946,17 @@ def _report(entry, fp, summary, files, override) -> str:
     if override:
         lines += ["> ⚠️ **知情覆盖**：该分析部分前提未满足，结果仅供参考、需谨慎解读。", ""]
     lines += ["## 结果摘要", *[f"- {s}" for s in summary], ""]
+    # Presentation-only "report intelligence" — an analyst-style narrative inserted
+    # right after 结果摘要. Purely additive; defensively wrapped so a narrative
+    # failure can never break report generation (falls back to no narrative).
+    try:
+        from researchforge.executor._helpers.report_narrative import build_narrative
+
+        narrative = build_narrative(entry, fp, summary, override)
+        if narrative:
+            lines += [*narrative]
+    except Exception:
+        pass
     if entry.biases:
         lines += ["## 偏差提醒（需读者判断）", *[f"- {b}" for b in entry.biases], ""]
     lines += ["## 产物文件", *[f"- `{f}`" for f in files]]

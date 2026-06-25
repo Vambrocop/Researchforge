@@ -319,6 +319,30 @@ def _branch_material_flow_analysis(ctx: Ctx) -> None:
 
         _save_fig(d, "mfa_balance.png", files, _plot)
 
+        # --- Sankey flow diagram: inputs -> system -> outputs + net stock (ENGLISH) ---
+        # By construction Σinputs − Σoutputs − NAS = 0, so the Sankey balances. A negative
+        # NAS (stock depletion, TO>TI) flips to a source. Best-effort (wrapped in _save_fig).
+        def _sankey(plt):
+            from matplotlib.sankey import Sankey
+
+            fig = plt.figure(figsize=(7.6, 5.2))
+            ax = fig.add_subplot(1, 1, 1)
+            scale = 1.0 / max(total_input, 1e-9)  # normalize so arrow widths are readable
+            flows, labels, orient = [], [], []
+            for c, v in in_sums.items():
+                flows.append(float(v) * scale); labels.append(f"{c} (in)"); orient.append(1)
+            for c, v in out_sums.items():
+                flows.append(-float(v) * scale); labels.append(f"{c} (out)"); orient.append(-1)
+            if abs(net_stock_addition) > 1e-9:
+                flows.append(-float(net_stock_addition) * scale)
+                labels.append("Net stock change"); orient.append(0)
+            Sankey(ax=ax, flows=flows, labels=labels, orientations=orient,
+                   unit=None, scale=1.0, gap=0.4).finish()
+            ax.set_title("Material flow Sankey: inputs -> system -> outputs + stock")
+            ax.axis("off")
+
+        _save_fig(d, "mfa_sankey.png", files, _sankey)
+
         # --- Chinese summary with ⚠ disclosures ---
         nas_pct = (abs(net_stock_addition) / total_input * 100.0) if total_input != 0 else float("nan")
         summary.append(
@@ -326,7 +350,7 @@ def _branch_material_flow_analysis(ctx: Ctx) -> None:
             f"总输入(吞吐量) TI={total_input:.6g}、总输出 TO={total_output:.6g}；"
             f"净存量增加(平衡残差) NAS = TI − TO = {net_stock_addition:.6g}"
             f"（占总输入 {nas_pct:.2f}%），平衡比 TO/TI={balance_ratio:.6g}。"
-            f"{eff_note}{rec_note} 各流明细与占比见 mfa_flows.csv 与平衡图。"
+            f"{eff_note}{rec_note} 各流明细与占比见 mfa_flows.csv、平衡图与 Sankey 流图。"
             " ⚠ 质量平衡要求所有流量使用一致的质量单位（如吨）——MFA 把不同单位的流相加无意义，"
             "请确认各列同单位。 ⚠ 残差 NAS 同时含「真实的在用存量净增加」与「未核算流/测量误差」，"
             "二者无法从总量区分（封闭一致的物料平衡里 NAS≈0 或＝真实存量积累）。 ⚠ 进/出流的"

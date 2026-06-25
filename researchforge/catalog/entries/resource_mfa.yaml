@@ -38,6 +38,7 @@
     - "(optional) resource / eco efficiency = useful product / total input, if a product flow is flagged"
     - "(optional) recycling rate = recycled input / total input, if a recycled flow is flagged"
     - per-flow table (CSV) + a flow-balance bar chart (inputs vs outputs vs NAS)
+    - a Sankey flow diagram (inputs -> system -> outputs + net stock change)
   executor_ref: "py::material_flow_analysis"
   params:
     - name: input_flows

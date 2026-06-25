@@ -67,7 +67,8 @@
 
   /* data summary */
   .databar{display:flex;flex-wrap:wrap;gap:9px 12px;align-items:center}
-  .pill{font-size:12px;padding:4px 12px;border-radius:20px;background:var(--accent-soft);color:var(--accent);font-weight:500}
+  .pill{font-size:12px;padding:4px 12px;border-radius:20px;background:var(--accent-soft);color:var(--accent);
+    font-weight:500;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
   .pill.grey{background:#f0f1ed;color:var(--muted)}
   .qual{margin-left:auto;font-size:13px;color:var(--muted)}
   .row-actions{margin-top:14px;display:flex;align-items:center;flex-wrap:wrap}
@@ -100,8 +101,8 @@
   .rec .top{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
   .light{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 3px rgba(0,0,0,.025)}
   .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
-  .mname{font-weight:650;font-size:15px}
-  .fam{font-size:11.5px;color:var(--muted);background:#f3f4f0;padding:3px 9px;border-radius:6px}
+  .mname{font-weight:650;font-size:15px;overflow-wrap:anywhere;word-break:break-word;min-width:0}
+  .fam{font-size:11.5px;color:var(--muted);background:#f3f4f0;padding:3px 9px;border-radius:6px;flex:none}
   .fit-badge{font-size:12px;color:var(--muted)}
   .run{margin-left:auto;font-size:13px;font-weight:600;border:1px solid var(--accent);color:var(--accent);
     background:#fff;padding:7px 17px}
@@ -147,13 +148,18 @@
   .cfg-cancel:hover{border-color:#bcd0c4;color:var(--ink)}
 
   /* result */
-  .sumtext{border-left:3px solid var(--accent);padding:6px 0 6px 15px;font-size:14px;line-height:1.65;white-space:pre-wrap}
-  .report{font-size:13.5px;line-height:1.65}
+  .sumtext{border-left:3px solid var(--accent);padding:6px 0 6px 15px;font-size:14px;line-height:1.65;
+    white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
+  .report{font-size:13.5px;line-height:1.65;overflow-wrap:anywhere;word-break:break-word}
   .report h1,.report h2,.report h3{text-transform:none;letter-spacing:0;color:var(--ink);border:none}
-  .report code{background:#f3f4f0;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .report code{background:#f3f4f0;padding:1px 5px;border-radius:4px;font-size:12.5px;
+    overflow-wrap:anywhere;word-break:break-all}
   .file-links{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
   .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);border-radius:var(--radius-sm);
-    padding:8px 13px;text-decoration:none;background:#fff;transition:.15s}
+    padding:8px 13px;text-decoration:none;background:#fff;transition:.15s;
+    max-width:100%;word-break:break-all;overflow-wrap:anywhere}
+  .file-links>div{max-width:100%}
+  .file-links .meta{word-break:break-all;overflow-wrap:anywhere}
   .file-links a:hover{border-color:var(--accent);background:var(--accent-soft)}
   .inline-fig{max-width:440px;width:100%;border:1px solid var(--line);border-radius:10px}
   .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:9px 19px;border-radius:var(--radius-sm);
@@ -170,7 +176,7 @@
   .hist-item:first-child{padding-top:2px}
   .hist-item:last-child{border-bottom:none;padding-bottom:2px}
   .hist-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
-  .hist-id{font-weight:650;font-size:14px}
+  .hist-id{font-weight:650;font-size:14px;overflow-wrap:anywhere;word-break:break-word;min-width:0}
   .hist-ts{font-size:12px;color:var(--muted)}
   .hist-count{font-size:11.5px;color:var(--muted);background:#f3f4f0;padding:3px 9px;border-radius:6px}
   .hist-actions{margin-left:auto;display:flex;gap:8px}
@@ -179,8 +185,8 @@
   .hist-actions a:hover,.hist-actions button:hover{border-color:var(--accent);background:var(--accent-soft)}
   .hist-files{margin-top:10px;display:none}
   .hist-files.open{display:block}
-  .hist-file{display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:4px 0}
-  .hist-file a{color:var(--accent);text-decoration:none;cursor:pointer}
+  .hist-file{display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:4px 0;flex-wrap:wrap}
+  .hist-file a{color:var(--accent);text-decoration:none;cursor:pointer;word-break:break-all;overflow-wrap:anywhere;min-width:0}
   .hist-file a:hover{text-decoration:underline}
   .hist-preview{margin-top:10px;border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:#fbfcfb;display:none}
   .hist-preview.open{display:block}
@@ -214,9 +220,9 @@
     <span class="tag" data-i18n="tagline"></span>
   </div>
   <div class="grow"></div>
-  <div class="lang-toggle" role="group" aria-label="Language">
-    <button id="lang-zh" onclick="setLang('zh')">中文</button>
-    <button id="lang-en" onclick="setLang('en')">EN</button>
+  <div class="lang-toggle" role="group" aria-label="Language / 语言">
+    <button type="button" id="lang-zh" lang="zh" aria-pressed="false" onclick="setLang('zh')">中文</button>
+    <button type="button" id="lang-en" lang="en" aria-pressed="false" onclick="setLang('en')">EN</button>
   </div>
 </header>
 
@@ -514,10 +520,10 @@ function applyStaticI18n(){
       if(attr&&key) el.setAttribute(attr.trim(), t(key.trim()));
     });
   });
-  // toggle highlight
+  // toggle highlight + a11y state
   const z=document.getElementById('lang-zh'), e=document.getElementById('lang-en');
-  if(z) z.classList.toggle('on', LANG==='zh');
-  if(e) e.classList.toggle('on', LANG==='en');
+  if(z){ z.classList.toggle('on', LANG==='zh'); z.setAttribute('aria-pressed', LANG==='zh'?'true':'false'); }
+  if(e){ e.classList.toggle('on', LANG==='en'); e.setAttribute('aria-pressed', LANG==='en'?'true':'false'); }
 }
 
 // re-render whatever is currently on screen so dynamic strings switch language too
@@ -629,7 +635,7 @@ function renderIssues(issues){
   document.getElementById('issues-list').innerHTML=issues.map(i=>`
     <div class="issue-row">
       <span class="issue-kind">${escHtml(i.kind)}</span>
-      <span class="issue-col">${i.column?escHtml(i.column):'—'}</span>
+      <span class="issue-col">${i.column?escHtml(i.column):escHtml(t('clean_dash'))}</span>
       <span>${escHtml(i.detail)}</span>
       <span class="issue-sev">[${escHtml(i.severity)}]</span>
     </div>`).join('');
