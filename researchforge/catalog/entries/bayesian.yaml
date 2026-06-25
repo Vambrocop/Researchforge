@@ -196,3 +196,188 @@
     - if the data are overdispersed (variance much greater than mean) the credible interval is too narrow — a flag fires; consider negative-binomial
     - a credible interval is a direct probability statement, NOT a confidence interval
     - the rate-ratio posterior and P(ratio greater than 1) come from fixed-seed Monte-Carlo draws
+
+# ── Full Bayesian regression (PyMC NUTS, MCMC) — bayesian_mcmc.py ──────────────
+# Modern PyMC needs no Stan/JAGS compiler; optional + graceful degrade when unavailable.
+
+- id: bayesian_regression
+  method: Bayesian linear regression (PyMC)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Full Bayesian linear regression via PyMC NUTS (no compiler needed). Outcome =
+    first continuous column, predictors = the remaining numeric columns (config
+    outcome/predictors). Weakly-informative Normal priors on the coefficients and a
+    HalfNormal on the residual SD; predictors are standardized for stable sampling and
+    coefficients are reported back on the raw scale. Reports each coefficient's
+    posterior mean and 94% HDI credible interval, a Bayesian R-squared, and the
+    convergence diagnostics (max R-hat, min ESS). A credible interval is a direct
+    probability statement, not a frequentist confidence interval.
+  preconditions:
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - coefficient table (posterior mean, 94% HDI low/high) as CSV
+    - ArviZ forest plot of the coefficient posteriors
+    - Bayesian R-squared and convergence diagnostics (R-hat, ESS)
+  executor_ref: "py::bayesian_regression"
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - a credible interval (HDI) is a direct probability statement, NOT a frequentist confidence interval
+    - results depend on the (weakly-informative) priors; the priors are stated and should be reported
+    - predictors are standardized for sampling and coefficients back-transformed to the raw scale (a constant rescaling)
+    - always check convergence (max R-hat should be near 1.0, ESS adequate) before trusting the posterior
+    - Bayesian R-squared is computed at the posterior-mean fit and is descriptive, not a model-selection criterion
+
+- id: bayesian_logistic_regression
+  method: Bayesian logistic regression (PyMC)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Full Bayesian logistic regression via PyMC NUTS for a binary outcome. Outcome =
+    a binary / two-level column (config outcome), predictors = the remaining numeric
+    columns (config predictors). Gelman weakly-informative Normal(0, 2.5) priors on
+    the standardized-predictor log-odds coefficients. Reports each predictor's odds
+    ratio (posterior, back-transformed to the raw predictor scale) with a 94% HDI
+    credible interval, and convergence diagnostics (max R-hat, min ESS). The higher
+    outcome level is modelled as the positive class.
+  preconditions:
+    requires_binary_outcome: true
+    min_rows: 12
+  produces:
+    - odds-ratio table (posterior OR, 94% HDI low/high) as CSV
+    - ArviZ forest plot of the posterior log-odds
+    - convergence diagnostics (R-hat, ESS)
+  executor_ref: "py::bayesian_logistic_regression"
+  params:
+    - name: outcome
+      type: column
+      description: 二值结果变量(建模较高水平为阳性)
+      default: 第一个二值列
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - an odds ratio's HDI is a credible interval (direct probability), NOT a confidence interval
+    - the Gelman Normal(0, 2.5) priors are weakly informative on the standardized log-odds scale and are stated
+    - odds ratios are back-transformed to the raw predictor scale (OR = exp(beta_std / sd_x))
+    - check convergence (R-hat near 1.0, adequate ESS) before interpreting the posterior
+    - separation or rare outcomes widen the posterior; consider more data or stronger priors
+
+- id: bayesian_hierarchical
+  method: Bayesian hierarchical model (varying intercepts, partial pooling)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Bayesian multilevel (varying-intercept) model via PyMC NUTS — the partial-pooling
+    workhorse. Needs a grouping column (config group/unit, else the panel unit column
+    or a low-cardinality categorical) plus a continuous outcome (config outcome) and
+    an optional within-group predictor (config predictor). Group intercepts are drawn
+    from a population Normal(mu_a, sigma_a) with a non-centered parameterization, so
+    small groups borrow strength from the population (shrinkage). Reports the
+    population mean, between-group and within-group SDs, the intra-class correlation
+    (ICC), per-group partial-pooled intercepts vs observed group means, and
+    convergence diagnostics.
+  preconditions:
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - per-group table (n, observed mean, partial-pooled intercept) as CSV
+    - ArviZ forest plot of the group intercepts (shrinkage)
+    - population mean, between/within SD, ICC, and convergence diagnostics
+  executor_ref: "py::bayesian_hierarchical"
+  params:
+    - name: group
+      type: column
+      description: 分组变量(个体/班级/地区等)
+      default: 面板单位列或低基数分类列
+    - name: unit
+      type: column
+      description: group 的别名(分组变量)
+      default: 同 group
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictor
+      type: column
+      description: 组内连续预测变量(可选,加变截距上的斜率)
+      default: 无(仅变截距)
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - partial pooling shrinks group estimates toward the population mean — intended (more stable for small groups), but it is a modelling choice
+    - the ICC and variance components depend on the (weakly-informative) priors, which are stated
+    - a non-centered parameterization is used for sampling geometry; check convergence (R-hat near 1.0, ESS adequate)
+    - this is a varying-INTERCEPT model by default; a single optional predictor adds a population (fixed) slope, not random slopes
+    - credible intervals are direct probability statements, not confidence intervals

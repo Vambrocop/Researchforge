@@ -52,7 +52,7 @@
 ## 1.0 之后(继续慢慢优化)
 
 ### v1.1 → v1.5 — 余下方法波 + 选模变聪明
-- [ ] **贝叶斯/生存/缺失**:贝叶斯回归·分层(待 Stan/JAGS)、竞争风险、时变协变量、MICE 多重插补 —— **仍开**(全 MCMC 待编译器);〔注:轻量共轭先验贝叶斯已有 `bayesian_ab_test`/`bayesian_proportion`/`bayesian_poisson_rate`,非分层 MCMC〕
+- [~] **贝叶斯/生存/缺失**:**贝叶斯回归·分层(2026-06-25 做了)** —— 原标"待 Stan/JAGS",**现代 PyMC NUTS 无需编译器**(Windows 无 g++ 也秒级采样),`bayesian_mcmc.py`:`bayesian_regression`/`bayesian_logistic_regression`/`bayesian_hierarchical`(变截距部分汇集),HDI/R-hat/ESS/ICC,可选+优雅降级。〔共轭先验贝叶斯 `bayesian_ab_test`/`bayesian_proportion`/`bayesian_poisson_rate` 仍在〕。**仍开**:竞争风险(已有 competing_risks)、时变协变量(已有 time_varying_cox)、MICE 多重插补、贝叶斯 SEM(blavaan)。
   - **领域聚焦(用户 2026-06-16 定)**:主战场 = **生态 / 农学 / 经济 / 环境 / 社科**;**医学暂缓**(MICE/竞争风险/生存缺失等临床向后推,不进 1.0 前序)。方法扩张优先这五域高频法。
 - [~] **文本/网络/空间**:空间侧已大幅上线 —— GWR(`gwr`)、空间依赖(`moran_i`/`local_moran`/`getis_ord_gi`/`getis_ord`/`bivariate_moran`/`local_geary`/`skater`/`ripleys_k`/`join_count`)、空间回归(`spatial_regression`)、网络科学(`community_detection`/`centrality_suite`/`epidemic_model`);**仍开**:文本挖掘(LDA 主题/情感)、ERGM、网络 meta。
 - [x] **快速选择器已上线(2026-06-16)**:目标感知 `recommend --goal <compare/relate/causal/…>` → 聚焦 top-N + 讲清"为什么"(14 目标分类 `recommender/goals.py` + `select_top`)。治"方法多到不知道用啥"。

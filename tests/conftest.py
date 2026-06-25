@@ -70,6 +70,8 @@ SLOW_MODULES = {
     "test_spc",
     # reliability: censored Weibull/lognormal MLE optimization + Crow-AMSAA per test
     "test_reliability",
+    # bayesian MCMC: PyMC NUTS sampling per test (regression / logistic / hierarchical)
+    "test_bayesian_mcmc",
 }
 
 
