@@ -75,3 +75,21 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if item.path.stem in SLOW_MODULES:
             item.add_marker(pytest.mark.slow)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_trend_artifacts(tmp_path_factory, monkeypatch):
+    """Keep the live-trend cache/snapshot (`~/.researchforge/…`, written by
+    `discover --live`) out of the test suite: point them at an isolated empty dir so
+    scores are deterministic regardless of whether the dev has run a live fetch.
+    Trend tests opt back in by writing to these (now tmp) paths themselves."""
+    import researchforge.catalog.trends as trends
+    from researchforge.recommender.scoring import _trend_snapshot
+
+    d = tmp_path_factory.mktemp("rf_trends")
+    monkeypatch.setattr(trends, "_CACHE_DIR", d)
+    monkeypatch.setattr(trends, "_CACHE_FILE", d / "trend_cache.json")
+    monkeypatch.setattr(trends, "_SNAPSHOT_FILE", d / "trend_snapshot.json")
+    _trend_snapshot.cache_clear()
+    yield
+    _trend_snapshot.cache_clear()

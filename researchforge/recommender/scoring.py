@@ -17,6 +17,9 @@ Dimensions (0-100, higher = more of that attribute):
 
 from __future__ import annotations
 
+from functools import lru_cache
+from typing import Optional
+
 from pydantic import BaseModel
 
 from researchforge.catalog.schema import AnalysisEntry
@@ -41,6 +44,34 @@ _FAMILY: dict[str, tuple[int, int, int, int, int]] = {
     "soil": (46, 42, 70, 32, 36),
 }
 _DEFAULT = (50, 56, 56, 55, 50)
+
+
+@lru_cache(maxsize=1)
+def _trend_snapshot() -> Optional[dict]:
+    """Process-cached momentum snapshot (written by `cli discover --live`). Read once
+    per process — a refreshed snapshot is picked up on the next run. Hot-path safe:
+    pure file read, never network. Returns None when no fresh snapshot exists."""
+    try:
+        from researchforge.catalog.trends import load_snapshot
+
+        return load_snapshot()
+    except Exception:
+        return None
+
+
+def _live_momentum(entry_id: str, family: str) -> Optional[int]:
+    """Real PyPI/GitHub/CRAN momentum for this method from the cached snapshot:
+    per-id if known, else the per-family mean. None when no live signal exists."""
+    snap = _trend_snapshot()
+    if not snap:
+        return None
+    by_id = snap.get("by_id", {})
+    if entry_id in by_id:
+        return int(by_id[entry_id])
+    fam = snap.get("by_family", {})
+    if family in fam:
+        return int(fam[family])
+    return None
 
 # per-id overrides (only the dimensions worth nudging from the family base)
 _ID: dict[str, dict[str, int]] = {
@@ -100,13 +131,22 @@ def score_method(
         elif k == "novelty":
             nov = v
 
+    # Live trend feed (phase 2): blend real PyPI/GitHub/CRAN momentum from the cached
+    # snapshot into popularity when available. Hot-path safe (file read, no network).
+    mom = _live_momentum(entry.id, entry.family)
+    if mom is not None:
+        pop = int(round(0.5 * pop + 0.5 * mom))
+        trend_note = "流行含实时趋势（PyPI/GitHub/CRAN 动量，快照缓存）"
+    else:
+        trend_note = "流行·新颖为离线编辑先验，趋势引擎接入后将动态更新"
+
     fit = max(0, min(100, int(rigor.score)))
     # overall display blend — fit and publishability weighted most; difficulty is a
     # cost and deliberately excluded (shown separately).
     overall = round(0.35 * fit + 0.25 * pub + 0.15 * pop + 0.15 * nov + 0.10 * aes)
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
-        f"难度 {diff}（越高越难）。流行·新颖为离线编辑先验，趋势引擎接入后将动态更新。"
+        f"难度 {diff}（越高越难）。{trend_note}。"
     )
     return MethodologyScore(
         popularity=pop, publishability=pub, aesthetics=aes, difficulty=diff,

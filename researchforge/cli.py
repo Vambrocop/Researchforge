@@ -155,26 +155,44 @@ def _cmd_benchmark() -> int:
     return 0
 
 
-def _cmd_discover(persist: bool = False) -> int:
-    from researchforge.catalog.discover import discover_candidates
+def _cmd_discover(persist: bool = False, live: bool = False) -> int:
+    from researchforge.catalog.discover import build_live_fetch_fn, discover_candidates
 
-    found = discover_candidates(persist=persist)
+    fetch_fn = None
+    if live:
+        print("实时趋势抓取中（PyPI / CRAN / GitHub，best-effort + 缓存）…")
+        fetch_fn = build_live_fetch_fn()
+
+    found = discover_candidates(fetch_fn=fetch_fn, persist=persist)
     if not found:
         print("自我进化：未发现新方法（候选都已在目录/队列中）。")
         return 0
-    print(f"自我进化发现 {len(found)} 个候选方法（按优先级排序，均为 pending，不自动上线）：")
+    tag = "实时趋势重排" if live else "离线先验排序"
+    print(f"自我进化发现 {len(found)} 个候选方法（{tag}，均为 pending，不自动上线）：")
     for m in found:
         b = m.breakdown
+        mom = f" 动量{m.momentum}" if m.momentum else ""
         print(
             f"  [{m.priority:3d}] {m.method}（{m.family}）— 新颖{b.get('novelty')}"
-            f"/可发表{b.get('publishability')}/流行{b.get('popularity')}"
+            f"/可发表{b.get('publishability')}/流行{b.get('popularity')}{mom}"
         )
-        print(f"        {m.rationale}  来源: {', '.join(m.sources) or '—'}")
+        line = f"        {m.rationale}  来源: {', '.join(m.sources) or '—'}"
+        print(line + (f"\n        {m.trend_note}" if m.trend_note else ""))
+
+    if live:
+        from researchforge.catalog.trends import write_snapshot
+
+        snap = write_snapshot([
+            {"id": m.id, "family": m.family, "momentum": m.momentum,
+             "available": bool(m.momentum)} for m in found
+        ])
+        if snap:
+            print(f"\n已写实时趋势快照 {snap} —— 评分卡 popularity 维将据此动态更新（无网络热路径）。")
     if persist:
         print("\n已写入候选队列（candidate_queue/discovered.yaml）。"
               "用 `researchforge candidates` 查看；实现+测试后方可 promote。")
     else:
-        print("\n（加 --persist 写入候选队列）")
+        print("\n（加 --persist 写入候选队列" + ("；--live 已抓实时趋势" if not live else "") + "）")
     return 0
 
 
@@ -372,6 +390,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("candidates", help="list catalog candidates (self-growth queue)")
     disc = sub.add_parser("discover", help="self-evolution: discover + score new candidate methods")
     disc.add_argument("--persist", action="store_true", help="write discoveries into the candidate queue")
+    disc.add_argument("--live", action="store_true",
+                      help="fetch real PyPI/CRAN/GitHub trends to re-rank + feed the scorecard")
     scd = sub.add_parser("scorecard", help="project self-assessment scorecard (versioned)")
     scd.add_argument("--save", action="store_true", help="append this score to docs/scorecard.md history")
     promo = sub.add_parser("promote", help="promote a ready candidate into the live catalog")
@@ -406,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "candidates":
         return _cmd_candidates()
     if args.command == "discover":
-        return _cmd_discover(args.persist)
+        return _cmd_discover(args.persist, getattr(args, "live", False))
     if args.command == "scorecard":
         return _cmd_scorecard(args.save)
     if args.command == "promote":

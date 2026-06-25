@@ -14,7 +14,9 @@ def test_score_candidate_dimensions() -> None:
         {"id": "x", "method": "X", "family": "causal", "domain": "economics", "goal": "explain"}
     )
     assert 0 <= m.priority <= 100
-    assert set(m.breakdown) == {"novelty", "publishability", "popularity"}
+    # momentum (live trend) joins the offline rubric dims; 0 when no live signal
+    assert set(m.breakdown) == {"novelty", "publishability", "popularity", "momentum"}
+    assert m.breakdown["momentum"] == 0  # offline spec carries no live momentum
     # causal family is highly publishable
     assert m.breakdown["publishability"] >= 80
 

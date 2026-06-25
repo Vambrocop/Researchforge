@@ -31,7 +31,7 @@
 > 主体达成：脏数据鲁棒读取 + README/pip + 推断 backlog + 机器可读 config schema。剩 discover phase-2（自标暂缓）与 config 回填（~30 族）作为持续优化。
 - [x] **真实脏数据鲁棒**(编码/分隔符/数值强转/缺失标记/高基数列)—— 1.0 隐形门槛。**2026-06-23**:`profiler/ingest.py` 鲁棒读取门(utf-8-sig/gb18030/latin-1 编码回退 + `,;\t|` 分隔符嗅探 + **保守数值强转**:文本列"1,234"/"$5"/"12%"/杂缺失标记 ≥90% 可解析才转、记 `df.attrs['rf_coercions']` 非静默)；`diagnose` 加 coerced_numeric/high_cardinality 披露；12 个真实脏数据测试端到端不崩；全量回归护好。〔余:i18n 小数逗号/charset 检测器/不规则行容错见 deferred-log〕
 - [x] 用户 **README + pip 打包**(2026-06-23 波⑦:README 重写 + pyproject 动态版本/scripts/extras/package-data)
-- [ ] **discover 真抓取**(阶段2):`fetch_fn` 接 CRAN/PyPI/GitHub,带降级（roadmap 自标"暂缓:选得准>加得多",优先级最低）
+- [x] **discover 真抓取**(阶段2) —— **2026-06-25 做了**：`catalog/trends.py` 活的趋势引擎——`fetch_trend` 真抓 PyPI(下载量)/CRAN(在册)/GitHub(星标+活跃,按名搜索带含义护栏)→ 0-100 `momentum`(真数字、编辑权重、log 归一)。`build_live_fetch_fn` + `score_candidate` 把 momentum 融进发现优先级；`cli discover --live` 重排 + 写趋势快照(`~/.researchforge/`)；`score_method` 读快照精修 popularity（**热路径只读缓存、零网络**，缺则回退编辑先验并诚实披露）。可选 + 优雅降级（离线/无 requests/限流→回退），缓存 7d。镜像 R 桥模式、绝不进分析运行时。13 个 mock-HTTP 确定性测试 + 真网 smoke(可跳) + conftest hermetic fixture。**闭环：真实流行度/活跃度 → 趋势引擎 → 评分卡**。
 - [x] **推断 backlog**:DML/causal_forest CV R² + 多重比较校正、BART holdout R²、GAMM 非高斯（#4a-#4d 已做）
 - [x] **config schema(机器可读,每 analysis entry)** —— 2026-06-23：`AnalysisEntry.params: list[ParamSpec]` + `config_schema.validate_config`(非阻塞警告) + run 接入 + `cli params` + recommend payload；correlation_suite/effect_sizes 范例已填，其余 ~30 族渐进回填（Web UI / 推荐 / 运行校验共一份规格）
 
@@ -57,7 +57,7 @@
 - [~] **文本/网络/空间**:空间侧已大幅上线 —— GWR(`gwr`)、空间依赖(`moran_i`/`local_moran`/`getis_ord_gi`/`getis_ord`/`bivariate_moran`/`local_geary`/`skater`/`ripleys_k`/`join_count`)、空间回归(`spatial_regression`)、网络科学(`community_detection`/`centrality_suite`/`epidemic_model`);**仍开**:文本挖掘(LDA 主题/情感)、ERGM、网络 meta。
 - [x] **快速选择器已上线(2026-06-16)**:目标感知 `recommend --goal <compare/relate/causal/…>` → 聚焦 top-N + 讲清"为什么"(14 目标分类 `recommender/goals.py` + `select_top`)。治"方法多到不知道用啥"。
 - [ ] **自动选模更聪明(续)**:precondition/严谨度规则细化、按数据画像直接荐目标、Web UI 接选择器。
-- [ ] ~~自我进化 discover 真抓取~~ **暂缓(用户 2026-06-16 定)**:选得准 > 加得多;75 法对五域够用,等选择器+Web 成形再回头。
+- [x] **自我进化 discover 真抓取(2026-06-25 解禁并完成)**:原暂缓("选得准>加得多")——现选择器+Web 已成形，回头做了。`catalog/trends.py` 真抓 PyPI/CRAN/GitHub→momentum 喂发现优先级 + 评分卡 popularity（详见阶段②）。**趋势引擎闭环（v2.0 愿景的一块）已落地雏形。**
 
 ### v2.0 — 愿景达成（仍不是终点）
 真·大杂烩 + 极聪明自动选模 + 趋势引擎闭环(真实流行度/更新喂回评分卡)。

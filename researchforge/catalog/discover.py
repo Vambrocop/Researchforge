@@ -9,9 +9,15 @@ backlog, but a human/builder + tests are always the gate to going live.
 
 Sources are pluggable via `fetch_fn` (the same pattern as the novelty lens): the
 default is an offline, curated seed of trending methods grounded in a literature
-scan, so discovery works with no network and is deterministic/testable. A live
-fetcher over CRAN / PyPI / GitHub / Zenodo can be injected as `fetch_fn` later —
-that scanning is a curation-time tool, never part of the analysis runtime.
+scan, so discovery works with no network and is deterministic/testable.
+
+PHASE 2 (live trend engine, see `catalog/trends.py`): `build_live_fetch_fn()`
+returns a `fetch_fn` that enriches each seed with REAL PyPI / CRAN / GitHub signals
+(downloads / stars / recency → a 0-100 `momentum`), which `score_candidate` blends
+into the discovery priority. `cli discover --live` also writes a momentum snapshot
+that the recommendation scorecard reads (no hot-path network). All best-effort with
+graceful degrade — offline, it falls straight back to the offline priors. This
+scanning is a curation-time tool, never part of the analysis runtime.
 """
 
 from __future__ import annotations
@@ -74,20 +80,52 @@ class MethodCandidate(BaseModel):
     sources: list[str] = Field(default_factory=list)
     priority: int = 0  # 0-100 discovery priority
     breakdown: dict[str, int] = Field(default_factory=dict)
+    momentum: int = 0          # 0-100 live trend signal (0 = offline / unavailable)
+    trend_note: str = ""       # honest note on the trend source
 
 
 def score_candidate(spec: dict) -> MethodCandidate:
-    """Priority for adding a method idea: publishability + novelty weighted most
-    (popularity a minor factor). Uses the offline family rubric from scoring.py."""
+    """Priority for adding a method idea: publishability + novelty weighted most.
+
+    Popularity comes from the offline family rubric (scoring.py). When the LIVE
+    trend engine has attached a real ``momentum`` to the spec (via
+    ``build_live_fetch_fn``), it is blended in — so a method that is genuinely
+    surging on PyPI/GitHub/CRAN outranks a same-family idea that isn't."""
     pop, pub, _aes, _diff, nov = _FAMILY.get(spec.get("family", ""), _DEFAULT)
-    priority = round(0.40 * nov + 0.35 * pub + 0.25 * pop)
+    momentum = int(spec.get("momentum", 0) or 0)
+    has_live = bool(spec.get("trend", {}).get("available")) if spec.get("trend") else momentum > 0
+    if has_live:
+        priority = round(0.35 * nov + 0.30 * pub + 0.20 * pop + 0.15 * momentum)
+    else:
+        priority = round(0.40 * nov + 0.35 * pub + 0.25 * pop)
     return MethodCandidate(
         id=spec["id"], method=spec["method"], family=spec.get("family", ""),
         domain=spec.get("domain", ""), goal=spec.get("goal", ""),
         rationale=spec.get("rationale", ""), sources=list(spec.get("sources", [])),
         priority=int(priority),
-        breakdown={"novelty": nov, "publishability": pub, "popularity": pop},
+        breakdown={"novelty": nov, "publishability": pub, "popularity": pop,
+                   "momentum": momentum},
+        momentum=momentum,
+        trend_note=spec.get("trend", {}).get("detail", "") if spec.get("trend") else "",
     )
+
+
+def build_live_fetch_fn(base_specs: Optional[list[dict]] = None):
+    """Return a `fetch_fn` for `discover_candidates` that enriches each seed spec
+    with a REAL trend signal (PyPI/CRAN/GitHub via `trends.fetch_trend`). Offline,
+    each spec just carries `momentum=0` and scoring falls back to offline priors."""
+    from researchforge.catalog.trends import fetch_trend
+
+    specs = base_specs if base_specs is not None else SEED
+
+    def _fetch() -> list[dict]:
+        out: list[dict] = []
+        for s in specs:
+            sig = fetch_trend(s["id"], list(s.get("sources", [])))
+            out.append({**s, "momentum": sig.momentum, "trend": sig.as_dict()})
+        return out
+
+    return _fetch
 
 
 def discover_candidates(
