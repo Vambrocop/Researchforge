@@ -1,0 +1,71 @@
+# Resource / sustainability family — composite-indicator (composite index) builder.
+# (input_output lives in resource_io.yaml under the same family, owned separately.)
+
+- id: composite_index
+  method: Composite indicator / composite index (OECD-JRC)
+  domain: sustainability
+  family: resource
+  goal: describe
+  description: >-
+    Composite-indicator builder following the OECD/JRC methodology — the core of an
+    Energy-Water-Food (EWF) nexus security/pressure index, a sustainability index, or
+    any multi-indicator competitiveness ranking. Each row is a unit (country/region/
+    year) and each numeric column a sub-indicator. Pipeline: (1) DIRECTION — benefit
+    indicators (higher better) vs cost indicators (higher worse; config
+    cost_indicators are inverted in normalization; default all benefit, disclosed);
+    (2) NORMALIZE to a common scale where higher = better (config normalization in
+    minmax -> 0..1 with cost flipped to 1-x, or zscore; zero-range columns are
+    mapped to a flat value and disclosed); (3) WEIGHT (config weighting in equal, or
+    entropy = Shannon-entropy objective weights where more dispersed indicators earn
+    more weight); (4) AGGREGATE (config aggregation in linear = compensatory weighted
+    sum, or geometric = weighted geometric mean that penalizes imbalance across
+    pillars, shifting values into 0..1 first). Outputs the composite score per unit,
+    the ranking, and the reported weight vector.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 3
+  produces:
+    - composite score per unit + ranking (ranked-scores CSV with normalized pillars)
+    - reported weight vector per indicator (equal or Shannon-entropy objective weights)
+    - horizontal bar chart of unit composite scores (ranked)
+  executor_ref: "py::composite_index"
+  params:
+    - name: indicators
+      type: columns
+      description: 子指标列（缺省=全部数值列，已排除单位/时间列）
+      default: 全部数值列
+    - name: unit
+      type: column
+      description: 单位/实体标签列（国家/地区/年份等；缺省取指纹 unit 列或首个非指标列）
+      default: 自动/行号
+    - name: cost_indicators
+      type: columns
+      description: 成本型指标（越大越差，将在标准化中反向）；缺省全部按效益型
+      default: 无（全部效益型）
+    - name: normalization
+      type: choice
+      description: 标准化方式（minmax→[0,1]，成本型翻转为 1−x；或 zscore）
+      choices:
+        - minmax
+        - zscore
+      default: minmax
+    - name: weighting
+      type: choice
+      description: 赋权方式（equal 等权 或 entropy 香农熵客观赋权）
+      choices:
+        - equal
+        - entropy
+      default: equal
+    - name: aggregation
+      type: choice
+      description: 聚合方式（linear 线性加权和-可补偿 或 geometric 加权几何平均-惩罚不均衡）
+      choices:
+        - linear
+        - geometric
+      default: linear
+  biases:
+    - normalization, weighting AND aggregation are all VALUE CHOICES that change the ranking — a composite index is only as defensible as those choices; always report the weights and run a sensitivity check
+    - linear (arithmetic) aggregation is fully compensatory (a high pillar offsets a low one); geometric aggregation penalizes imbalance (a near-zero pillar drags the whole score down) — the choice encodes a substantive stance on substitutability
+    - cost vs benefit direction must be set correctly (config cost_indicators); a mislabelled cost indicator rewards the worst units; default treats every indicator as benefit
+    - entropy weighting is data-driven, not theory-driven — it can hand large weight to a noisy or trivially dispersed indicator and ignores policy relevance; equal weighting is itself a (strong) value choice
+    - min-max normalization is sensitive to outliers and to the unit set (re-running on a different group of units rescales and can reorder); zero-range indicators carry no information and are dropped to a constant

@@ -1,0 +1,61 @@
+# Leontief input-output analysis (resource family / economics). Square n×n
+# inter-sectoral transactions matrix -> technical coefficients, Leontief inverse,
+# output multipliers and backward/forward linkages. Pure Python (numpy).
+# This file coexists with resource.yaml in the SAME "resource" family via
+# catalog auto-discovery (separate file = no merge conflict).
+
+- id: input_output_analysis
+  method: Leontief Input-Output Analysis (resource-flow multipliers)
+  domain: economics
+  family: resource
+  goal: explain
+  description: >-
+    Static open Leontief input-output analysis of resource / economic flows
+    (e.g. an Energy-Water-Food nexus or a regional economy). Input is a square
+    n×n inter-sectoral transactions matrix Z (rows = supplying sector i, columns
+    = using sector j; the first n numeric columns over n rows), or an already-
+    normalized technical-coefficient matrix. It derives the technical
+    coefficients A (a_ij = z_ij / x_j, each column normalized by the using
+    sector's total output x_j), the Leontief inverse "L = (I − A)⁻¹" (the total
+    requirements matrix), the output multipliers (column sums of L — total
+    economy-wide output triggered per unit of final demand in a sector), and the
+    backward linkages (normalized column sums of L, upstream pull) and forward
+    linkages (normalized row sums of L, downstream push). If a final-demand
+    vector is given it also solves for the required total output x = L·f.
+    Detection: if config total_output is given, A = Z / x̂; else if the matrix
+    already looks like coefficients (all values in [0,1) and every column sum <
+    1) it is used as A; else a raw flow matrix with no total_output degrades
+    honestly and asks for total_output (column-normalizing flows by their own
+    column sums would give a column-stochastic A with spectral radius 1, a
+    non-productive model) — the chosen path is disclosed.
+    Guard: A must be productive (spectral radius "ρ(A) < 1") and (I − A)
+    invertible, else it degrades honestly.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 2
+  produces:
+    - technical-coefficient matrix A and the Leontief inverse L = (I - A)^{-1}
+    - output multipliers (column sums of L) + backward & forward linkages
+    - per-sector multipliers table (CSV) + bar chart of multipliers / linkages
+    - "(optional) required total output x = L*f for a given final-demand vector"
+  executor_ref: "py::input_output_analysis"
+  params:
+    - name: total_output
+      type: column
+      description: 各部门总产出 x 向量列；提供则 A = Z / x̂（按列归一化）
+      default: 无（原始流量矩阵缺此向量则诚实降级，请求提供 total_output）
+    - name: final_demand
+      type: str
+      description: 最终需求向量 f（一个数值列的列名，或长度 n 的数值列表）；提供则求 x = L·f
+      default: 无
+    - name: sectors
+      type: column
+      description: 部门名称/标签列（否则用前导非数值列，再否则用矩阵列名）
+      default: 自动（前导非数值列）
+  biases:
+    - "Leontief assumes FIXED technical coefficients — input proportions do not change with output level, price, or technology (constant returns to scale, a single linear technology)"
+    - multipliers are DEMAND-driven and assume no supply / capacity constraints — every unit of final demand is met by expanding output, with no bottlenecks or substitution
+    - "this is an OPEN model (households are exogenous final demand); a CLOSED model that endogenizes household consumption yields larger multipliers — the two are not comparable"
+    - it is a STATIC snapshot of one period's technology table — no price adjustment, substitution between inputs, technical progress, or dynamic feedback is modelled
+    - a raw flow matrix with no total_output is NOT auto-normalized (column-sum normalization would give a column-stochastic A with spectral radius 1 — a degenerate, non-productive model); supply total_output (each sector's total output, including value-added / final demand) or a technical-coefficient matrix
+    - forward linkage here is the normalized row sum of the demand-side Leontief inverse (the "simple" forward linkage); the classical Rasmussen forward linkage uses the Ghosh supply-side inverse, a different measure

@@ -6,208 +6,285 @@
 <title>ResearchForge</title>
 <style>
   :root{
-    --bg:#fbfbfa; --panel:#fff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e7e7e2;
-    --accent:#2f6f4f; --accent-soft:#e8f1ec; --green:#2f8f5b; --yellow:#c9952b; --red:#c0492f;
-    --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);
+    --bg:#f7f8f7; --panel:#fff; --ink:#1b1c1a; --muted:#6b6f6a; --line:#e6e8e3;
+    --accent:#2f6f4f; --accent-hover:#27543d; --accent-soft:#e8f1ec;
+    --green:#2f8f5b; --yellow:#c9952b; --red:#c0492f;
+    --radius:14px; --radius-sm:9px;
+    --shadow:0 1px 2px rgba(0,0,0,.04),0 10px 30px rgba(20,40,30,.05);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+    --ring:0 0 0 3px rgba(47,111,79,.18);
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;}
-  header{padding:20px 32px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px}
-  header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px}
-  header .tag{font-size:12px;color:var(--muted)}
-  .wrap{max-width:940px;margin:0 auto;padding:26px 32px 90px}
-  h2{font-size:13px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:600;margin:26px 0 12px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+
+  /* header */
+  header{position:sticky;top:0;z-index:20;background:rgba(247,248,247,.85);backdrop-filter:saturate(150%) blur(10px);
+    padding:14px 32px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header .brand{display:flex;align-items:baseline;gap:11px;min-width:0}
+  header h1{font-size:18px;margin:0;font-weight:680;letter-spacing:.2px;white-space:nowrap}
+  header .tag{font-size:12.5px;color:var(--muted);min-width:0}
+  header .grow{flex:1}
+  /* language toggle (segmented control) */
+  .lang-toggle{display:inline-flex;border:1px solid var(--line);border-radius:999px;background:#fff;
+    padding:2px;box-shadow:var(--shadow-sm);flex:none}
+  .lang-toggle button{border:none;background:transparent;color:var(--muted);
+    font-size:12.5px;font-weight:600;padding:5px 13px;border-radius:999px;line-height:1;transition:.15s}
+  .lang-toggle button:hover{color:var(--ink)}
+  .lang-toggle button.on{background:var(--accent);color:#fff;box-shadow:var(--shadow-sm)}
+
+  .wrap{max-width:960px;margin:0 auto;padding:24px 32px 100px}
+  h2{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);font-weight:700;margin:30px 0 13px}
+  h2:first-child{margin-top:6px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow)}
   .meta{color:var(--muted);font-size:13.5px}
-  button{font:inherit;cursor:pointer;border-radius:8px}
-  .btn-primary{background:var(--accent);color:#fff;border:none;padding:9px 20px;font-size:14px}
-  .btn-primary:hover{background:#27543d}
-  .btn-primary:disabled{background:#a9c3b5;cursor:not-allowed}
-  .spinner{display:none;color:var(--muted);font-size:13px;margin-left:8px}
-  #error{display:none;background:#fdecea;border:1px solid #f3c0b8;color:#9a2b1a;padding:10px 14px;border-radius:10px;margin:14px 0;font-size:14px}
+
+  /* buttons */
+  button{font:inherit;cursor:pointer;border-radius:var(--radius-sm);transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .05s}
+  button:active{transform:translateY(1px)}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:none;box-shadow:var(--ring)}
+  .btn-primary{background:var(--accent);color:#fff;border:none;padding:10px 22px;font-size:14px;font-weight:600;box-shadow:var(--shadow-sm)}
+  .btn-primary:hover{background:var(--accent-hover)}
+  .btn-primary:disabled{background:#a9c3b5;cursor:not-allowed;box-shadow:none}
+
+  /* spinner */
+  .spinner{display:none;align-items:center;gap:7px;color:var(--muted);font-size:13px;margin-left:8px}
+  .spinner.show{display:inline-flex}
+  .spinner::before{content:"";width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;display:inline-block;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  #error{display:none;background:#fdecea;border:1px solid #f3c0b8;color:#9a2b1a;
+    padding:11px 15px;border-radius:var(--radius-sm);margin:14px 0;font-size:14px}
+
   /* upload */
   .drop{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .drop input[type=file]{flex:1;min-width:200px;font-size:13.5px;padding:8px;border:1px dashed var(--line);border-radius:10px;background:#fdfdfc}
+  .drop input[type=file]{flex:1;min-width:200px;font-size:13.5px;padding:10px;border:1.5px dashed var(--line);
+    border-radius:var(--radius-sm);background:#fbfcfb;transition:border-color .15s,background .15s;cursor:pointer}
+  .drop input[type=file]:hover{border-color:#b9d3c5;background:#f6faf8}
+
   /* data summary */
   .databar{display:flex;flex-wrap:wrap;gap:9px 12px;align-items:center}
-  .pill{font-size:12px;padding:3px 11px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
-  .pill.grey{background:#f0f0ec;color:var(--muted)}
+  .pill{font-size:12px;padding:4px 12px;border-radius:20px;background:var(--accent-soft);color:var(--accent);font-weight:500}
+  .pill.grey{background:#f0f1ed;color:var(--muted)}
   .qual{margin-left:auto;font-size:13px;color:var(--muted)}
-  .row-actions{margin-top:12px}
-  .btn-soft{background:#fff;border:1px solid var(--line);color:var(--ink);padding:7px 14px;font-size:13px}
-  .btn-soft:hover{border-color:#cfcfc8}
+  .row-actions{margin-top:14px;display:flex;align-items:center;flex-wrap:wrap}
+  .btn-soft{background:#fff;border:1px solid var(--line);color:var(--ink);padding:8px 15px;font-size:13px;font-weight:500}
+  .btn-soft:hover{border-color:#bcd0c4;background:#f7faf8}
+
   /* issues */
-  .issue-row{display:flex;gap:10px;align-items:baseline;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  .issue-row{display:flex;gap:10px;align-items:baseline;font-size:13px;padding:7px 0;border-bottom:1px dashed var(--line)}
   .issue-row:last-child{border-bottom:none}
   .issue-kind{font-weight:600;color:#7a5a2a}
   .issue-col{color:var(--accent);font-size:12px}
   .issue-sev{margin-left:auto;color:var(--muted);font-size:12px}
-  /* clean */
-  .plan-row{font-size:13px;padding:3px 0}
+
+  /* clean / plan */
+  .plan-row{font-size:13px;padding:4px 0}
   .plan-action{font-weight:600;color:var(--accent)}
+
   /* goals */
   .goals{display:flex;flex-wrap:wrap;gap:8px}
-  .goal{font-size:13px;padding:6px 13px;border:1px solid var(--line);border-radius:20px;background:#fff;cursor:pointer;color:var(--muted)}
+  .goal{font-size:13px;padding:7px 14px;border:1px solid var(--line);border-radius:20px;background:#fff;
+    cursor:pointer;color:var(--muted);font-weight:500;transition:.15s}
+  .goal:hover{border-color:#bcd0c4;color:var(--ink)}
   .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+
   /* rec cards */
-  .rec{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:13px;box-shadow:var(--shadow)}
-  .rec.infeasible{opacity:.74}
-  .rec .top{display:flex;align-items:center;gap:11px}
-  .light{width:11px;height:11px;border-radius:50%;flex:none}
+  .rec{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;margin-bottom:13px;
+    box-shadow:var(--shadow);transition:box-shadow .15s,border-color .15s}
+  .rec:hover{box-shadow:0 2px 4px rgba(0,0,0,.05),0 14px 36px rgba(20,40,30,.07);border-color:#dbe2dc}
+  .rec.infeasible{opacity:.78}
+  .rec .top{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
+  .light{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 3px rgba(0,0,0,.025)}
   .light.green{background:var(--green)} .light.yellow{background:var(--yellow)} .light.red{background:var(--red)}
-  .mname{font-weight:640;font-size:15px}
-  .fam{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .mname{font-weight:650;font-size:15px}
+  .fam{font-size:11.5px;color:var(--muted);background:#f3f4f0;padding:3px 9px;border-radius:6px}
   .fit-badge{font-size:12px;color:var(--muted)}
-  .run{margin-left:auto;font-size:13px;border:1px solid var(--accent);color:var(--accent);background:#fff;padding:6px 16px}
+  .run{margin-left:auto;font-size:13px;font-weight:600;border:1px solid var(--accent);color:var(--accent);
+    background:#fff;padding:7px 17px}
   .run:hover{background:var(--accent);color:#fff}
   .run.override{border-color:var(--yellow);color:#946a1c}
   .run.override:hover{background:var(--yellow);color:#fff}
   .run:disabled{opacity:.5;cursor:wait}
-  .why{color:var(--muted);font-size:13.5px;margin:9px 0 11px}
-  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 22px}
+  .why{color:var(--muted);font-size:13.5px;margin:10px 0 12px;line-height:1.6}
+  .sc{display:grid;grid-template-columns:repeat(3,1fr);gap:9px 24px}
   .sc .d{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}
-  .sc .d .lab{width:30px;flex:none}
-  .bar{flex:1;height:6px;background:#eee;border-radius:4px;overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--accent)}
+  .sc .d .lab{width:34px;flex:none}
+  .bar{flex:1;height:6px;background:#edeeea;border-radius:4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:4px}
   .bar.cost i{background:var(--yellow)}
-  .sc .d .v{width:22px;text-align:right;color:#a4a49c}
-  details{margin-top:10px;border-top:1px dashed var(--line);padding-top:9px}
+  .sc .d .v{width:22px;text-align:right;color:#a4a89f;font-variant-numeric:tabular-nums}
+  details{margin-top:11px;border-top:1px dashed var(--line);padding-top:10px}
   summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
-  .bias{font-size:13px;color:#7a5a2a;background:#fdf7ea;border:1px solid #f0e2bf;border-radius:8px;padding:10px 12px;margin-top:9px;line-height:1.6}
+  .bias{font-size:13px;color:#7a5a2a;background:#fdf7ea;border:1px solid #f0e2bf;border-radius:var(--radius-sm);padding:11px 13px;margin-top:9px;line-height:1.6}
   .bias li{margin:2px 0}
+
   /* config form */
-  .cfg-form{margin-top:11px;border-top:1px dashed var(--line);padding-top:12px}
-  .cfg-hint{font-size:12.5px;color:var(--muted);margin-bottom:10px}
-  .cfg-field{margin-bottom:11px}
-  .cfg-field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
+  .cfg-form{margin-top:12px;border-top:1px dashed var(--line);padding-top:13px}
+  .cfg-hint{font-size:12.5px;color:var(--muted);margin-bottom:11px;line-height:1.55}
+  .cfg-field{margin-bottom:12px}
+  .cfg-field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:5px}
   .cfg-field .req{color:var(--red);margin-left:3px}
   .cfg-field .desc{font-weight:400;color:var(--muted);font-size:12.5px;margin-left:6px}
-  .cfg-field .def{display:block;font-weight:400;color:#a4a49c;font-size:11.5px;margin-top:3px}
+  .cfg-field .def{display:block;font-weight:400;color:#a4a89f;font-size:11.5px;margin-top:3px}
   .cfg-field select,.cfg-field input[type=text],.cfg-field input[type=number]{
-    width:100%;max-width:320px;font:inherit;font-size:13.5px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fdfdfc;color:var(--ink)}
+    width:100%;max-width:340px;font:inherit;font-size:13.5px;padding:8px 10px;border:1px solid var(--line);
+    border-radius:var(--radius-sm);background:#fbfcfb;color:var(--ink);transition:border-color .15s}
+  .cfg-field select:hover,.cfg-field input:hover{border-color:#bcd0c4}
   .cfg-field select[multiple]{height:auto;min-height:80px}
-  .cfg-field input[type=checkbox]{width:auto;transform:translateY(1px);margin-right:6px}
-  .cfg-field .checks{display:flex;flex-wrap:wrap;gap:5px 16px}
+  .cfg-field input[type=checkbox]{width:auto;transform:translateY(1px);margin-right:6px;accent-color:var(--accent)}
+  .cfg-field .checks{display:flex;flex-wrap:wrap;gap:6px 16px}
   .cfg-field .checks label{display:inline-flex;align-items:center;font-weight:400;font-size:13px;margin:0}
   .cfg-field .checks label input{margin-right:5px}
-  .cfg-actions{display:flex;align-items:center;gap:10px;margin-top:6px}
-  .cfg-run{font-size:13px;border:1px solid var(--accent);color:#fff;background:var(--accent);padding:7px 18px}
-  .cfg-run:hover{background:#27543d}
+  .cfg-actions{display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+  .cfg-run{font-size:13px;font-weight:600;border:1px solid var(--accent);color:#fff;background:var(--accent);padding:8px 19px}
+  .cfg-run:hover{background:var(--accent-hover)}
   .cfg-run:disabled{opacity:.5;cursor:wait}
-  .cfg-cancel{font-size:13px;border:1px solid var(--line);color:var(--muted);background:#fff;padding:7px 14px}
-  .cfg-cancel:hover{border-color:#cfcfc8}
+  .cfg-cancel{font-size:13px;border:1px solid var(--line);color:var(--muted);background:#fff;padding:8px 15px}
+  .cfg-cancel:hover{border-color:#bcd0c4;color:var(--ink)}
+
   /* result */
-  .sumtext{border-left:3px solid var(--accent);padding:4px 0 4px 14px;font-size:14px;line-height:1.65;white-space:pre-wrap}
-  .report{font-size:13.5px;line-height:1.6}
+  .sumtext{border-left:3px solid var(--accent);padding:6px 0 6px 15px;font-size:14px;line-height:1.65;white-space:pre-wrap}
+  .report{font-size:13.5px;line-height:1.65}
   .report h1,.report h2,.report h3{text-transform:none;letter-spacing:0;color:var(--ink);border:none}
-  .report code{background:#f4f4f0;padding:1px 5px;border-radius:4px;font-size:12.5px}
+  .report code{background:#f3f4f0;padding:1px 5px;border-radius:4px;font-size:12.5px}
   .file-links{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
-  .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);border-radius:8px;padding:7px 12px;text-decoration:none;background:#fff}
-  .inline-fig{max-width:420px;width:100%;border:1px solid var(--line);border-radius:10px}
-  .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:8px 18px;border-radius:8px;font-size:13px}
+  .file-links a{font-size:12.5px;color:var(--accent);border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:8px 13px;text-decoration:none;background:#fff;transition:.15s}
+  .file-links a:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .inline-fig{max-width:440px;width:100%;border:1px solid var(--line);border-radius:10px}
+  .btn-download{display:inline-block;background:var(--accent);color:#fff;padding:9px 19px;border-radius:var(--radius-sm);
+    font-size:13px;font-weight:600;box-shadow:var(--shadow-sm)}
+  .btn-download:hover{background:var(--accent-hover)}
+
   /* run history */
-  .hist-bar{display:flex;align-items:center;gap:10px;margin:26px 0 12px}
+  .hist-bar{display:flex;align-items:center;gap:11px;margin:30px 0 13px;flex-wrap:wrap}
   .hist-bar h2{margin:0}
-  .hist-refresh{font-size:12px;border:1px solid var(--line);background:#fff;color:var(--accent);padding:4px 11px;border-radius:8px;cursor:pointer}
+  .hist-refresh{font-size:12px;border:1px solid var(--line);background:#fff;color:var(--accent);padding:5px 12px;border-radius:var(--radius-sm);cursor:pointer}
   .hist-refresh:hover{border-color:var(--accent);background:var(--accent-soft)}
   .hist-empty{color:var(--muted);font-size:13.5px}
-  .hist-item{border-bottom:1px solid var(--line);padding:11px 0}
-  .hist-item:last-child{border-bottom:none}
+  .hist-item{border-bottom:1px solid var(--line);padding:13px 0}
+  .hist-item:first-child{padding-top:2px}
+  .hist-item:last-child{border-bottom:none;padding-bottom:2px}
   .hist-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap}
-  .hist-id{font-weight:640;font-size:14px}
+  .hist-id{font-weight:650;font-size:14px}
   .hist-ts{font-size:12px;color:var(--muted)}
-  .hist-count{font-size:11.5px;color:var(--muted);background:#f4f4f0;padding:2px 8px;border-radius:6px}
+  .hist-count{font-size:11.5px;color:var(--muted);background:#f3f4f0;padding:3px 9px;border-radius:6px}
   .hist-actions{margin-left:auto;display:flex;gap:8px}
   .hist-actions a,.hist-actions button{font-size:12.5px;border:1px solid var(--line);background:#fff;color:var(--accent);
-    padding:5px 12px;border-radius:8px;text-decoration:none;cursor:pointer}
+    padding:6px 13px;border-radius:var(--radius-sm);text-decoration:none;cursor:pointer;transition:.15s}
   .hist-actions a:hover,.hist-actions button:hover{border-color:var(--accent);background:var(--accent-soft)}
-  .hist-files{margin-top:9px;display:none}
+  .hist-files{margin-top:10px;display:none}
   .hist-files.open{display:block}
-  .hist-file{display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:3px 0}
+  .hist-file{display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:4px 0}
   .hist-file a{color:var(--accent);text-decoration:none;cursor:pointer}
   .hist-file a:hover{text-decoration:underline}
-  .hist-preview{margin-top:9px;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fdfdfc;display:none}
+  .hist-preview{margin-top:10px;border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:#fbfcfb;display:none}
   .hist-preview.open{display:block}
   .hist-preview img{max-width:100%;border-radius:8px}
   .hist-preview pre{margin:0;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
   .hist-preview .report{font-size:13px}
   .hist-preview .pv-close{float:right;font-size:12px;color:var(--muted);cursor:pointer;border:none;background:none}
+
   #history-section{display:none}
   #profile-section,#clean-section,#result-section{display:none}
+
+  /* responsiveness */
+  @media (max-width:680px){
+    header{padding:12px 18px}
+    header .tag{display:none}
+    .wrap{padding:18px 18px 80px}
+    .sc{grid-template-columns:repeat(2,1fr)}
+    .qual{margin-left:0;flex-basis:100%}
+    .run{margin-left:0}
+    .hist-actions{margin-left:0;flex-basis:100%}
+  }
+  @media (max-width:420px){
+    .sc{grid-template-columns:1fr}
+  }
 </style>
 </head>
 <body>
 <header>
-  <h1>🔨 ResearchForge</h1>
-  <span class="tag">方法学大杂烩引擎 · 丢数据 → 识别 → 推荐(🟢🟡🔴 + 评分卡) → 跑 → 报告</span>
+  <div class="brand">
+    <h1>🔨 ResearchForge</h1>
+    <span class="tag" data-i18n="tagline"></span>
+  </div>
+  <div class="grow"></div>
+  <div class="lang-toggle" role="group" aria-label="Language">
+    <button id="lang-zh" onclick="setLang('zh')">中文</button>
+    <button id="lang-en" onclick="setLang('en')">EN</button>
+  </div>
 </header>
 
 <div class="wrap">
   <div id="error"></div>
 
   <!-- UPLOAD -->
-  <h2>① 上传数据</h2>
+  <h2 data-i18n="sec_upload"></h2>
   <div class="card">
     <div class="drop">
       <input type="file" id="csv-input" accept=".csv,.xlsx,.xls">
-      <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()">识别 + 推荐</button>
-      <span class="spinner" id="analyze-spinner">处理中…</span>
+      <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()" data-i18n="btn_analyze"></button>
+      <span class="spinner" id="analyze-spinner" data-i18n="working"></span>
     </div>
-    <div class="meta" style="margin-top:8px">CSV / Excel · 自动识别类型、结构、质量，并给出按严谨度排序的可行分析。</div>
+    <div class="meta" style="margin-top:10px" data-i18n="upload_hint"></div>
   </div>
 
   <!-- PROFILE + RECS -->
   <div id="profile-section">
-    <h2>② 数据画像</h2>
+    <h2 data-i18n="sec_profile"></h2>
     <div class="card">
       <div class="databar" id="data-meta"></div>
       <div class="row-actions">
-        <button class="btn-soft" id="btn-clean" onclick="doClean()">查看清洗方案</button>
-        <span class="spinner" id="clean-spinner">处理中…</span>
+        <button class="btn-soft" id="btn-clean" onclick="doClean()" data-i18n="btn_clean"></button>
+        <span class="spinner" id="clean-spinner" data-i18n="working"></span>
       </div>
     </div>
 
     <div id="issues-section" style="display:none">
-      <h2>数据质量问题</h2>
+      <h2 data-i18n="sec_issues"></h2>
       <div class="card" id="issues-list"></div>
     </div>
 
     <div id="plan-section" style="display:none">
-      <h2>📋 数据诊断 → 选模建议</h2>
+      <h2 data-i18n="sec_plan"></h2>
       <div class="card" id="plan-list"></div>
     </div>
 
     <div id="clean-section">
-      <h2>清洗方案</h2>
+      <h2 data-i18n="sec_clean"></h2>
       <div class="card">
         <div id="clean-plan"></div>
         <div id="clean-log-summary" class="meta" style="margin-top:8px"></div>
         <div class="row-actions">
-          <button class="btn-soft" id="btn-reanalyze" onclick="doReanalyze()">用清洗后数据重新分析</button>
-          <span class="spinner" id="reanalyze-spinner">处理中…</span>
+          <button class="btn-soft" id="btn-reanalyze" onclick="doReanalyze()" data-i18n="btn_reanalyze"></button>
+          <span class="spinner" id="reanalyze-spinner" data-i18n="working"></span>
         </div>
       </div>
     </div>
 
-    <h2>③ 分析目标</h2>
+    <h2 data-i18n="sec_goals"></h2>
     <div class="goals" id="goal-chips"></div>
 
-    <h2>④ 推荐方法 · 🟢可行 🟡需注意 🔴不匹配</h2>
+    <h2 data-i18n="sec_recs"></h2>
     <div id="rec-list"></div>
   </div>
 
   <!-- RESULT -->
   <div id="result-section">
-    <h2>⑤ 结果报告</h2>
+    <h2 data-i18n="sec_result"></h2>
     <div class="card">
       <div id="result-summary" class="sumtext"></div>
-      <h2>报告</h2>
+      <h2 data-i18n="result_report"></h2>
       <div class="report" id="result-report"></div>
-      <h2>输出文件</h2>
+      <h2 data-i18n="result_files"></h2>
       <div class="file-links" id="result-files"></div>
       <div style="margin-top:14px">
-        <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#">⬇ 下载全部产物</a>
+        <a id="btn-download-all" class="btn-download" style="display:none;text-decoration:none" href="#" data-i18n="download_all"></a>
       </div>
     </div>
   </div>
@@ -215,37 +292,281 @@
   <!-- RUN HISTORY -->
   <div id="history-section">
     <div class="hist-bar">
-      <h2>运行历史 / Run history</h2>
-      <button class="hist-refresh" id="btn-hist-refresh" onclick="loadHistory()">↻ 刷新</button>
+      <h2 data-i18n="sec_history"></h2>
+      <button class="hist-refresh" id="btn-hist-refresh" onclick="loadHistory()" data-i18n="hist_refresh"></button>
     </div>
     <div class="card" id="history-list"></div>
   </div>
 </div>
 
 <script>
+// ==========================================================================
+// i18n — lightweight dictionary + toggle. Static text uses [data-i18n] /
+// [data-i18n-attr]; JS-rendered strings go through t(key, ...vars). No deps.
+// ==========================================================================
+const I18N = {
+  zh: {
+    tagline: '方法学大杂烩引擎 · 丢数据 → 识别 → 推荐(🟢🟡🔴 + 评分卡) → 跑 → 报告',
+    working: '处理中…',
+    busy: '…处理中',
+    // sections
+    sec_upload: '① 上传数据',
+    sec_profile: '② 数据画像',
+    sec_issues: '数据质量问题',
+    sec_plan: '📋 数据诊断 → 选模建议',
+    sec_clean: '清洗方案',
+    sec_goals: '③ 分析目标',
+    sec_recs: '④ 推荐方法 · 🟢可行 🟡需注意 🔴不匹配',
+    sec_result: '⑤ 结果报告',
+    sec_history: '运行历史',
+    // buttons / hints
+    btn_analyze: '识别 + 推荐',
+    upload_hint: 'CSV / Excel · 自动识别类型、结构、质量，并给出按严谨度排序的可行分析。',
+    btn_clean: '查看清洗方案',
+    btn_reanalyze: '用清洗后数据重新分析',
+    result_report: '报告',
+    result_files: '输出文件',
+    download_all: '⬇ 下载全部产物',
+    hist_refresh: '↻ 刷新',
+    // errors
+    err_no_file: '请先选择一个 CSV / Excel 文件',
+    err_analyze: '分析失败',
+    err_clean: '清洗失败',
+    err_reanalyze: '重新分析失败',
+    err_run: '运行失败',
+    err_network: '网络错误：',
+    err_history: '无法加载运行历史：',
+    err_preview: '无法预览：',
+    // profile
+    struct_panel: '面板数据',
+    struct_ts: '时间序列',
+    struct_cross: '截面数据',
+    rows_cols: '{0} 行 × {1} 列',
+    unit_col: '单位列 {0}',
+    time_col: '时间列 {0}',
+    qual_summary: '质量问题 <b>{0}</b> 项 · {1} 列已识别类型',
+    // plan
+    plan_prefer: '建议优先：',
+    plan_over: '（而非 {0}）',
+    plan_sep: '、',
+    // goals
+    goal_all: '全部',
+    // recs
+    rec_empty: '该目标下暂无可行推荐。',
+    fit_label: '契合 {0}',
+    run_go: '运行 →',
+    run_override: '知情覆盖 →',
+    bias_summary: '⚠ 偏差披露 / 假定（知情覆盖）',
+    // scorecard dimension short labels
+    sc_popularity: '流',
+    sc_publishability: '发',
+    sc_aesthetics: '美',
+    sc_difficulty: '难',
+    sc_fit: '合',
+    sc_novelty: '新',
+    // config form
+    cfg_none: '此分析未声明可配置参数（按自动默认运行）。',
+    cfg_hint: '配置参数（全部可留空 → 引擎用自动默认；<span class="req">*</span> 为关键参数）。',
+    cfg_run: '运行 →',
+    cfg_cancel: '取消',
+    cfg_required: '必填',
+    cfg_default: '默认：{0}',
+    cfg_auto: '（自动 / 默认）',
+    cfg_blank_default: '留空用默认',
+    cfg_no_cols: '无可选列',
+    cfg_enable: '启用',
+    // clean
+    clean_none: '无清洗步骤（数据已干净）',
+    clean_log: '共 {0} 步，{1} 步已执行。清洗后文件已保存 (ID: {2})',
+    clean_dash: '—',
+    // result
+    result_no_summary: '(无摘要)',
+    result_no_report: '(无报告)',
+    result_no_files: '无输出文件',
+    file_interactive: '🔍 {0}（交互版）',
+    // history
+    hist_empty: '暂无运行记录。跑一个分析后，产物会出现在这里。',
+    hist_files_n: '{0} 个文件',
+    hist_view_files: '查看文件',
+    hist_hide_files: '收起文件',
+    hist_download_zip: '⬇ 下载 zip',
+    hist_no_files: '（无文件）',
+    hist_raw: '↗ 原始',
+    hist_loading: '加载中…',
+    hist_close: '关闭 ✕',
+    hist_csv_more: '\n… （仅显示前 20 行）',
+    hist_truncated: '\n… （已截断）',
+  },
+  en: {
+    tagline: 'Methodology melting-pot engine · drop data → detect → recommend (🟢🟡🔴 + scorecard) → run → report',
+    working: 'Working…',
+    busy: 'Working…',
+    // sections
+    sec_upload: '① Upload data',
+    sec_profile: '② Data profile',
+    sec_issues: 'Data quality issues',
+    sec_plan: '📋 Data diagnostics → model-choice advice',
+    sec_clean: 'Cleaning plan',
+    sec_goals: '③ Analysis goal',
+    sec_recs: '④ Recommended methods · 🟢 feasible 🟡 caution 🔴 mismatch',
+    sec_result: '⑤ Results & report',
+    sec_history: 'Run history',
+    // buttons / hints
+    btn_analyze: 'Detect + recommend',
+    upload_hint: 'CSV / Excel · auto-detects types, structure and quality, then ranks feasible analyses by rigor.',
+    btn_clean: 'View cleaning plan',
+    btn_reanalyze: 'Re-analyze with cleaned data',
+    result_report: 'Report',
+    result_files: 'Output files',
+    download_all: '⬇ Download all artifacts',
+    hist_refresh: '↻ Refresh',
+    // errors
+    err_no_file: 'Please choose a CSV / Excel file first',
+    err_analyze: 'Analysis failed',
+    err_clean: 'Cleaning failed',
+    err_reanalyze: 'Re-analysis failed',
+    err_run: 'Run failed',
+    err_network: 'Network error: ',
+    err_history: 'Could not load run history: ',
+    err_preview: 'Could not preview: ',
+    // profile
+    struct_panel: 'Panel data',
+    struct_ts: 'Time series',
+    struct_cross: 'Cross-section',
+    rows_cols: '{0} rows × {1} cols',
+    unit_col: 'Unit col {0}',
+    time_col: 'Time col {0}',
+    qual_summary: '<b>{0}</b> quality issue(s) · {1} columns typed',
+    // plan
+    plan_prefer: 'Prefer: ',
+    plan_over: '(rather than {0})',
+    plan_sep: ', ',
+    // goals
+    goal_all: 'All',
+    // recs
+    rec_empty: 'No feasible recommendations for this goal.',
+    fit_label: 'Fit {0}',
+    run_go: 'Run →',
+    run_override: 'Informed override →',
+    bias_summary: '⚠ Bias disclosure / assumptions (informed override)',
+    // scorecard dimension short labels
+    sc_popularity: 'Pop',
+    sc_publishability: 'Pub',
+    sc_aesthetics: 'Aes',
+    sc_difficulty: 'Dif',
+    sc_fit: 'Fit',
+    sc_novelty: 'Nov',
+    // config form
+    cfg_none: 'This analysis declares no configurable parameters (runs with auto defaults).',
+    cfg_hint: 'Configure parameters (leave any blank → the engine uses auto defaults; <span class="req">*</span> marks key parameters).',
+    cfg_run: 'Run →',
+    cfg_cancel: 'Cancel',
+    cfg_required: 'Required',
+    cfg_default: 'Default: {0}',
+    cfg_auto: '(auto / default)',
+    cfg_blank_default: 'leave blank for default',
+    cfg_no_cols: 'No columns available',
+    cfg_enable: 'Enable',
+    // clean
+    clean_none: 'No cleaning steps (data is already clean)',
+    clean_log: '{0} steps total, {1} applied. Cleaned file saved (ID: {2})',
+    clean_dash: '—',
+    // result
+    result_no_summary: '(no summary)',
+    result_no_report: '(no report)',
+    result_no_files: 'No output files',
+    file_interactive: '🔍 {0} (interactive)',
+    // history
+    hist_empty: 'No runs yet. After you run an analysis, its artifacts show up here.',
+    hist_files_n: '{0} file(s)',
+    hist_view_files: 'View files',
+    hist_hide_files: 'Hide files',
+    hist_download_zip: '⬇ Download zip',
+    hist_no_files: '(no files)',
+    hist_raw: '↗ raw',
+    hist_loading: 'Loading…',
+    hist_close: 'Close ✕',
+    hist_csv_more: '\n… (first 20 rows only)',
+    hist_truncated: '\n… (truncated)',
+  },
+};
+
+let LANG = (function(){
+  try{ const s=localStorage.getItem('rf_lang'); if(s==='zh'||s==='en') return s; }catch(e){}
+  return 'zh';
+})();
+
+// translate a key, with optional {0},{1}… positional substitution
+function t(key, ...args){
+  const dict=I18N[LANG]||I18N.zh;
+  let s=(key in dict)?dict[key]:((key in I18N.zh)?I18N.zh[key]:key);
+  args.forEach((a,i)=>{ s=s.split('{'+i+'}').join(String(a)); });
+  return s;
+}
+
+// fill all static [data-i18n] / [data-i18n-attr] nodes for the current language
+function applyStaticI18n(){
+  document.documentElement.lang=LANG;
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-attr]').forEach(el=>{
+    el.getAttribute('data-i18n-attr').split(',').forEach(pair=>{
+      const [attr,key]=pair.split(':');
+      if(attr&&key) el.setAttribute(attr.trim(), t(key.trim()));
+    });
+  });
+  // toggle highlight
+  const z=document.getElementById('lang-zh'), e=document.getElementById('lang-en');
+  if(z) z.classList.toggle('on', LANG==='zh');
+  if(e) e.classList.toggle('on', LANG==='en');
+}
+
+// re-render whatever is currently on screen so dynamic strings switch language too
+function rerenderDynamic(){
+  if(document.getElementById('profile-section').style.display!=='none' && lastRecs!==null){
+    if(lastFingerprint){ renderProfile(lastFingerprint); renderIssues(lastFingerprint.issues||[]); }
+    renderPlan(lastPlan);
+    renderGoals(); renderRecs();
+  }
+  if(lastResult) renderResult(lastResult);
+  if(historyLoaded) renderHistory();
+}
+
+function setLang(lang){
+  if(lang!=='zh'&&lang!=='en') return;
+  LANG=lang;
+  try{ localStorage.setItem('rf_lang', lang); }catch(e){}
+  applyStaticI18n();
+  rerenderDynamic();
+}
+
+// ==========================================================================
 let currentFileId = null;
 let cleanedFileId = null;
 let lastRecs = [];
 let lastColumns = [];        // [{name,kind}] from the fingerprint — feeds column/columns selectors
+let lastFingerprint = null;  // cached so a language switch can re-render the profile without re-upload
+let lastPlan = null;         // cached diagnostic_plan for language switch
+let lastResult = null;       // cached run result for language switch
 let goalList = [];            // [{key,label}] supplied by the backend (mirrors goals.py, no drift)
 let activeGoal = 'all';
 let openCfgId = null;         // id of the rec whose inline config form is currently expanded
 
 const DOTS = { green: 'green', yellow: 'yellow', red: 'red' };
+// scorecard dimensions: [response-field key, i18n short-label key]
 const SC_DIMS = [
-  ['popularity','流'],['publishability','发'],['aesthetics','美'],
-  ['difficulty','难'],['fit','合'],['novelty','新'],
+  ['popularity','sc_popularity'],['publishability','sc_publishability'],['aesthetics','sc_aesthetics'],
+  ['difficulty','sc_difficulty'],['fit','sc_fit'],['novelty','sc_novelty'],
 ];
 
 function showError(msg){const el=document.getElementById('error');el.textContent=msg;el.style.display='block';}
 function clearError(){const el=document.getElementById('error');el.textContent='';el.style.display='none';}
-function spin(id,on){const el=document.getElementById(id);if(el)el.style.display=on?'inline':'none';}
-function setBusy(id,l){const b=document.getElementById(id);if(b){b._o=b.textContent;b.textContent=l||'…处理中';b.disabled=true;}}
+function spin(id,on){const el=document.getElementById(id);if(el)el.classList.toggle('show',!!on);}
+function setBusy(id,l){const b=document.getElementById(id);if(b){b._o=b.textContent;b.textContent=l||t('busy');b.disabled=true;}}
 function setIdle(id){const b=document.getElementById(id);if(b){b.textContent=b._o||b.textContent;b.disabled=false;}}
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function mdToHtml(md){
-  if(!md) return '<p>(无报告)</p>';
+  if(!md) return '<p>'+escHtml(t('result_no_report'))+'</p>';
   const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const inl=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
   const out=[];let ul=false;const closeUl=()=>{if(ul){out.push('</ul>');ul=false;}};
@@ -264,19 +585,21 @@ function mdToHtml(md){
 async function doAnalyze(){
   clearError();
   ['profile-section','result-section','issues-section','plan-section','clean-section'].forEach(id=>document.getElementById(id).style.display='none');
-  cleanedFileId=null;
+  cleanedFileId=null;lastResult=null;
   const input=document.getElementById('csv-input');
-  if(!input.files.length){showError('请先选择一个 CSV / Excel 文件');return;}
+  if(!input.files.length){showError(t('err_no_file'));return;}
   setBusy('btn-analyze');spin('analyze-spinner',true);
   const fd=new FormData();fd.append('file',input.files[0]);
   let data;
   try{
     const res=await fetch('/api/analyze',{method:'POST',body:fd});
     data=await res.json();
-    if(!res.ok){showError(data.detail||'分析失败');setIdle('btn-analyze');spin('analyze-spinner',false);return;}
-  }catch(e){showError('网络错误：'+e.message);setIdle('btn-analyze');spin('analyze-spinner',false);return;}
+    if(!res.ok){showError(data.detail||t('err_analyze'));setIdle('btn-analyze');spin('analyze-spinner',false);return;}
+  }catch(e){showError(t('err_network')+e.message);setIdle('btn-analyze');spin('analyze-spinner',false);return;}
   setIdle('btn-analyze');spin('analyze-spinner',false);
   currentFileId=data.file_id;
+  lastFingerprint=data.fingerprint;
+  lastPlan=data.diagnostic_plan;
   renderProfile(data.fingerprint);
   renderIssues(data.fingerprint.issues||[]);
   renderPlan(data.diagnostic_plan);
@@ -289,13 +612,13 @@ async function doAnalyze(){
 }
 
 function renderProfile(fp){
-  const struct=fp.is_panel?'面板数据':(fp.is_timeseries?'时间序列':'截面数据');
+  const struct=fp.is_panel?t('struct_panel'):(fp.is_timeseries?t('struct_ts'):t('struct_cross'));
   const bits=[
-    `<span class="pill grey">${fp.n_rows} 行 × ${fp.n_cols} 列</span>`,
-    `<span class="pill">${struct}</span>`,
-    fp.unit_col?`<span class="pill">单位列 ${escHtml(fp.unit_col)}</span>`:'',
-    fp.time_col?`<span class="pill">时间列 ${escHtml(fp.time_col)}</span>`:'',
-    `<span class="qual">质量问题 <b>${fp.n_issues||0}</b> 项 · ${fp.columns.length} 列已识别类型</span>`,
+    `<span class="pill grey">${t('rows_cols',fp.n_rows,fp.n_cols)}</span>`,
+    `<span class="pill">${escHtml(struct)}</span>`,
+    fp.unit_col?`<span class="pill">${t('unit_col',escHtml(fp.unit_col))}</span>`:'',
+    fp.time_col?`<span class="pill">${t('time_col',escHtml(fp.time_col))}</span>`:'',
+    `<span class="qual">${t('qual_summary',fp.n_issues||0,fp.columns.length)}</span>`,
   ].filter(Boolean);
   document.getElementById('data-meta').innerHTML=bits.join('');
 }
@@ -322,19 +645,19 @@ function renderPlan(plan){
     <div class="issue-row" style="display:block">
       <div><b>⚠ ${escHtml(d.finding)}</b></div>
       <div class="meta">${escHtml(d.detail||'')}</div>
-      <div>建议优先：${(d.prefer||[]).map(m=>`<span class="pill">${escHtml(m)}</span>`).join(' ')}
-        ${(d.over&&d.over.length)?`<span class="meta">（而非 ${d.over.map(escHtml).join('、')}）</span>`:''}</div>
+      <div>${t('plan_prefer')}${(d.prefer||[]).map(m=>`<span class="pill">${escHtml(m)}</span>`).join(' ')}
+        ${(d.over&&d.over.length)?`<span class="meta">${t('plan_over',d.over.map(escHtml).join(t('plan_sep')))}</span>`:''}</div>
     </div>`).join('');
   sec.style.display='';
 }
 
 function renderGoals(){
   const el=document.getElementById('goal-chips');
-  // only show goals that actually have a recommendation for this dataset (+ 全部); membership is
+  // only show goals that actually have a recommendation for this dataset (+ All); membership is
   // computed server-side per rec (rec.goals), so this never drifts from goals.py.
   const present=new Set();
   for(const r of lastRecs) for(const k of (r.goals||[])) present.add(k);
-  const chips=[{key:'all',label:'全部'},...goalList.filter(g=>present.has(g.key))];
+  const chips=[{key:'all',label:t('goal_all')},...goalList.filter(g=>present.has(g.key))];
   el.innerHTML=chips.map(g=>`<span class="goal${g.key===activeGoal?' on':''}" onclick="pickGoal('${g.key}')">${escHtml(g.label)}</span>`).join('');
 }
 function pickGoal(k){activeGoal=k;renderGoals();renderRecs();}
@@ -343,25 +666,25 @@ function renderRecs(){
   const el=document.getElementById('rec-list');
   let recs=lastRecs;
   if(activeGoal!=='all'){recs=lastRecs.filter(r=>(r.goals||[]).includes(activeGoal));}
-  if(!recs.length){el.innerHTML='<div class="card meta">该目标下暂无可行推荐。</div>';return;}
+  if(!recs.length){el.innerHTML=`<div class="card meta">${escHtml(t('rec_empty'))}</div>`;return;}
   el.innerHTML=recs.map(r=>{
     const ms=r.methodology_score||{};
-    const bars=SC_DIMS.map(([k,lab])=>{
+    const bars=SC_DIMS.map(([k,labKey])=>{
       const v=ms[k]||0;const cost=k==='difficulty'?' cost':'';
-      return `<div class="d"><span class="lab">${lab}</span><span class="bar${cost}"><i style="width:${v}%"></i></span><span class="v">${v}</span></div>`;
+      return `<div class="d"><span class="lab">${escHtml(t(labKey))}</span><span class="bar${cost}"><i style="width:${v}%"></i></span><span class="v">${v}</span></div>`;
     }).join('');
     const biases=(r.biases||[]).map(b=>`<li>${escHtml(b)}</li>`).join('');
-    const biasBlock=biases?`<details><summary>⚠ 偏差披露 / 假定（知情覆盖）</summary><div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
+    const biasBlock=biases?`<details><summary>${escHtml(t('bias_summary'))}</summary><div class="bias"><ul style="margin:0;padding-left:18px">${biases}</ul></div></details>`:'';
     const btnCls=r.feasible?'run':'run override';
-    const btnLabel=r.feasible?'运行 →':'知情覆盖 →';
+    const btnLabel=r.feasible?t('run_go'):t('run_override');
     const idAttr=escHtml(r.id);
     return `<div class="rec${r.feasible?'':' infeasible'}">
       <div class="top">
         <span class="light ${DOTS[r.light]||'red'}"></span>
         <span class="mname">${escHtml(r.method)}</span>
         <span class="fam">${escHtml(r.family)}</span>
-        <span class="fit-badge">契合 ${r.score}</span>
-        <button class="${btnCls}" onclick="clickRun('${idAttr}',this)">${btnLabel}</button>
+        <span class="fit-badge">${t('fit_label',r.score)}</span>
+        <button class="${btnCls}" onclick="clickRun('${idAttr}',this)">${escHtml(btnLabel)}</button>
       </div>
       <div class="why">${escHtml(r.note||'')}</div>
       <div class="sc">${bars}</div>
@@ -378,36 +701,37 @@ function renderRecs(){
 // --------------------------------------------------------------------------
 function colOptions(selected){
   // a blank "auto/default" option + every dataset column name
-  const blank=`<option value="">（自动 / 默认）</option>`;
+  const blank=`<option value="">${escHtml(t('cfg_auto'))}</option>`;
   const opts=lastColumns.map(c=>`<option value="${escHtml(c.name)}"${selected===c.name?' selected':''}>${escHtml(c.name)}${c.kind?' · '+escHtml(c.kind):''}</option>`).join('');
   return blank+opts;
 }
 
 function paramFieldHtml(p,idx){
   const fid=`cfgp-${idx}`;
-  const req=p.required?'<span class="req" title="必填">*</span>':'';
+  const req=p.required?`<span class="req" title="${escHtml(t('cfg_required'))}">*</span>`:'';
   const desc=p.description?`<span class="desc">${escHtml(p.description)}</span>`:'';
-  const def=p.default?`<span class="def">默认：${escHtml(p.default)}</span>`:'';
-  const t=p.type||'column';
+  const def=p.default?`<span class="def">${t('cfg_default',escHtml(p.default))}</span>`:'';
+  const ph=escHtml(t('cfg_blank_default'));
+  const t_=p.type||'column';
   let control='';
-  if(t==='column'){
+  if(t_==='column'){
     control=`<select id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="column">${colOptions('')}</select>`;
-  }else if(t==='columns'){
+  }else if(t_==='columns'){
     const checks=lastColumns.map(c=>
       `<label><input type="checkbox" value="${escHtml(c.name)}">${escHtml(c.name)}</label>`).join('');
-    control=`<div id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="columns" class="checks">${checks||'<span class="meta">无可选列</span>'}</div>`;
-  }else if(t==='choice'){
-    const opts=`<option value="">（自动 / 默认）</option>`+
+    control=`<div id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="columns" class="checks">${checks||`<span class="meta">${escHtml(t('cfg_no_cols'))}</span>`}</div>`;
+  }else if(t_==='choice'){
+    const opts=`<option value="">${escHtml(t('cfg_auto'))}</option>`+
       (p.choices||[]).map(ch=>`<option value="${escHtml(ch)}">${escHtml(ch)}</option>`).join('');
     control=`<select id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="choice">${opts}</select>`;
-  }else if(t==='int'){
-    control=`<input type="number" step="1" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="int" placeholder="${escHtml(p.default||'留空用默认')}">`;
-  }else if(t==='float'){
-    control=`<input type="number" step="any" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="float" placeholder="${escHtml(p.default||'留空用默认')}">`;
-  }else if(t==='bool'){
-    control=`<label style="font-weight:400"><input type="checkbox" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="bool"> 启用</label>`;
+  }else if(t_==='int'){
+    control=`<input type="number" step="1" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="int" placeholder="${escHtml(p.default||ph)}">`;
+  }else if(t_==='float'){
+    control=`<input type="number" step="any" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="float" placeholder="${escHtml(p.default||ph)}">`;
+  }else if(t_==='bool'){
+    control=`<label style="font-weight:400"><input type="checkbox" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="bool"> ${escHtml(t('cfg_enable'))}</label>`;
   }else{ // str (and any unknown type) -> text input
-    control=`<input type="text" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="str" placeholder="${escHtml(p.default||'留空用默认')}">`;
+    control=`<input type="text" id="${fid}" data-pname="${escHtml(p.name)}" data-ptype="str" placeholder="${escHtml(p.default||ph)}">`;
   }
   return `<div class="cfg-field">
     <label for="${fid}">${escHtml(p.name)}${req}${desc}</label>
@@ -420,22 +744,16 @@ function renderCfgForm(rec){
   const box=document.getElementById(`cfg-${rec.id}`);
   if(!box)return;
   const params=rec.params||[];
-  if(!params.length){
-    box.innerHTML=`<div class="cfg-hint">此分析未声明可配置参数（按自动默认运行）。</div>
-      <div class="cfg-actions">
-        <button class="cfg-run" onclick="submitRun('${escHtml(rec.id)}',this)">运行 →</button>
-        <button class="cfg-cancel" onclick="closeCfgForm()">取消</button>
-        <span class="spinner" id="cfg-spin-${escHtml(rec.id)}">处理中…</span>
+  const actions=`<div class="cfg-actions">
+        <button class="cfg-run" onclick="submitRun('${escHtml(rec.id)}',this)">${escHtml(t('cfg_run'))}</button>
+        <button class="cfg-cancel" onclick="closeCfgForm()">${escHtml(t('cfg_cancel'))}</button>
+        <span class="spinner" id="cfg-spin-${escHtml(rec.id)}">${escHtml(t('working'))}</span>
       </div>`;
+  if(!params.length){
+    box.innerHTML=`<div class="cfg-hint">${escHtml(t('cfg_none'))}</div>${actions}`;
   }else{
     const fields=params.map((p,i)=>paramFieldHtml(p,i)).join('');
-    box.innerHTML=`<div class="cfg-hint">配置参数（全部可留空 → 引擎用自动默认；<span class="req">*</span> 为关键参数）。</div>
-      ${fields}
-      <div class="cfg-actions">
-        <button class="cfg-run" onclick="submitRun('${escHtml(rec.id)}',this)">运行 →</button>
-        <button class="cfg-cancel" onclick="closeCfgForm()">取消</button>
-        <span class="spinner" id="cfg-spin-${escHtml(rec.id)}">处理中…</span>
-      </div>`;
+    box.innerHTML=`<div class="cfg-hint">${t('cfg_hint')}</div>${fields}${actions}`;
   }
   box.style.display='';
 }
@@ -498,16 +816,16 @@ async function doClean(){
   try{
     const res=await fetch('/api/clean',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:currentFileId})});
     data=await res.json();
-    if(!res.ok){showError(data.detail||'清洗失败');setIdle('btn-clean');spin('clean-spinner',false);return;}
-  }catch(e){showError('网络错误：'+e.message);setIdle('btn-clean');spin('clean-spinner',false);return;}
+    if(!res.ok){showError(data.detail||t('err_clean'));setIdle('btn-clean');spin('clean-spinner',false);return;}
+  }catch(e){showError(t('err_network')+e.message);setIdle('btn-clean');spin('clean-spinner',false);return;}
   setIdle('btn-clean');spin('clean-spinner',false);
   cleanedFileId=data.cleaned_file_id;
   const planEl=document.getElementById('clean-plan');
   planEl.innerHTML=(data.plan&&data.plan.length)
     ? data.plan.map(s=>`<div class="plan-row"><span class="plan-action">${escHtml(s.action)}</span>${s.column?' — '+escHtml(s.column):''} <span class="meta">${escHtml(s.reason)}</span></div>`).join('')
-    : '<div class="meta">无清洗步骤（数据已干净）</div>';
+    : `<div class="meta">${escHtml(t('clean_none'))}</div>`;
   const applied=(data.log||[]).filter(l=>l.applied).length,total=(data.log||[]).length;
-  document.getElementById('clean-log-summary').textContent=`共 ${total} 步，${applied} 步已执行。清洗后文件已保存 (ID: ${cleanedFileId||'—'})`;
+  document.getElementById('clean-log-summary').textContent=t('clean_log',total,applied,cleanedFileId||t('clean_dash'));
   document.getElementById('clean-section').style.display='';
   document.getElementById('clean-section').scrollIntoView({behavior:'smooth'});
 }
@@ -519,12 +837,13 @@ async function doReanalyze(){
   try{
     const res=await fetch('/api/reanalyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:cleanedFileId})});
     data=await res.json();
-    if(!res.ok){showError(data.detail||'重新分析失败');setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
-  }catch(e){showError('网络错误：'+e.message);setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
+    if(!res.ok){showError(data.detail||t('err_reanalyze'));setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
+  }catch(e){showError(t('err_network')+e.message);setIdle('btn-reanalyze');spin('reanalyze-spinner',false);return;}
   setIdle('btn-reanalyze');spin('reanalyze-spinner',false);
   currentFileId=cleanedFileId;cleanedFileId=null;
   document.getElementById('clean-section').style.display='none';
-  document.getElementById('result-section').style.display='none';
+  document.getElementById('result-section').style.display='none';lastResult=null;
+  lastFingerprint=data.fingerprint;lastPlan=data.diagnostic_plan;
   renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);renderPlan(data.diagnostic_plan);
   lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
   lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;renderGoals();renderRecs();
@@ -534,17 +853,18 @@ async function doReanalyze(){
 async function doRun(analysisId,btn,config){
   if(!currentFileId)return;clearError();
   document.getElementById('result-section').style.display='none';
-  if(btn){btn._o=btn.textContent;btn.textContent='…处理中';btn.disabled=true;}
+  if(btn){btn._o=btn.textContent;btn.textContent=t('busy');btn.disabled=true;}
   const payload={file_id:currentFileId,analysis_id:analysisId};
   if(config&&Object.keys(config).length)payload.config=config;  // omit entirely when empty
   let data;
   try{
     const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     data=await res.json();
-    if(!res.ok){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError(data.detail||'运行失败');return;}
-  }catch(e){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError('网络错误：'+e.message);return;}
+    if(!res.ok){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError(data.detail||t('err_run'));return;}
+  }catch(e){if(btn){btn.textContent=btn._o;btn.disabled=false;}showError(t('err_network')+e.message);return;}
   if(btn){btn.textContent=btn._o;btn.disabled=false;}
   closeCfgForm();
+  lastResult=data;
   renderResult(data);
   document.getElementById('result-section').style.display='';
   document.getElementById('result-section').scrollIntoView({behavior:'smooth'});
@@ -552,7 +872,7 @@ async function doRun(analysisId,btn,config){
 }
 
 function renderResult(data){
-  document.getElementById('result-summary').textContent=data.summary||'(无摘要)';
+  document.getElementById('result-summary').textContent=data.summary||t('result_no_summary');
   document.getElementById('result-report').innerHTML=mdToHtml(data.report||'');
   const base=data.output_dir.replace(/\\/g,'/').split('/').pop();
   const dl=document.getElementById('btn-download-all');
@@ -564,16 +884,17 @@ function renderResult(data){
       if(f.toLowerCase().endsWith('.png'))
         return `<div><img src="${url}" class="inline-fig" alt="${escHtml(f)}"><div class="meta" style="font-size:11.5px">${escHtml(f)}</div></div>`;
       if(f.toLowerCase().endsWith('.html'))
-        return `<a href="${url}" target="_blank">🔍 ${escHtml(f)}（交互版）</a>`;
+        return `<a href="${url}" target="_blank">${t('file_interactive',escHtml(f))}</a>`;
       return `<a href="${url}" target="_blank">${escHtml(f)}</a>`;
     }).join('');
-  }else{el.innerHTML='<span class="meta">无输出文件</span>';}
+  }else{el.innerHTML=`<span class="meta">${escHtml(t('result_no_files'))}</span>`;}
 }
 
 // --------------------------------------------------------------------------
 // Run history + artifact browser
 // --------------------------------------------------------------------------
-let historyRuns = [];   // [{run_name,analysis_id,timestamp,files,n_files,...}]
+let historyRuns = [];     // [{run_name,analysis_id,timestamp,files,n_files,...}]
+let historyLoaded = false;
 
 // Turn a dir-name timestamp (YYYYMMDD-HHMMSS-mmm) into a friendly string;
 // fall back to the raw value when it doesn't match the convention.
@@ -594,10 +915,11 @@ async function loadHistory(){
   }catch(e){
     // history is a non-critical panel — never block the main flow on its failure
     sec.style.display='';
-    el.innerHTML=`<div class="hist-empty">无法加载运行历史：${escHtml(e.message)}</div>`;
+    el.innerHTML=`<div class="hist-empty">${escHtml(t('err_history')+e.message)}</div>`;
     return;
   }
   historyRuns=Array.isArray(runs)?runs:[];
+  historyLoaded=true;
   sec.style.display='';
   renderHistory();
 }
@@ -605,7 +927,7 @@ async function loadHistory(){
 function renderHistory(){
   const el=document.getElementById('history-list');
   if(!historyRuns.length){
-    el.innerHTML='<div class="hist-empty">暂无运行记录。跑一个分析后，产物会出现在这里。</div>';
+    el.innerHTML=`<div class="hist-empty">${escHtml(t('hist_empty'))}</div>`;
     return;
   }
   el.innerHTML=historyRuns.map((r,i)=>{
@@ -614,14 +936,14 @@ function renderHistory(){
       <div class="hist-head">
         <span class="hist-id">${escHtml(r.analysis_id||r.run_name)}</span>
         <span class="hist-ts">${escHtml(fmtTs(r.timestamp))}</span>
-        <span class="hist-count">${r.n_files||0} 个文件</span>
+        <span class="hist-count">${t('hist_files_n',r.n_files||0)}</span>
         <span class="hist-actions">
-          <button onclick="toggleHistFiles(${i})" id="hist-toggle-${i}">查看文件</button>
-          <a href="${dl}">⬇ 下载 zip</a>
+          <button onclick="toggleHistFiles(${i})" id="hist-toggle-${i}">${escHtml(t('hist_view_files'))}</button>
+          <a href="${dl}">${escHtml(t('hist_download_zip'))}</a>
         </span>
       </div>
       <div class="hist-files" id="hist-files-${i}">
-        ${(r.files||[]).map(f=>histFileRow(r.run_name,f)).join('')||'<div class="hist-empty">（无文件）</div>'}
+        ${(r.files||[]).map(f=>histFileRow(r.run_name,f)).join('')||`<div class="hist-empty">${escHtml(t('hist_no_files'))}</div>`}
       </div>
       <div class="hist-preview" id="hist-pv-${i}"></div>
     </div>`;
@@ -633,7 +955,7 @@ function histFileRow(runName,fname){
   // pass runName/fname via a click handler so we can render inline previews
   return `<div class="hist-file">
     <a href="#" onclick="previewArtifact('${encodeURIComponent(runName)}','${encodeURIComponent(fname)}');return false;">${escHtml(fname)}</a>
-    <a href="${url}" target="_blank" class="meta" style="font-size:11.5px">↗ 原始</a>
+    <a href="${url}" target="_blank" class="meta" style="font-size:11.5px">${escHtml(t('hist_raw'))}</a>
   </div>`;
 }
 
@@ -642,7 +964,7 @@ function toggleHistFiles(i){
   const btn=document.getElementById(`hist-toggle-${i}`);
   if(!box)return;
   const open=box.classList.toggle('open');
-  if(btn)btn.textContent=open?'收起文件':'查看文件';
+  if(btn)btn.textContent=open?t('hist_hide_files'):t('hist_view_files');
 }
 
 // Find which rendered history item a run belongs to (preview targets it).
@@ -658,7 +980,7 @@ async function previewArtifact(encRun,encFile){
   const pv=document.getElementById(`hist-pv-${i}`);
   if(!pv)return;
   const url=`/api/runs/${encodeURIComponent(runName)}/file/${encodeURIComponent(fname)}`;
-  const close=`<button class="pv-close" onclick="document.getElementById('hist-pv-${i}').classList.remove('open')">关闭 ✕</button>`;
+  const close=`<button class="pv-close" onclick="document.getElementById('hist-pv-${i}').classList.remove('open')">${escHtml(t('hist_close'))}</button>`;
   const low=fname.toLowerCase();
   if(low.endsWith('.png')||low.endsWith('.jpg')||low.endsWith('.jpeg')||low.endsWith('.gif')||low.endsWith('.svg')){
     pv.innerHTML=`${close}<div style="clear:both"><img src="${url}" alt="${escHtml(fname)}"></div>`;
@@ -666,7 +988,7 @@ async function previewArtifact(encRun,encFile){
     return;
   }
   // text-ish: fetch and render (report.md as markdown, CSV head, else raw text)
-  pv.innerHTML=`${close}<div class="meta" style="clear:both">加载中…</div>`;
+  pv.innerHTML=`${close}<div class="meta" style="clear:both">${escHtml(t('hist_loading'))}</div>`;
   pv.classList.add('open');
   let text;
   try{
@@ -674,23 +996,24 @@ async function previewArtifact(encRun,encFile){
     if(!res.ok)throw new Error('HTTP '+res.status);
     text=await res.text();
   }catch(e){
-    pv.innerHTML=`${close}<div class="hist-empty" style="clear:both">无法预览：${escHtml(e.message)}</div>`;
+    pv.innerHTML=`${close}<div class="hist-empty" style="clear:both">${escHtml(t('err_preview')+e.message)}</div>`;
     return;
   }
   if(low.endsWith('.md')){
     pv.innerHTML=`${close}<div class="report" style="clear:both">${mdToHtml(text)}</div>`;
   }else if(low.endsWith('.csv')||low.endsWith('.tsv')){
     const lines=text.split(/\r?\n/).slice(0,21);  // header + 20 rows
-    const more=text.split(/\r?\n/).length>21?'\n… （仅显示前 20 行）':'';
+    const more=text.split(/\r?\n/).length>21?t('hist_csv_more'):'';
     pv.innerHTML=`${close}<pre style="clear:both">${escHtml(lines.join('\n')+more)}</pre>`;
   }else{
-    const head=text.length>4000?text.slice(0,4000)+'\n… （已截断）':text;
+    const head=text.length>4000?text.slice(0,4000)+t('hist_truncated'):text;
     pv.innerHTML=`${close}<pre style="clear:both">${escHtml(head)}</pre>`;
   }
   pv.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 
-// Load run history on first paint.
+// Apply language to static text on first paint, then load run history.
+applyStaticI18n();
 loadHistory();
 </script>
 </body>

@@ -1,0 +1,89 @@
+# Missing-data family (principled missing-data handling). Pure Python
+# (statsmodels / sklearn / scipy) — the gold-standard machinery the engine's
+# simple cleaning fills do not provide.
+
+- id: mice_imputation
+  method: "Multiple Imputation by Chained Equations (MICE) + Rubin's rules"
+  domain: statistics
+  family: missing_data
+  goal: explain
+  description: >-
+    Principled multiple imputation for missing data. Runs MICE to produce M imputed
+    datasets (config m_imputations, default 10) using statsmodels MICEData (true
+    chained equations) if available, else sklearn IterativeImputer with M random-seeded
+    stochastic draws. Numeric columns only enter the chained equations (coerced via
+    pd.to_numeric; all-missing columns dropped). It then fits the SAME OLS regression
+    on every completed dataset — outcome = first continuous column (config outcome);
+    predictors = the remaining numeric columns (config predictors) — and POOLS the
+    coefficients with Rubin's rules: pooled coefficient = mean of the M estimates;
+    within-imputation variance Ubar = mean of the M squared SEs; between-imputation
+    variance B = sample variance of the M estimates; total variance T = Ubar +
+    (1 + 1/M) times B; pooled SE = sqrt(T); fraction of missing information FMI =
+    (1 + 1/M) times B / T per coefficient; Rubin (1987) degrees of freedom df =
+    (M-1) times (1 + Ubar / ((1 + 1/M) times B)) squared (guarded against B = 0). The
+    complete-case (listwise-deletion) regression is reported alongside so the user sees
+    how much imputation changed the estimates and how many rows listwise would drop.
+    Degrades honestly when there are no missing values (use ols_regression directly).
+  preconditions:
+    min_rows: 5
+    min_numeric_cols: 2
+  produces:
+    - pooled regression coefficients (Rubin's rules) with pooled SE, t/df and FMI per predictor
+    - complete-case (listwise-deletion) coefficients alongside, plus rows dropped by listwise
+    - coefficients CSV + a forest/bar plot of the pooled coefficients
+  executor_ref: "py::mice_imputation"
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（被合并系数的回归因变量）
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量列表（回归自变量）
+      default: 其余数值列
+    - name: m_imputations
+      type: int
+      description: 插补数据集个数 M（>=2；越大合并方差越稳）
+      default: "10"
+    - name: seed
+      type: int
+      description: 随机种子（复现插补）
+      default: "12345"
+  biases:
+    - "MICE assumes the data are Missing At Random (MAR) — missingness explainable by the OBSERVED variables; it cannot handle MNAR (missingness depending on the unobserved value itself), which biases imputations"
+    - "the imputation model is the chained equations over the other variables; a misspecified imputation model (omitted predictors, wrong functional form, interactions) produces biased imputed values"
+    - "a high fraction of missing information (FMI, e.g. > 0.5) means the result is sensitive to imputation uncertainty and to M; small M then gives unstable pooled SEs"
+    - "only numeric columns enter the chained equations here; categorical predictors of missingness are not used, weakening the MAR justification"
+    - "Rubin's degrees of freedom use the simple 1987 formula (no Barnard-Rubin small-sample correction), which can be optimistic in very small samples"
+
+- id: missingness_diagnosis
+  method: "Missing-data pattern analysis + MCAR association screen"
+  domain: statistics
+  family: missing_data
+  goal: describe
+  description: >-
+    Diagnoses the structure of missingness before any imputation. Reports per-column
+    missing counts and rates, the overall missing rate, and the distinct missingness
+    patterns (which combinations of columns are jointly missing) with their frequencies.
+    It then runs an MCAR ASSOCIATION SCREEN — deliberately labelled a screen, NOT
+    Little's (1988) test: for each column with missing values it fits a logistic
+    regression of that column's missing-indicator on the OTHER numeric columns
+    (mean-imputed predictors) and combines the per-column likelihood-ratio chi-squares
+    into one overall chi-square (degrees of freedom summed). A significant overall test
+    is evidence AGAINST MCAR — missingness is associated with observed values, so the
+    data are at best MAR. This is a robust alternative to Little's pooled-covariance
+    statistic, which is fragile with many sparse patterns. Products include a per-column
+    missingness table, a pattern table, a missing-rate bar chart and a missingness map.
+  preconditions:
+    min_rows: 5
+  produces:
+    - per-column missing counts/rates + overall missing rate
+    - distinct missingness patterns and their frequencies (pattern table CSV)
+    - MCAR association screen (combined chi-square, df, p) + missing-rate bar and missingness-map plots
+  executor_ref: "py::missingness_diagnosis"
+  params: []
+  biases:
+    - "the three missingness mechanisms MCAR / MAR / MNAR are distinct; this screen can only distinguish MCAR from MAR — MNAR (missingness depending on the unobserved value) cannot be tested from the data"
+    - "a non-significant MCAR screen does NOT prove MCAR — it may simply reflect low power (small samples, weak associations)"
+    - "this is an association SCREEN (combined logistic likelihood-ratio tests), not Little's (1988) MCAR statistic; the per-column tests are combined assuming independence, which is an approximation"
+    - "only numeric columns serve as predictors of missingness; associations with categorical columns are not screened"

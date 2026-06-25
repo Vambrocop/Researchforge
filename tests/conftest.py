@@ -72,6 +72,8 @@ SLOW_MODULES = {
     "test_reliability",
     # bayesian MCMC: PyMC NUTS sampling per test (regression / logistic / hierarchical)
     "test_bayesian_mcmc",
+    # MICE multiple imputation: runs M chained-equation imputations + per-set OLS
+    "test_missing_data",
 }
 
 
