@@ -31,29 +31,15 @@ from __future__ import annotations
 import re
 
 from researchforge.executor._branch_api import Ctx, register
+# Reuse the canonical GMM-lag-window parser (shared with dynamic_panel_gmm) rather than
+# duplicate it — keeps the (lo, hi) default + validation in one place.
+from researchforge.executor.run import _gmm_lags
 
 _IDENT = re.compile(r"[A-Za-z.][A-Za-z0-9._]*")
 
 
 def _ident_ok(*cols) -> bool:
     return all(re.fullmatch(_IDENT, str(c)) for c in cols if c is not None)
-
-
-def _gmm_lags(cfg) -> tuple[int, int]:
-    """(lo, hi) GMM instrument lag window from config; default (2, 4) to curb
-    instrument proliferation (Roodman). Robust to bad input."""
-    lo, hi = 2, 4
-    spec = cfg.get("gmm_lags")
-    try:
-        if isinstance(spec, (list, tuple)) and len(spec) == 2:
-            lo, hi = int(spec[0]), int(spec[1])
-    except (TypeError, ValueError):
-        lo, hi = 2, 4
-    if lo < 1:
-        lo = 1
-    if hi < lo:
-        hi = lo + 1
-    return lo, hi
 
 
 def _resolve_unit_time(ctx: Ctx):
@@ -205,11 +191,16 @@ def _branch_system_gmm(ctx: Ctx) -> None:
 
         _endo_note = (f"内生变量（用 lag {lo}:{hi} 工具）：{endo}" if endo
                       else "全部协变量设为严格外生（可用 config endogenous 标出内生变量）")
+        if lo < 2:
+            _endo_note += (
+                "；⚠ gmm_lags 起始<2 仅对前定(predetermined)变量有效，"
+                "滞后被解释变量已强制 lag≥2（差分方程中 lag1 为无效工具），但协变量块仍用所设 lo"
+            )
         (d / "system_gmm_diagnostics.txt").write_text(
             "Blundell-Bond 系统 GMM (twosteps, transformation='ld', Windmeijer 稳健 SE)\n"
             f"工具集限 lag {lo}-{hi}（抑制工具过度增殖；过多工具会弱化 Sargan/Hansen）。\n"
             f"{_endo_note}。滞后被解释变量在差分方程中强制 lag≥2。\n"
-            f"Sargan 过度识别 p = {sargan_p:.4g}"
+            f"Sargan 过度识别 p = {sargan_p:.4g}（注：s$sargan 为非稳健 Sargan,非 Hansen J）"
             f"（{'工具有效（不拒）' if sargan_ok else '被拒 → 工具集可疑'}）\n"
             f"AR(1) p = {ar1_p:.4g}（差分后通常显著，正常）\n"
             f"AR(2) p = {ar2_p:.4g}"
@@ -365,6 +356,21 @@ def _branch_hausman_taylor(ctx: Ctx) -> None:
     # exogenous and serve as instruments (their within-means identify TI coefficients).
     endo = [c for c in (cfg.get("endogenous") or []) if c in preds]
     instruments = [c for c in preds if c not in endo]
+
+    # Order condition: HT identifies the time-invariant coefficients using the within-
+    # means of the EXOGENOUS time-varying regressors as instruments, so it needs at
+    # least as many exogenous TV regressors as endogenous TI regressors. If the user
+    # over-flags endogeneity, the model is under-identified — skip with an honest stat
+    # message rather than let plm error out raw.
+    exog_tv = [c for c in tv if c not in endo]
+    endo_ti = [c for c in ti if c in endo]
+    if len(exog_tv) < len(endo_ti):
+        summary.append(
+            "Hausman-Taylor 跳过：模型欠识别——外生时变回归元（作工具，"
+            f"{len(exog_tv)} 个）少于内生时不变回归元（{len(endo_ti)} 个），"
+            "无法识别时不变系数。请少标几个 endogenous，或改用 random_effects / fixed_effects。"
+        )
+        return
 
     csv = d / "_ht_input.csv"
     sub.to_csv(csv, index=False)

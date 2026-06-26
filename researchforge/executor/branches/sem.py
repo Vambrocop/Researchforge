@@ -88,9 +88,19 @@ def _branch_bayesian_sem(ctx: Ctx) -> None:
                           cores=1, random_seed=sc["seed"], progressbar=False,
                           target_accept=0.95)
 
+    # The loadings enter the likelihood only through Σ=λλᵀ+Ψ, so the posterior is
+    # bimodal across the GLOBAL sign (λ and −λ fit identically). If two chains land in
+    # opposite sign modes, R-hat on lam would inflate spuriously and trip a false
+    # "未收敛" warning. De-alias the sign PER CHAIN (flip a chain whose mean loading-sum
+    # is negative) BEFORE computing convergence, so R-hat reflects genuine mixing, not
+    # the sign-mode split. (psi is sign-invariant; the global report-flip happens below.)
+    post = idata.posterior
+    _lam_v = post["lam"].values
+    _chain_sgn = np.where(_lam_v.reshape(_lam_v.shape[0], -1).sum(axis=1) < 0.0, -1.0, 1.0)
+    post["lam"].values[...] = _lam_v * _chain_sgn[:, None, None]
+
     # convergence keys off the structural params (lam/psi); eta has n noisy params.
     max_rhat, min_ess = _convergence(idata, ["lam", "psi"])
-    post = idata.posterior
     lam_mean0 = post["lam"].values.reshape(-1, p).mean(axis=0)
     psi_mean = post["psi"].values.reshape(-1, p).mean(axis=0)
     # sign indeterminacy (factor sign + all loadings can flip): fix loadings to be
