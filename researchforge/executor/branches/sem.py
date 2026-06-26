@@ -16,28 +16,44 @@ from researchforge.executor.run import (
 
 def _parse_measurement(spec, columns):
     """Parse a lavaan-style measurement spec ('F1 =~ a + b + c' lines) into
-    [(factor_name, [indicators]), ...], keeping only existing columns, preserving order,
-    and assigning each indicator to its FIRST factor (no cross-loadings)."""
+    ([(factor_name, [indicators]), ...], dropped). Keeps only existing columns,
+    preserves order, MERGES repeated factor names, strips lavaan fixed-loading
+    modifiers ('0.7*x' / 'NA*x' -> 'x'), and assigns each indicator to its FIRST
+    factor (no cross-loadings). ``dropped`` lists (indicator, factor) pairs that were
+    dropped because the indicator was already claimed by an earlier factor — surfaced
+    honestly by the caller so a silently-dropped cross-loading isn't hidden."""
     import re
 
-    factors, assigned = [], set()
+    factors_map: dict[str, list] = {}
+    order: list[str] = []
+    assigned: set[str] = set()
+    dropped: list[tuple[str, str]] = []
     for line in re.split(r"[\n;]+", str(spec)):
         if "=~" not in line:
             continue
         lhs, rhs = line.split("=~", 1)
         fname = lhs.strip()
-        inds = []
+        if not fname:
+            continue
+        if fname not in factors_map:
+            factors_map[fname] = []
+            order.append(fname)
         for tok in rhs.split("+"):
             c = tok.strip()
-            if c in columns and c not in assigned:
-                inds.append(c)
+            if "*" in c:  # lavaan fixed/free-loading modifier: 0.7*x / NA*x -> x
+                c = c.split("*", 1)[1].strip()
+            if c not in columns:
+                continue
+            if c in assigned:
+                dropped.append((c, fname))
+            else:
+                factors_map[fname].append(c)
                 assigned.add(c)
-        if fname and inds:
-            factors.append((fname, inds))
-    return factors
+    factors = [(name, factors_map[name]) for name in order if factors_map[name]]
+    return factors, dropped
 
 
-def _run_bayesian_multifactor(ctx, factors) -> None:
+def _run_bayesian_multifactor(ctx, factors, dropped=()) -> None:
     """Correlated multi-factor Bayesian CFA (marginalized): Σ = Λ Φ Λᵀ + Ψ, Φ the factor
     CORRELATION matrix (LKJ, unit-variance factors for identification). Reports per-factor
     standardized loadings, indicator residuals, factor reliabilities (omega), and the
@@ -82,6 +98,16 @@ def _run_bayesian_multifactor(ctx, factors) -> None:
     is_anchor[anchor] = True
 
     sc = _sampler_cfg(cfg)
+    # Robustness guard: this path needs pm.LKJCorr(n=k) to return a k×k Cholesky factor
+    # (modern PyMC). Older PyMC returned a flat off-diagonal vector — degrade honestly
+    # to the single-factor path rather than build a broadcast-garbage covariance.
+    _probe = pm.LKJCorr.dist(n=k, eta=2.0)
+    if getattr(_probe, "ndim", 2) != 2:
+        summary.append(
+            "贝叶斯 SEM 多因子跳过：本环境的 PyMC LKJCorr 返回格式不兼容（需返回 k×k Cholesky）。"
+            "已退回单因子 CFA——请升级 pymc，或用 config indicators 指定单因子指标。"
+        )
+        return
     with pm.Model() as model:
         lam_pos = pm.HalfNormal("lam_pos", 1.0, shape=k)              # positive anchor per factor
         lam_free = pm.Normal("lam_free", 0.0, 1.0, shape=int((~is_anchor).sum()))
@@ -157,6 +183,11 @@ def _run_bayesian_multifactor(ctx, factors) -> None:
         f"{fac_names[i]}↔{fac_names[j]} r≈{Phi_mean[i, j]:.2f}"
         for i in range(k) for j in range(i + 1, k))
     omega_txt = "、".join(f"{fac_names[f]} ω≈{omega[f]:.2f}" for f in range(k))
+    drop_note = ""
+    if dropped:
+        _dl = "、".join(f"{c}(被 {f} 重复声明)" for c, f in dropped)
+        drop_note = (f" ⚠ 不支持交叉载荷：指标 {_dl} 已归属更早的因子、在后续因子中被丢弃；"
+                     "如需交叉载荷请改用频率派 sem 指定完整 lavaan 模型。")
     summary.append(
         f"{method} 完成：相关多因子贝叶斯 CFA（{k} 因子 / {p} 指标，PyMC NUTS，"
         f"{sc['chains']}链×{sc['draws']}抽样，边际化 Σ=ΛΦΛᵀ+Ψ）。"
@@ -166,6 +197,7 @@ def _run_bayesian_multifactor(ctx, factors) -> None:
         " ⚠ 因子方差固定为 1（Φ 为相关阵）以识别尺度；每因子首指标载荷锚定为正以定符号（约定）；"
         "因子相关即标准化的潜变量间结构关联（两因子时等于标准化回归系数）；"
         "这是**相关因子测量模型**，有向结构路径（中介/通径）仍属后续扩展；弱信息先验、指标已标准化。"
+        + drop_note
     )
     code += [
         "import pymc as pm, pytensor.tensor as pt  # 相关多因子贝叶斯 CFA（边际化）",
@@ -212,9 +244,9 @@ def _branch_bayesian_sem(ctx: Ctx) -> None:
     # correlated multi-factor CFA (reports inter-factor correlations).
     _user_spec0 = cfg.get("model_spec")
     if _user_spec0:
-        _factors = _parse_measurement(_user_spec0, set(df.columns))
+        _factors, _dropped = _parse_measurement(_user_spec0, set(df.columns))
         if len(_factors) >= 2 and all(len(i) >= 2 for _, i in _factors):
-            _run_bayesian_multifactor(ctx, _factors)
+            _run_bayesian_multifactor(ctx, _factors, _dropped)
             return
     # resolve indicators: config indicators, else columns named in a lavaan-style
     # model_spec, else the continuous columns (single-factor CFA on all of them).
