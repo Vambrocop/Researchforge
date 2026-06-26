@@ -174,7 +174,18 @@ def _run_bayesian_structural(ctx, factors, paths, dropped=()) -> None:
                           cores=1, random_seed=sc["seed"], progressbar=False,
                           target_accept=0.95)
 
-    max_rhat, min_ess = _convergence(idata, ["beta", "psi", "zvar"])
+    import arviz as az
+
+    def _hdi1d(arr):
+        """True HDI on a 1-D array of derived draws at the configured probability."""
+        a = np.asarray(arr, dtype=float)
+        try:
+            h = az.hdi(a, hdi_prob=sc["hdi"])
+        except TypeError:
+            h = az.hdi(a, prob=sc["hdi"])
+        return float(h[0]), float(h[1])
+
+    max_rhat, min_ess = _convergence(idata, ["beta", "lam_free", "psi", "zvar"])
     post = idata.posterior
     beta_d = post["beta"].values.reshape(-1, len(path_ij))
     Ceta_d = post["Ceta"].values.reshape(-1, k, k)
@@ -186,7 +197,7 @@ def _run_bayesian_structural(ctx, factors, paths, dropped=()) -> None:
     endo = sorted({i for i, _ in path_ij})
     for bi, (i, j) in enumerate(path_ij):
         bstd = beta_d[:, bi] * fac_sd[:, j] / fac_sd[:, i]
-        lo, hi = float(np.percentile(bstd, 3)), float(np.percentile(bstd, 97))
+        lo, hi = _hdi1d(bstd)
         key = f"path_{fac_names[i]}_on_{fac_names[j]}_std"   # outcome <- predictor
         estimates[key] = round(float(bstd.mean()), 4)
         estimates[f"{key}_hdi_low"] = round(lo, 4)
@@ -207,11 +218,11 @@ def _run_bayesian_structural(ctx, factors, paths, dropped=()) -> None:
         rows = []
         for bi, (i, j) in enumerate(path_ij):
             bstd = beta_d[:, bi] * fac_sd[:, j] / fac_sd[:, i]
+            _lo, _hi = _hdi1d(bstd)
             rows.append({"outcome": fac_names[i], "predictor": fac_names[j],
                          "std_coef": round(float(bstd.mean()), 5),
                          "raw_coef": round(float(beta_d[:, bi].mean()), 5),
-                         "hdi_low": round(float(np.percentile(bstd, 3)), 5),
-                         "hdi_high": round(float(np.percentile(bstd, 97)), 5)})
+                         "hdi_low": round(_lo, 5), "hdi_high": round(_hi, 5)})
         pd.DataFrame(rows).to_csv(d / "bayesian_sem_paths.csv", index=False, encoding="utf-8")
         files.append("bayesian_sem_paths.csv")
     except Exception:
@@ -405,10 +416,11 @@ def _run_bayesian_multifactor(ctx, factors, dropped=()) -> None:
 def _branch_bayesian_sem(ctx: Ctx) -> None:
     """Bayesian confirmatory factor analysis — the auto-runnable core of Bayesian SEM (a
     measurement model). Modern PyMC NUTS, so no R blavaan / JAGS / Stan compiler needed.
-    Default = single-factor CFA on the continuous columns; a lavaan-style ``model_spec``
-    with ≥2 factors ('F1 =~ a+b+c \\n F2 =~ d+e+f') routes to a CORRELATED multi-factor
-    CFA that also reports the inter-factor correlations (the standardized structural
-    associations between latents). Directed structural regressions remain future work."""
+    Three routes from ``model_spec``: (1) none / single factor → single-factor CFA on the
+    continuous columns; (2) ≥2 factors, measurement only ('F1 =~ a+b+c \\n F2 =~ d+e+f') →
+    CORRELATED multi-factor CFA reporting inter-factor correlations; (3) factors PLUS
+    directed regressions ('F2 ~ F1', 'F3 ~ F2') → RECURSIVE structural SEM reporting
+    standardized path coefficients + endogenous R² (acyclic models only)."""
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     method = entry.method
