@@ -606,14 +606,50 @@
   domain: economics
   family: causal
   goal: explain
-  description: Two-stage least squares to address endogeneity using an instrument.
+  description: >-
+    Two-stage least squares (2SLS) to address endogeneity, run via linearmodels IV2SLS
+    when you supply an excluded instrument through config (the engine cannot auto-pick a
+    valid instrument — that needs the domain knowledge of the exclusion restriction — so
+    without one it returns honest guidance). Estimates the causal coefficient of the
+    endogenous regressor with robust SE + 95% CI, reports the first-stage weak-instrument
+    F, the Wu-Hausman endogeneity test, the Sargan overidentification test (when
+    overidentified), and the naive-OLS contrast (the difference is the endogeneity-bias
+    correction).
   preconditions:
     min_rows: 30
     min_continuous: 1
   produces:
-    - IV / 2SLS table
-    - first-stage diagnostics
-  executor_ref: empirical-analysis-python
+    - 2SLS coefficient table (endogenous flagged) with robust SE + 95% CI + p (CSV)
+    - first-stage F (weak-instrument), Wu-Hausman endogeneity, Sargan overid tests
+    - 2SLS coefficient plot (endogenous highlighted) + naive-OLS contrast
+  executor_ref: py::iv_regression
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量 Y
+      default: 第一个连续列
+    - name: endogenous
+      type: columns
+      description: 内生回归元 X
+      default: 第一个非工具/结果的连续列
+    - name: instrument
+      type: column
+      description: 外生工具变量 Z(单个;必填其一)
+      default: 无(缺则返回指引)
+    - name: instruments
+      type: columns
+      description: 外生工具变量 Z(多个;过度识别)
+      default: 无
+    - name: controls
+      type: columns
+      description: 外生控制变量 W
+      default: 其余数值协变量
+    - name: exogenous
+      type: columns
+      description: controls 的别名
+      default: 同 controls
   biases:
-    - weak instrument
-    - exclusion-restriction violation
+    - 2SLS consistency rests on the EXCLUSION RESTRICTION (the instrument affects the outcome only through the endogenous regressor and is uncorrelated with the error) — an untestable identifying assumption
+    - weak instruments (first-stage F < 10) bias 2SLS toward OLS and make standard errors unreliable
+    - under heterogeneous effects 2SLS estimates a LATE for the instrument-responsive subpopulation (requires monotonicity), not necessarily the ATE
+    - the engine cannot auto-select a valid instrument; an arbitrarily chosen one would violate the exclusion restriction, so an instrument must be supplied via config
