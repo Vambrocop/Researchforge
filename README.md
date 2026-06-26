@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~278 analyses across ~45 method families (causal, regression, survival,
+> spans ~280 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
 > discrete-choice, operations-research, game-theory, marketing, actuarial,
@@ -133,7 +133,7 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~278 analyses, grouped by methodology family. Highlights by
+The catalog holds ~280 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
@@ -144,9 +144,9 @@ domain:
   binomial / zero-inflated), regularized regression, regression diagnostics,
   relative importance.
 - **Econometrics / panel** — fixed/random effects, panel estimators (Mundlak /
-  Hausman / first-difference / dynamic GMM), instrumental variables, limited-dependent
-  models (Tobit censored / truncated regression / Heckman sample-selection), agricultural
-  & resource economics methods.
+  Hausman / first-difference / difference & **system GMM** / **Hausman-Taylor**),
+  instrumental variables, limited-dependent models (Tobit censored / truncated
+  regression / Heckman sample-selection), agricultural & resource economics methods.
 - **Survival** — Kaplan–Meier, Cox PH, parametric and extended survival models.
 - **Spatial / GIS** — spatial autocorrelation, kriging/interpolation, geographically
   weighted regression (GWR), soil/compositional methods.
