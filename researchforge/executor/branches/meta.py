@@ -17,7 +17,6 @@ from researchforge.executor.run import (
 def _branch_meta_analysis(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import pandas as pd
 
     from researchforge.executor import rbridge
 
@@ -170,7 +169,6 @@ def _branch_meta_regression(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import re
 
-    import pandas as pd
 
     from researchforge.executor import rbridge
 

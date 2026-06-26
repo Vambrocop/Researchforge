@@ -439,7 +439,7 @@ def _branch_garch(ctx: Ctx) -> None:
         )
         code += [
             "from arch import arch_model  # GARCH 条件波动率",
-            f"# arch_model(y, mean='Constant', vol='GARCH', p=1, q=1).fit(); 持续性=α₁+β₁",
+            "# arch_model(y, mean='Constant', vol='GARCH', p=1, q=1).fit(); 持续性=α₁+β₁",
         ]
     except Exception as err:
         summary.append(f"GARCH 拟合失败：{err}")
@@ -646,7 +646,6 @@ def _branch_ardl_bounds(ctx: Ctx) -> None:
     # I(0)/I(1) regressors, plus the error-correction speed and long-run coefficients.
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
 
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]

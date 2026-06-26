@@ -8,8 +8,6 @@ from researchforge.executor._branch_api import Ctx, register
 def _branch_mediation(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
-    import pandas as pd
 
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]

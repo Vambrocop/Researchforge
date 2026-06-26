@@ -40,7 +40,7 @@ def test_idw_interpolates_smooth_field(tmp_path: Path) -> None:
     out = Path(res.output_dir)
     surf = pd.read_csv(out / "idw_surface.csv")
 
-    assert f"soil_ph_idw" in surf.columns
+    assert "soil_ph_idw" in surf.columns
     assert len(surf) == 60 * 60  # full grid written
     # IDW never extrapolates beyond the observed range
     assert surf["soil_ph_idw"].min() >= ph.min() - 1e-6

@@ -351,7 +351,7 @@ def _branch_skater(ctx: Ctx) -> None:
     try:
         import numpy as np
         from scipy.sparse import csr_matrix
-        from scipy.sparse.csgraph import connected_components, minimum_spanning_tree
+        from scipy.sparse.csgraph import minimum_spanning_tree
 
         coords = sub[[cx, cy]].to_numpy(float)
         A = sub[feats].to_numpy(float)

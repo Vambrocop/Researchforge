@@ -162,7 +162,7 @@ def _resolve_matrix(ctx: Ctx):
         # does not catch sign problems).
         if np.any(M < 0):
             return None, None, None, (
-                f"投入产出流量矩阵含负值——技术系数 A 必须非负方为有意义的 Leontief 模型；"
+                "投入产出流量矩阵含负值——技术系数 A 必须非负方为有意义的 Leontief 模型；"
                 "请核对流量列（行=投入来源部门、列=消耗部门，均应≥0）。"
             )
         A = M / x[np.newaxis, :]  # column j divided by x_j

@@ -238,7 +238,6 @@ def _branch_kriging(ctx: Ctx) -> None:
         summary.append("克里金失败：列名需为标识符式（字母/数字/. _）。")
     else:
         import numpy as np
-        import pandas as pd
 
         sub = df[[*geo, value]].dropna()
         csv = d / "_krig_input.csv"

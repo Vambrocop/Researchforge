@@ -362,7 +362,6 @@ def _branch_commonality_analysis(ctx: Ctx) -> None:
         summary.append(problem)
         return
     try:
-        import numpy as np
         import pandas as pd
 
         p = len(preds)

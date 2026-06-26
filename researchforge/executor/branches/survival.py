@@ -212,7 +212,6 @@ def _branch_survival_analysis(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import numpy as np
-    import pandas as pd
 
     # NB: do NOT exclude fp.time_col — in survival data the duration IS the
     # time column (profiler may flag a "time"/"days" column as time_col).
@@ -554,7 +553,6 @@ def _gray_test_via_r(sub, dur_col, event_col, group_col, eoi, d):
     cmprsk is unavailable or the call fails (caller degrades to descriptive CIFs).
     Optional + graceful per the engine's R-bridge rules.
     """
-    import pandas as pd
 
     from researchforge.executor import rbridge
 

@@ -5,7 +5,6 @@ dbarts / ... via executor.rbridge) — split out of backends.py to stay under th
 
 from __future__ import annotations
 
-import os
 
 def _sem_via_lavaan(csv_path, spec: str) -> dict:
     """Fit a CFA via R's lavaan (gold standard) through the R bridge. Returns a

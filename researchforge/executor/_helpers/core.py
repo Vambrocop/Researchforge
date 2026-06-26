@@ -741,7 +741,6 @@ def _network_via_nx(df, source, target, weight, directed, plot_path):
     centrality DataFrame). Writes a spring-layout plot coloured by community.
     Raises so the caller can degrade honestly."""
     import networkx as nx
-    import numpy as np
     import pandas as pd
 
     cols = [source, target] + ([weight] if weight else [])

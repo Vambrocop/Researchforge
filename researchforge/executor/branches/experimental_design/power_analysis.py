@@ -15,7 +15,6 @@ def _branch_power_analysis(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import math
 
-    import numpy as np
     import pandas as pd
 
     _excl = {fp.unit_col, fp.time_col}

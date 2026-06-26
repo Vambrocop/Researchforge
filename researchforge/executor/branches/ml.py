@@ -50,7 +50,6 @@ def _branch_bart(ctx: Ctx) -> None:
     elif not names_safe:
         summary.append("BART 失败：列名需为标识符式（字母/数字/. _），R 列选择要求。")
     else:
-        import pandas as pd
 
         sub = df[[y, *preds]].dropna()
         csv = d / "_bart_input.csv"
@@ -208,7 +207,6 @@ def _branch_hierarchical_clustering(ctx: Ctx) -> None:
         summary.append("层次聚类跳过：连续特征不足或样本太少。")
     else:
         try:
-            import numpy as np
             import pandas as pd
             from scipy.cluster.hierarchy import cophenet, dendrogram, fcluster, linkage
             from scipy.spatial.distance import pdist
@@ -279,7 +277,6 @@ def _branch_kmeans_clustering(ctx: Ctx) -> None:
             from sklearn.cluster import KMeans
             from sklearn.metrics import silhouette_score
             from sklearn.decomposition import PCA
-            import numpy as np
             import pandas as pd
 
             Xs = StandardScaler().fit_transform(X)
@@ -606,15 +603,15 @@ def _branch_random_forest(ctx: Ctx) -> None:
                 + ("RandomForestClassifier" if is_clf else "RandomForestRegressor"),
                 "from sklearn.model_selection import train_test_split",
                 f"features = {features!r}",
-                f"X = df[features].dropna()",
+                "X = df[features].dropna()",
                 f"y = df.loc[X.index, '{outcome}'].dropna()",
-                f"X = X.loc[y.index]",
+                "X = X.loc[y.index]",
                 "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=0)",
                 "model = "
                 + ("RandomForestClassifier" if is_clf else "RandomForestRegressor")
                 + "(n_estimators=200, random_state=0)",
                 "model.fit(X_train, y_train)",
-                f"print('score:', model.score(X_test, y_test))",
+                "print('score:', model.score(X_test, y_test))",
             ]
         except Exception as err:
             summary.append(f"随机森林执行失败：{err}")
@@ -711,15 +708,15 @@ def _branch_xgboost(ctx: Ctx) -> None:
                 + ("XGBClassifier" if is_clf else "XGBRegressor"),
                 "from sklearn.model_selection import train_test_split",
                 f"features = {features!r}",
-                f"X = df[features].dropna()",
+                "X = df[features].dropna()",
                 f"y = df.loc[X.index, '{outcome}'].dropna()",
-                f"X = X.loc[y.index]",
+                "X = X.loc[y.index]",
                 "X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=0)",
                 "model = "
                 + ("XGBClassifier" if is_clf else "XGBRegressor")
                 + "(n_estimators=200, random_state=0, verbosity=0)",
                 "model.fit(X_train, y_train)",
-                f"print('score:', model.score(X_test, y_test))",
+                "print('score:', model.score(X_test, y_test))",
             ]
         except Exception as err:
             summary.append(f"XGBoost 执行失败：{err}")

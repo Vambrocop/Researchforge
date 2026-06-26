@@ -49,7 +49,6 @@ def _branch_gaussian_mixture(ctx: Ctx) -> None:
         return
 
     try:
-        import numpy as np
         import pandas as pd
         from sklearn.preprocessing import StandardScaler
         from sklearn.mixture import GaussianMixture

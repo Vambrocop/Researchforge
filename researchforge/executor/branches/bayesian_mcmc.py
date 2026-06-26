@@ -120,7 +120,6 @@ def _resolve_reg(ctx: Ctx, method: str, *, binary_outcome: bool):
 
 def _clean(df, outcome, preds, *, binary_outcome: bool):
     """Numeric-coerce, drop NaN rows. Returns (X, y, preds, problem)."""
-    import numpy as np
     import pandas as pd
 
     X = df[preds].apply(lambda s: pd.to_numeric(s, errors="coerce"))

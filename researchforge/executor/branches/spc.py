@@ -717,7 +717,7 @@ def _branch_gage_rr(ctx: Ctx) -> None:
                           if np.isfinite(p_int) else "简化模型（交互项不可估，已并入误差）")
 
         # ⚠ negative variance estimates -> truncate to 0 (disclose).
-        for nm, v in (("rep", var_rep), ("po", var_po), ("oper", var_oper), ("part", var_part)):
+        for _nm, v in (("rep", var_rep), ("po", var_po), ("oper", var_oper), ("part", var_part)):
             if v < 0:
                 neg_truncated = True
         var_rep = max(var_rep, 0.0)

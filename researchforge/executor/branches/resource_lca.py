@@ -264,27 +264,6 @@ def _category(cfg) -> str:
     return "carbon"
 
 
-def _categories(cfg) -> list[str]:
-    """The list of impact categories for multi-impact runs (library path only).
-
-    Reads config ``categories`` (a list, or a comma-separated string). Filters to
-    categories the library knows. Always includes the primary ``category`` first
-    (de-duplicated, order preserved). Returns at least [primary].
-    """
-    primary = _category(cfg)
-    raw = cfg.get("categories")
-    items: list[str] = []
-    if isinstance(raw, str):
-        items = [s.strip().lower() for s in raw.split(",") if s.strip()]
-    elif isinstance(raw, (list, tuple)):
-        items = [str(s).strip().lower() for s in raw if str(s).strip()]
-    ordered: list[str] = [primary]
-    for c in items:
-        if c in LIBRARY and c not in ordered:
-            ordered.append(c)
-    return ordered
-
-
 def _resolve_from_library(ctx: Ctx, category: str):
     """Match each numeric column name to a library factor for ``category``.
 

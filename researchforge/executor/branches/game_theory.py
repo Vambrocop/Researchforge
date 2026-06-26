@@ -380,7 +380,6 @@ def _minimax(p1, tol=1e-9):
 @register("normal_form_game")
 def _branch_normal_form_game(ctx: Ctx) -> None:
     d, files, summary, estimates, code = ctx.d, ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
     import pandas as pd
 
     p1, p2, is_zero_sum, note, err = _resolve_bimatrix(ctx)

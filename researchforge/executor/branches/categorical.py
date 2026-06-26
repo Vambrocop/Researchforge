@@ -357,7 +357,6 @@ def _branch_cmh_test(ctx: Ctx) -> None:
         )
         return
     try:
-        import numpy as np
         import pandas as pd
         from scipy import stats
 

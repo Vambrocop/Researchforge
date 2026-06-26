@@ -72,7 +72,6 @@ def test_build_narrative_core_pieces() -> None:
 
 def test_build_narrative_cites_estimates() -> None:
     # the leading numeric estimates are surfaced as 关键数值 (NaN/inf skipped)
-    import math
 
     summary = ["主要结论一句话。"]
     estimates = {"coef_x": 1.2345, "r2": 0.62, "bad": float("nan"),

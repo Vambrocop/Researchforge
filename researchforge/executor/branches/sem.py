@@ -118,7 +118,7 @@ def _run_bayesian_structural(ctx, factors, paths, dropped=()) -> None:
     import pytensor.tensor as pt
 
     from researchforge.executor.branches.bayesian_mcmc import (
-        _conv_note, _convergence, _hdi_bounds, _sampler_cfg,
+        _conv_note, _convergence, _sampler_cfg,
     )
 
     fdict = dict(factors)

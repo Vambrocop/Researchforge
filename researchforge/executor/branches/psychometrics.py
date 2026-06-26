@@ -325,7 +325,6 @@ def _branch_mcdonald_omega(ctx: Ctx) -> None:
 def _branch_icc(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
     import pandas as pd
 
     # Wide layout: rows = subjects/targets, columns = raters/measurements.

@@ -16,7 +16,6 @@ from researchforge.executor.run import (
     _ordinal_prob_plot,
     _plotly_corr_heatmap,
     _quantile_process_plot,
-    _regression,
     _varimax,
 )
 
@@ -177,7 +176,6 @@ def _branch_gam(ctx: Ctx) -> None:
     elif not names_safe:
         summary.append("GAM 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
     else:
-        import pandas as pd
 
         sub = df[[y, *preds]].dropna()
         csv = d / "_gam_input.csv"
@@ -302,7 +300,6 @@ def _branch_gamm(ctx: Ctx) -> None:
     elif not names_safe:
         summary.append("GAMM 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
     else:
-        import pandas as pd
 
         sub = df[[y, group, *preds]].dropna()
         csv = d / "_gamm_input.csv"
@@ -440,7 +437,6 @@ def _branch_glmm(ctx: Ctx) -> None:
     else:
         import math
 
-        import pandas as pd
 
         sub = df[[outcome, group, *preds]].dropna()
         csv = d / "_glmm_input.csv"

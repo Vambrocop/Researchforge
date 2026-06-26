@@ -6,12 +6,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from researchforge.catalog.schema import AnalysisEntry, Precondition
 from researchforge.executor import run_analysis
 from researchforge.profiler import profile_dataset
-from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
 from researchforge.recommender.match import check_preconditions
 
 

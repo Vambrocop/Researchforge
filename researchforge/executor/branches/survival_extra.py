@@ -153,7 +153,6 @@ def _branch_time_varying_cox(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import numpy as np
-    import pandas as pd
 
     EXPECTED = (
         "需要计数过程(counting-process)长表：每行一个 (受试者, 时间区间)——"

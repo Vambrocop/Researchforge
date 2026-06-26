@@ -183,7 +183,6 @@ def _cea_frontier(costs, effects):
     The frontier options (status=="frontier") are sorted by effect ascending and have
     strictly increasing ICERs.
     """
-    import numpy as np
 
     n = len(costs)
     status = ["frontier"] * n  # provisional; refined below

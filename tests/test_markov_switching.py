@@ -26,7 +26,7 @@ def _two_regime_series(seed: int = 0, seg: int = 60, reps: int = 3):
     rng = np.random.default_rng(seed)
     parts = []
     truth = []
-    for r in range(reps):
+    for _r in range(reps):
         parts.append(rng.normal(0.0, 0.5, seg))   # regime 0: low mean, low var
         truth.append(np.zeros(seg, dtype=int))
         parts.append(rng.normal(5.0, 1.5, seg))   # regime 1: high mean, high var

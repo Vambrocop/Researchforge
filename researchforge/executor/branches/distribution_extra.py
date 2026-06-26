@@ -201,7 +201,7 @@ def _branch_finite_mixture(ctx: Ctx) -> None:
 
         dbic_txt = (f"{round(delta_bic_vs_k1, 2)}" if np.isfinite(delta_bic_vs_k1) else "NA")
         modal_note = (
-            f"k>1 被选中 → 数据**多峰**（潜在子群）" if multimodal else
+            "k>1 被选中 → 数据**多峰**（潜在子群）" if multimodal else
             "k=1 被选中 → 数据**单峰**（无证据支持子群）"
         )
         strong = np.isfinite(delta_bic_vs_k1) and delta_bic_vs_k1 > 10

@@ -47,7 +47,6 @@ def _branch_cna(ctx: Ctx) -> None:
     elif not names_safe:
         summary.append("CNA 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
     else:
-        import pandas as pd
 
         sub = df[factors].dropna()
         csv = d / "_cna_input.csv"
@@ -321,7 +320,6 @@ def _branch_panel_qca(ctx: Ctx) -> None:
     elif not names_safe:
         summary.append("面板 QCA 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
     else:
-        import pandas as pd
 
         sub = df[[outcome, *conditions, unit]].dropna()
         csv = d / "_pqca_input.csv"

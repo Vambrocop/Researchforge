@@ -58,11 +58,6 @@ def _save_fig(d, fname, files, build):
         pass
 
 
-def _kind_of(fp, name):
-    c = fp.column(name)
-    return c.kind if c is not None else None
-
-
 def _pick_customer(ctx):
     """Resolve the customer-id column.
 
@@ -224,7 +219,6 @@ def _rfm_segment(r, f, m):
 def _branch_rfm_segmentation(ctx: Ctx) -> None:
     d, files, summary, estimates, code = (
         ctx.d, ctx.files, ctx.summary, ctx.estimates, ctx.code)
-    import numpy as np
     import pandas as pd
 
     df = ctx.df
@@ -661,7 +655,6 @@ def _apriori_rules(baskets, min_support, min_confidence, max_len):
 def _branch_market_basket(ctx: Ctx) -> None:
     d, files, summary, estimates, code = (
         ctx.d, ctx.files, ctx.summary, ctx.estimates, ctx.code)
-    import numpy as np
     import pandas as pd
 
     cfg = ctx.cfg

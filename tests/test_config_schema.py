@@ -13,7 +13,7 @@ import pandas as pd
 
 from researchforge.catalog import Catalog
 from researchforge.catalog.config_schema import validate_config
-from researchforge.catalog.schema import AnalysisEntry, Precondition
+from researchforge.catalog.schema import AnalysisEntry
 from researchforge.executor import run_analysis
 from researchforge.profiler import profile_dataset
 

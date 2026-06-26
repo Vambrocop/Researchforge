@@ -5,7 +5,6 @@ Both are re-exported by run.py.
 
 from __future__ import annotations
 
-import os
 from researchforge.executor._helpers.core import _sem_latents
 
 def _sem_via_semopy(sub, spec: str) -> dict:

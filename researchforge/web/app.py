@@ -153,7 +153,7 @@ def _safe_run_dir(run_name: str) -> Path:
     try:
         run_dir.relative_to(_OUTPUTS_DIR.resolve())
     except ValueError:
-        raise HTTPException(status_code=400, detail="invalid run_name")
+        raise HTTPException(status_code=400, detail="invalid run_name") from None
 
     if not run_dir.exists() or not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="run not found")
@@ -236,7 +236,7 @@ def api_run_file(run_name: str, filename: str) -> FileResponse:
     try:
         target.relative_to(run_dir)
     except ValueError:
-        raise HTTPException(status_code=400, detail="invalid filename")
+        raise HTTPException(status_code=400, detail="invalid filename") from None
 
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="file not found")

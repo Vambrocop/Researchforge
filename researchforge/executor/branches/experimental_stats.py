@@ -441,7 +441,7 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
     import numpy as np
 
     try:
-        import pandas as pd
+        pass
     except Exception:
         summary.append("重复测量方差分析失败：pandas 不可用。")
         return

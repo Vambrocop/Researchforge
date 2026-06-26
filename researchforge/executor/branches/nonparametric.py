@@ -183,7 +183,7 @@ def _branch_permutation_test(ctx: Ctx) -> None:
         f"sub = df[['{group_col}', '{outcome}']].dropna()",
         f"labels = sub['{group_col}'].to_numpy(); values = sub['{outcome}'].to_numpy(float)",
         "# 2-group: mean diff; k-group: F-ratio. Null by permuting labels.",
-        f"obs = values[labels==L0].mean() - values[labels==L1].mean()  # 2-group example",
+        "obs = values[labels==L0].mean() - values[labels==L1].mean()  # 2-group example",
         f"perm = [ (values[(p:=rng.permutation(labels))==L0].mean()-values[p==L1].mean()) "
         f"for _ in range({n_perm}) ]",
         "p = (np.sum(np.abs(perm) >= abs(obs)) + 1) / (len(perm) + 1)  # two-sided, +1",

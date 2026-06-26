@@ -52,7 +52,6 @@ def _branch_synthetic_control(ctx: Ctx) -> None:
             summary.append("合成控制需要 pysyncon 包（未检测到）。安装：pip install pysyncon；或用 did。")
         else:
             try:
-                import pandas as pd
 
                 # exclude OTHER ever-treated units from donors (contamination bias).
                 other_treated = {u for u in ever_treated if u != treated}

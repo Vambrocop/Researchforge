@@ -239,7 +239,7 @@ def _branch_moderated_mediation(ctx: Ctx) -> None:
         ax.plot(grid, g_pt, color="C0", label="conditional indirect effect")
         ax.fill_between(grid, g_lo, g_hi, color="C0", alpha=0.2, label="95% bootstrap CI")
         ax.axhline(0, color="grey", ls="--", lw=1)
-        for k, wv in w_levels.items():
+        for _k, wv in w_levels.items():
             ax.axvline(wv, color="grey", ls=":", lw=0.8)
         ax.set_xlabel(f"Moderator W ({w_col})")
         ax.set_ylabel("Indirect effect of X on Y via M")
@@ -493,6 +493,6 @@ def _branch_johnson_neyman(ctx: Ctx) -> None:
         f"X 的简单斜率：W=mean-SD 时 {slope_lo:.4f}（p={p_lo:.3g}）、"
         f"W=mean 时 {slope_mean:.4f}（p={p_mn:.3g}）、W=mean+SD 时 {slope_hi:.4f}（p={p_hi:.3g}）。"
         + auto_note +
-        f"⚠ 需连续调节变量；J-N 区域可能落在观测 W 范围外（已标注为外推）；"
-        f"交互不显著时 J-N 探测意义有限；可用 config x/w/y 指定角色。"
+        "⚠ 需连续调节变量；J-N 区域可能落在观测 W 范围外（已标注为外推）；"
+        "交互不显著时 J-N 探测意义有限；可用 config x/w/y 指定角色。"
     )

@@ -31,7 +31,7 @@ def _ge_trial(tmp_path: Path) -> Path:
     a = np.array([2.0, -1.0, 0.5, -1.5, 1.0, -1.0])         # genotype interaction loadings
     b = np.array([1.5, -2.0, 0.5, 1.0, -1.0])               # environment interaction loadings
     rows = []
-    for r in range(3):  # 3 reps
+    for _r in range(3):  # 3 reps
         for i, g in enumerate(genos):
             for j, e in enumerate(envs):
                 val = 10 + g_main[g] + e_main[e] + 4.0 * a[i] * b[j] + rng.normal(0, 0.05)

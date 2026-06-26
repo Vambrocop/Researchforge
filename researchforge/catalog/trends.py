@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 _CACHE_DIR = Path.home() / ".researchforge"
 _CACHE_FILE = _CACHE_DIR / "trend_cache.json"
@@ -288,8 +288,3 @@ def load_snapshot() -> Optional[dict]:
         return None
 
 
-def snapshot_age_days() -> Optional[int]:
-    snap = load_snapshot()
-    if not snap:
-        return None
-    return int((time.time() - snap.get("fetched_at", 0)) / 86400)

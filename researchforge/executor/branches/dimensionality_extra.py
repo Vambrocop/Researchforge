@@ -121,7 +121,6 @@ def _branch_tsne(ctx: Ctx) -> None:
     perplexity = max(1.0, min(perplexity, float(n - 1)))
 
     try:
-        import numpy as np
         import pandas as pd
         from sklearn.manifold import TSNE
         from sklearn.preprocessing import StandardScaler
@@ -695,7 +694,6 @@ def _branch_umap(ctx: Ctx) -> None:
     min_dist = max(0.0, min(min_dist, 0.99))
 
     try:
-        import numpy as np
         import pandas as pd
         import umap
         from sklearn.preprocessing import StandardScaler

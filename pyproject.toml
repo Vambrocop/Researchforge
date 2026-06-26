@@ -60,7 +60,7 @@ full = [
     "pymc>=6.0",            # full Bayesian regression / hierarchical (NUTS, no compiler)
     "arviz>=1.0",           # Bayesian posterior diagnostics + plots (HDI / R-hat / ESS)
 ]
-dev = ["pytest>=8.0", "pytest-xdist>=3.0"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.0", "ruff>=0.13"]
 
 [project.scripts]
 researchforge = "researchforge.cli:main"
@@ -87,3 +87,35 @@ pythonpath = ["."]
 markers = [
     "slow: heavy / R-backed tests (fit real R or external-lib models); fast loop = -m 'not slow'",
 ]
+
+# ── ruff: a CORRECTNESS guard (real bugs), not a style police ────────────────────
+# Enforced by tests/test_lint.py so regressions can't creep back in. We select
+# pyflakes (F: unused / undefined / redefined) + bugbear (B: likely bugs) and
+# deliberately skip pure-style + behaviour-changing rules. The ignores below encode
+# the engine's intentional conventions (documented in CLAUDE.md), not laziness.
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "B"]
+ignore = [
+    # The engine prescribes a UNIFORM ctx-unpack in every branch handler
+    # (`df, fp, entry, cfg, d = ctx...`) even when a handler doesn't use every name —
+    # enforcing unused-local would fight that documented convention.
+    "F841",
+    # zip(...) without strict=: adding strict= CHANGES behaviour (raises on length
+    # mismatch); a defensive preference, not a bug.
+    "B905",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# run.py is the helper RE-EXPORT hub: it imports _helpers.* purely to re-export to the
+# branch modules (which do `from ...run import _xxx`). Those imports read as "unused" in
+# run.py itself but are intentional — never auto-remove them.
+"researchforge/executor/run.py" = ["F401"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's File()/Depends()/Query()/Form() in argument defaults are the FRAMEWORK
+# idiom, not a mutable-default bug.
+extend-immutable-calls = ["fastapi.File", "fastapi.Depends", "fastapi.Query", "fastapi.Form"]

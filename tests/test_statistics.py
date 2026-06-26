@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from researchforge.catalog import Catalog
 from researchforge.executor import run_analysis

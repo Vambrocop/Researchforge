@@ -446,10 +446,6 @@ def _branch_split_plot_anova(ctx: Ctx) -> None:
 
         gm = float(sub[y].mean())
 
-        def _ss(group_cols, mult):
-            mu = sub.groupby(group_cols, observed=True)[y].mean()
-            return mult * float(((mu - gm) ** 2).sum())
-
         # marginal cell means for the interaction-style SS (computed via residual identity)
         ybar_block = sub.groupby(block, observed=True)[y].mean()
         ybar_a = sub.groupby(whole, observed=True)[y].mean()

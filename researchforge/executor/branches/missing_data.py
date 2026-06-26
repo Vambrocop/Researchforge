@@ -375,7 +375,6 @@ def _branch_missingness_diagnosis(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
-    import numpy as np
     import pandas as pd
 
     # Scan ALL analysis columns (exclude unit/time); keep original dtypes for the

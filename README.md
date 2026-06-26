@@ -202,11 +202,16 @@ would any analysis you run yourself — read the disclosures.
 ## Development
 
 ```bash
-pip install -e ".[dev]"          # adds pytest + pytest-xdist
+pip install -e ".[dev]"          # adds pytest + pytest-xdist + ruff
 py -3 -m pytest -q               # run the test suite
 py -3 -m pytest -m "not slow" -q # fast loop (skips heavy / R-backed tests)
 py -3 -m pytest -n 2 -q          # parallel full run (use -n 2, not -n auto)
+py -3 -m ruff check researchforge tests   # correctness lint (also enforced by tests/test_lint.py)
 ```
+
+The ruff ruleset (`pyproject.toml [tool.ruff]`) is a correctness guard — pyflakes +
+bugbear, not style — with the engine's intentional conventions encoded as ignores
+(uniform ctx-unpack, the run.py re-export hub, FastAPI argument-default idioms).
 
 Adding an analysis is a three-part change: a `@register("<id>")` handler in
 `researchforge/executor/branches/<family>.py`, a catalog entry in

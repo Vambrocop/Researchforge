@@ -51,7 +51,6 @@ def _continuous_cols(ctx: Ctx) -> list[str]:
 def _as_binary01(s) -> "tuple":
     """Coerce a 2-level column to a 0/1 numpy array (higher level -> 1, the 'positive'
     / case / exposed level). Returns (arr01, pos_label, neg_label). NaN-dropped upstream."""
-    import numpy as np
     import pandas as pd
 
     sn = pd.to_numeric(s, errors="coerce")
@@ -399,7 +398,6 @@ def _roc_plot(fpr, tpr, j_fpr, j_tpr, auc, path):
 def _branch_epi_risk_measures(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import numpy as np
     import pandas as pd
 
     bin_cols = _binary_cols(ctx)
@@ -555,7 +553,7 @@ def _forest_plot(rows, path):
         labels = [r[0] for r in rows]
         ys = list(range(len(rows)))[::-1]
         fig, ax = plt.subplots(figsize=(6, 0.9 * len(rows) + 1.5))
-        for (label, est, lo, hi, ref), yy in zip(rows, ys):
+        for (_label, est, lo, hi, _ref), yy in zip(rows, ys):
             if est == est and np.isfinite(est):
                 if lo == lo and hi == hi:
                     ax.plot([lo, hi], [yy, yy], "-", color="#4C72B0", lw=1.6)

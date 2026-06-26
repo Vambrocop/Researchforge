@@ -55,7 +55,6 @@ def _branch_dynamic_panel_gmm(ctx: Ctx) -> None:
             csv = d / "_gmm_input.csv"
             sub.to_csv(csv, index=False)
             try:
-                import numpy as np
 
                 _endo = [p for p in (cfg.get("endogenous") or []) if p in preds]
                 _lo, _hi = _gmm_lags(cfg)

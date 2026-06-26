@@ -91,7 +91,6 @@ def _branch_manova(ctx: Ctx) -> None:
 
     try:
         from statsmodels.multivariate.manova import MANOVA
-        import numpy as np
         import pandas as pd
 
         lhs = " + ".join(outcomes)

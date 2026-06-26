@@ -302,8 +302,7 @@ def _branch_svm_model(ctx: Ctx) -> None:
         import numpy as np
         import pandas as pd
         from sklearn.metrics import (
-            accuracy_score, confusion_matrix, f1_score,
-            mean_squared_error, r2_score,
+            confusion_matrix, mean_squared_error,
         )
         from sklearn.model_selection import KFold, StratifiedKFold, cross_val_predict, cross_val_score
         from sklearn.pipeline import Pipeline
@@ -482,7 +481,7 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
         import pandas as pd
         from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
         from sklearn.inspection import permutation_importance
-        from sklearn.metrics import accuracy_score, f1_score, mean_squared_error, r2_score
+        from sklearn.metrics import mean_squared_error
         from sklearn.model_selection import (
             KFold, StratifiedKFold, cross_val_predict, cross_val_score, train_test_split,
         )
