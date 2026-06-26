@@ -80,6 +80,8 @@ SLOW_MODULES = {
     "test_actuarial",
     # bayesian random slopes: PyMC NUTS sampling of an LKJ-correlated multilevel model
     "test_bayesian_random_slopes",
+    # panel IV: R plm system GMM (pgmm ld) + Hausman-Taylor (R subprocess startup)
+    "test_panel_iv",
 }
 
 

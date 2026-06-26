@@ -1,0 +1,113 @@
+# Dynamic / IV panel completion: Blundell-Bond system GMM + Hausman-Taylor.
+# Auto-discovered (catalog loads every *.yaml here). Each id maps to a @register
+# handler in executor/branches/panel_iv.py. Both delegate to R's plm (optional +
+# graceful degrade); they resolve panel roles like econometrics.dynamic_panel_gmm
+# (unit/time cols, outcome = first continuous, predictors = remaining).
+
+- id: system_gmm
+  method: System GMM (Blundell-Bond dynamic panel)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Estimate a dynamic panel model by Blundell-Bond SYSTEM GMM via R plm::pgmm
+    (transformation="ld", two-step, Windmeijer-robust SE). System GMM augments the
+    Arellano-Bond difference-GMM moment conditions with LEVEL-equation moments (the
+    levels instrumented by lagged differences), which is far better behaved when the
+    dependent series is persistent (near a unit root) and difference-GMM instruments
+    are weak. Reports the lagged-dependent (persistence) coefficient, the covariate
+    coefficients with robust SE, the Sargan overidentification test, and the
+    Arellano-Bond AR(1)/AR(2) serial-correlation tests (AR(2) must be insignificant
+    for consistency). Complements dynamic_panel_gmm (difference GMM) — compare the two.
+  preconditions:
+    is_panel: true
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - persistence (lagged-dependent) + covariate coefficients with robust SE (CSV)
+    - Sargan overidentification p + AR(1)/AR(2) serial-correlation p (diagnostics)
+    - system-GMM coefficient plot with 95% CIs
+  executor_ref: py::system_gmm
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余连续/二值列
+    - name: endogenous
+      type: columns
+      description: 内生协变量(用其滞后作 GMM 工具)
+      default: 无(全部设为外生)
+    - name: gmm_lags
+      type: text
+      description: GMM 工具滞后窗口 [lo, hi]
+      default: "[2, 4]"
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+  biases:
+    - system GMM adds level-equation moment conditions (levels instrumented by lagged differences) on top of difference GMM; these rest on an extra initial-conditions / mean-stationarity assumption
+    - more instruments than difference GMM, so instrument proliferation can weaken the Sargan/Hansen test (Roodman) — the GMM lag window is capped (default 2:4) and the test p-values are reported; check AR(2) is insignificant
+    - the lagged dependent is GMM-instrumented with lag>=2 (lag 1 is invalid in the differenced equation); covariates are strictly exogenous unless flagged endogenous
+    - requires R + plm; without them the analysis degrades honestly to dynamic_panel_gmm / panel_fixed_effects. This is a model-specification estimate, not structural causation
+
+- id: hausman_taylor
+  method: Hausman-Taylor panel IV estimator
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Fit the Hausman-Taylor (1981) panel instrumental-variables estimator via R
+    plm(model="ht", inst.method="baltagi"). Its distinctive value: it estimates the
+    coefficients on TIME-INVARIANT regressors (which fixed effects sweep away) while
+    allowing some regressors to correlate with the unit effect, using the within-means
+    of the exogenous time-varying regressors as instruments. The engine auto-detects
+    which predictors are time-invariant (constant within every unit) and, by default,
+    treats all regressors as exogenous (HT then coincides with random effects); flag
+    the regressors correlated with the unit effect via config endogenous to get the
+    IV identification of the time-invariant coefficients. Reports each coefficient
+    (time-invariant ones marked) with SE and p-values. Pairs with the Hausman test and
+    Mundlak CRE for the FE-vs-RE / endogeneity question.
+  preconditions:
+    is_panel: true
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - coefficients (time-invariant ones flagged) with SE + p-values (CSV)
+    - Hausman-Taylor coefficient plot with 95% CIs (time-invariant highlighted)
+    - counts of time-invariant / time-varying / endogenous regressors
+  executor_ref: py::hausman_taylor
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 回归元(含时变与时不变)
+      default: 其余连续/二值列
+    - name: endogenous
+      type: columns
+      description: 与单位效应相关的内生回归元
+      default: 无(全部外生, 此时 HT≈RE)
+    - name: unit
+      type: column
+      description: 单元标识列
+      default: 面板单元列
+    - name: time
+      type: column
+      description: 时间列
+      default: 面板时间列
+  biases:
+    - HT identifies the time-invariant coefficients using the within-means of the EXOGENOUS time-varying regressors as instruments; validity rests on those being uncorrelated with the unit effect
+    - mis-classifying a truly endogenous time-varying regressor as exogenous biases the time-invariant estimates — flag endogenous regressors via config endogenous
+    - with nothing flagged endogenous, HT reduces to random effects; its incremental value comes from IV-identifying time-invariant coefficients once some regressors are flagged endogenous
+    - needs at least one time-invariant regressor (else it degrades to RE/FE); requires R + plm, otherwise degrades honestly to random_effects / mundlak. A model-specification estimate, not structural causation
