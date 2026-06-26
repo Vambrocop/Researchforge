@@ -25,11 +25,15 @@ From `:root` in `index.html` — use the CSS variables, never raw hex, in new co
 | `--muted` | `#6b6f6a` | secondary text, labels, meta |
 | `--line` | `#e6e8e3` | borders, dividers |
 | `--accent` | `#2f6f4f` | primary action, links, focus, active state (forest green) |
-| `--accent-hover` | `#27543d` | accent hover (darker) |
-| `--accent-soft` | `#e8f1ec` | accent tint (selected chips, soft fills) |
+| `--accent-hover` | `#255a3f` | accent hover (darker) |
+| `--accent-deep` | `#1d4732` | deepest green — brand wordmark, strong emphasis |
+| `--accent-soft` | `#e9f2ec` | accent tint (selected chips, soft fills) |
+| `--grad` | `linear-gradient(135deg,#2f6f4f,#3d8a60)` | primary-button fill (accent gradient) |
 | `--green` | `#2f8f5b` | 🟢 rigor light — feasible / sound |
-| `--yellow` | `#c9952b` | 🟡 rigor light — feasible with caveats |
+| `--yellow` | `#c2901f` | 🟡 rigor light — feasible with caveats |
 | `--red` | `#c0492f` | 🔴 rigor light — needs informed override |
+
+(`--bg` `#f5f7f3`, `--ink` `#191b18`, `--muted` `#666b62`, `--line` `#e4e8e0` — warm paper neutrals.)
 
 Error surface: bg `#fdecea`, border `#f3c0b8`, text `#9a2b1a`. Disabled primary:
 `#a9c3b5`. **Rigor light colors are reserved** — never reuse green/yellow/red for
@@ -46,10 +50,11 @@ decoration; they mean rigor.
 
 ## 4. Spacing, radius, elevation
 - Rhythm: multiples of ~4–6px; section gap `~30px`; card padding `18px 20px`.
-- Radius: `--radius:14px` (cards, panels), `--radius-sm:9px` (buttons, inputs, chips);
-  pills/toggles use `999px`.
-- Elevation: `--shadow` (cards: soft 2-layer), `--shadow-sm` (buttons/toggles). Keep
-  shadows subtle — paper, not material.
+- Radius: `--radius:16px` (cards, panels), `--radius-sm:10px` (buttons, inputs, chips),
+  `--radius-lg:22px` (large surfaces); pills/toggles use `999px`.
+- Elevation: `--shadow` (cards: soft 2-layer), `--shadow-sm` (buttons/toggles),
+  `--shadow-lg` (hover lift on rec cards). Keep shadows subtle — paper, not material.
+  Primary buttons use the `--grad` accent gradient; rec cards lift `translateY(-1px)` on hover.
 - Focus ring: `--ring` = `0 0 0 3px rgba(47,111,79,.18)` on `:focus-visible` for ALL
   interactive elements (accessibility — never remove the outline without this ring).
 
