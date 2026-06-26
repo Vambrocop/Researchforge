@@ -74,6 +74,8 @@ SLOW_MODULES = {
     "test_bayesian_mcmc",
     # MICE multiple imputation: runs M chained-equation imputations + per-set OLS
     "test_missing_data",
+    # discrete choice: statsmodels MNLogit fit + hand-rolled conditional-logit MLE
+    "test_choice",
 }
 
 

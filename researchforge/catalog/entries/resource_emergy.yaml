@@ -1,0 +1,53 @@
+# Emergy analysis (Odum environmental accounting). Inputs converted to solar
+# emjoules (sej) via transformities (user config or a small curated public library);
+# honest degrade when no transformity resolves. Pure Python (numpy/pandas).
+
+- id: emergy_analysis
+  method: Emergy analysis (Odum environmental accounting)
+  domain: sustainability
+  family: resource
+  goal: evaluate
+  description: >-
+    Converts every system input flow to solar emjoules (sej) via its transformity
+    (sej per unit) and aggregates into renewable (R), non-renewable (N) and
+    purchased/feedback (F) emergy, then reports the standard emergy indicators - EYR
+    (emergy yield ratio U/F), ELR (environmental loading ratio (N+F)/R), ESI (emergy
+    sustainability index EYR/ELR) and the renewable fraction R/U. Transformities come
+    from config (transformities / categories dicts) or a small curated PUBLIC library
+    (Odum / Brown / NEAD); honest degrade when none resolves. An optional output and
+    money column give the output transformity (U/output) and emergy-money ratio (U/money).
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 1
+  produces:
+    - total emergy U and the R / N / F split, with an emergy-by-source bar chart
+    - "emergy indicators: EYR, ELR, ESI and the renewable fraction"
+    - per-input emergy table (input, quantity, transformity, category, emergy)
+  executor_ref: "py::emergy_analysis"
+  params:
+    - name: transformities
+      type: str
+      description: "转换率字典 {输入列名: sej/单位}（覆盖库；最明确）"
+      default: 无（缺则用内置公开转换率库按列名匹配）
+    - name: categories
+      type: str
+      description: "类别字典 {输入列名: R/N/F}（可再生/不可再生/外购反馈）"
+      default: 无（用库默认分类）
+    - name: output
+      type: column
+      description: 系统产出量列（算产出能值转换率 U/产出）
+      default: 无（不算产出转换率）
+    - name: product
+      type: column
+      description: output 的别名（系统产出量列）
+      default: 同 output
+    - name: money
+      type: column
+      description: 货币流列（算能值货币比 EMR=U/money）
+      default: 无（不算 EMR）
+  biases:
+    - "transformities are baseline-dependent: the library uses the 9.26E24 sej/yr (Odum 1996) geobiosphere baseline; values on the 12.0E24 / 15.2E24 (Brown 2010+) baselines differ - do not mix baselines"
+    - transformities carry large uncertainty and are context / method / vintage dependent; the library values are generic public approximations and must be verified for your system
+    - the renewable / non-renewable / purchased (R/N/F) classification of each input is a modelling choice that drives EYR/ELR/ESI - state and justify it
+    - emergy double-counting must be avoided (do not include both an input and a product made from it); the engine sums whatever columns you supply and cannot detect double-counting
+    - EYR/ELR/ESI are ratios; with R=0 (no renewable input) ELR and ESI are infinite/undefined - interpret with care

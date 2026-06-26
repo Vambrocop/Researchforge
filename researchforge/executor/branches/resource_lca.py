@@ -41,18 +41,40 @@ FACTOR RESOLUTION (priority order - see ``_resolve_footprint``)
 3. config ``factor_column`` naming a per-row factor column, multiplied against the
    config ``quantity`` column (per-row footprint = quantity x factor_column);
    activities are the rows (labelled by the unit/label column if available).
+4. BUILT-IN CURATED LIBRARY (``_lca_factors.py``): if NONE of the above config
+   sources resolve, each numeric column name is matched (case-insensitive substring
+   on keywords) against a small set of WELL-KNOWN PUBLIC factors (IPCC AR6 GWP100,
+   DEFRA/EPA fuel-combustion CO2, IEA/Ember grid intensity; illustrative water /
+   energy placeholders). config ``category`` (carbon|water|energy, default carbon)
+   selects the impact category. Matched columns use the library factor (the column
+   total x factor); the EXACT factor + source used per activity is disclosed in the
+   summary, and unmatched columns are excluded and listed. This is a small curated
+   PUBLIC-factor set, NOT a licensed LCA database (ecoinvent / GaBi); the library
+   carries a disclaimer that factors are generic approximations to verify per scenario.
 
-If none resolve -> honest degrade.
+If NEITHER config NOR the library yields any factor -> honest degrade.
+
+MULTI-IMPACT
+------------
+config ``categories`` = a list (e.g. [carbon, water]) makes the LIBRARY path compute
+each requested category's total and report them all (estimates keyed
+``total_footprint__<category>``); ``total_footprint`` stays the PRIMARY category for
+back-compat. Multi-impact is a LIBRARY-ONLY feature (config-supplied factors encode a
+single category, as before).
 
 PRODUCTS
 --------
   * a contribution bar chart PNG (footprint by activity, sorted desc, ENGLISH labels)
   * a CSV: activity, quantity, factor, footprint, share_pct
   * estimates: total_footprint, intensity_per_unit (nan if no functional unit),
-    n_activities, top_contributor_share, footprint__<activity> per activity.
+    n_activities, top_contributor_share, footprint__<activity> per activity,
+    n_library_matched / n_unmatched (library path), and total_footprint__<category>
+    for each requested category in multi-impact runs.
   * Chinese summary with warning disclosures (footprint quality = factor quality;
-    factors are user-supplied; system boundary & allocation choices matter; ONE
-    impact category per run - rerun with water/energy factors for those).
+    which factors came from the curated library + their sources vs user config; the
+    library DISCLAIMER (generic public approximations, not a licensed LCA DB);
+    system boundary & allocation choices matter; ONE impact category per run unless
+    config categories requests several - rerun with water/energy factors for those).
 
 Pure Python (numpy / pandas / matplotlib Agg, ENGLISH plot labels). No R, no heavy
 deps. Refs: ISO 14040/14044 (LCA principles); GHG Protocol (activity x emission
@@ -64,6 +86,12 @@ from __future__ import annotations
 import re
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.branches._lca_factors import (
+    DISCLAIMER,
+    LIBRARY,
+    LIBRARY_VERSION,
+    lookup_factor,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -88,11 +116,13 @@ def _safe_label(name: str) -> str:
 
 
 def _resolve_footprint(ctx: Ctx):
-    """Resolve per-activity footprints from one of the three factor sources.
+    """Resolve per-activity footprints from one of the factor sources.
 
-    Returns (rows, source_note, None) on success where ``rows`` is a list of dicts
-    {"activity": str, "quantity": float, "factor": float, "footprint": float}, or
-    (None, None, err_msg) on honest failure (no resolvable factors).
+    Returns (rows, source_note, None, source_kind) on success where ``rows`` is a
+    list of dicts {"activity": str, "quantity": float, "factor": float,
+    "footprint": float} and ``source_kind`` is one of
+    "config_factors" / "long" / "factor_column" / "library", or
+    (None, None, err_msg, None) on honest failure (no resolvable factors).
     """
     import pandas as pd
 
@@ -125,11 +155,11 @@ def _resolve_footprint(ctx: Ctx):
                 f"因子来源=config factors（宽表：每列一个活动，列总量×因子）；"
                 f"用到的活动列：{', '.join(used)}。"
             )
-            return rows, note, None
+            return rows, note, None, "config_factors"
         return None, None, (
             "footprint 需要排放/强度因子：config factors 字典里没有匹配到任何数据列"
             "（键应是活动列名、值是该列的因子）。"
-        )
+        ), None
 
     # ---- (2) long-format: activity / quantity / factor columns ---- #
     act_col = cfg.get("activity")
@@ -155,11 +185,11 @@ def _resolve_footprint(ctx: Ctx):
                 f"因子来源=长表（每行一个活动）：活动列={act_col}、数量列={qty_col}、"
                 f"因子列={fac_col}；逐行 footprint=数量×因子。"
             )
-            return rows, note, None
+            return rows, note, None, "long"
         return None, None, (
             f"footprint 长表（{act_col}/{qty_col}/{fac_col}）没有任何有效的"
             "数量×因子行（数量或因子全为缺失/非数值）。"
-        )
+        ), None
 
     # ---- (3) factor_column x quantity column (per-row) ---- #
     fac_col2 = cfg.get("factor_column")
@@ -190,16 +220,118 @@ def _resolve_footprint(ctx: Ctx):
                 f"（逐行 footprint=数量×因子"
                 f"{('，行标签取 ' + label_col) if label_col else ''}）。"
             )
-            return rows, note, None
+            return rows, note, None, "factor_column"
         return None, None, (
             f"footprint 逐行（因子列 {fac_col2} × 数量列 {qty_col2}）没有任何有效行。"
+        ), None
+
+    # ---- (4) built-in curated library fallback (no config factors resolved) ---- #
+    lib_rows, lib_meta, _unmatched = _resolve_from_library(ctx, _category(cfg))
+    if lib_rows:
+        cat = _category(cfg)
+        used = [m["activity"] for m in lib_meta]
+        src_bits = "；".join(
+            f"{m.get('activity')}={float(m.get('value', float('nan'))):.6g} "
+            f"{m.get('unit', '')}[{m.get('source', '?')} {m.get('year', '')}]"
+            for m in lib_meta
         )
+        excl = (
+            f" 未匹配(已排除)：{', '.join(_unmatched)}。" if _unmatched else ""
+        )
+        note = (
+            f"因子来源=内置公开因子库({LIBRARY_VERSION}, 类别={cat})；"
+            f"命中活动列：{', '.join(used)}（{src_bits}）。{excl}"
+            f" ⚠ {DISCLAIMER}"
+        )
+        return lib_rows, note, None, "library"
 
     return None, None, (
         "footprint 需要排放/强度因子：用 config factors={列:因子}（宽表），"
         "或提供 activity/quantity/factor 三列（长表），"
-        "或 factor_column + quantity 两列（逐行因子）。系统不会凭空生成因子。"
-    )
+        "或 factor_column + quantity 两列（逐行因子），"
+        "或让活动列名匹配内置公开因子库（如 diesel/natural_gas/electricity，config category 选类别）。"
+        "系统不会凭空生成因子。"
+    ), None
+
+
+def _category(cfg) -> str:
+    """The single (primary) impact category from config; default 'carbon'."""
+    cat = cfg.get("category")
+    if isinstance(cat, str) and cat.strip():
+        c = cat.strip().lower()
+        if c in LIBRARY:
+            return c
+    return "carbon"
+
+
+def _categories(cfg) -> list[str]:
+    """The list of impact categories for multi-impact runs (library path only).
+
+    Reads config ``categories`` (a list, or a comma-separated string). Filters to
+    categories the library knows. Always includes the primary ``category`` first
+    (de-duplicated, order preserved). Returns at least [primary].
+    """
+    primary = _category(cfg)
+    raw = cfg.get("categories")
+    items: list[str] = []
+    if isinstance(raw, str):
+        items = [s.strip().lower() for s in raw.split(",") if s.strip()]
+    elif isinstance(raw, (list, tuple)):
+        items = [str(s).strip().lower() for s in raw if str(s).strip()]
+    ordered: list[str] = [primary]
+    for c in items:
+        if c in LIBRARY and c not in ordered:
+            ordered.append(c)
+    return ordered
+
+
+def _resolve_from_library(ctx: Ctx, category: str):
+    """Match each numeric column name to a library factor for ``category``.
+
+    Returns (rows, meta, unmatched) where ``rows`` is the same row-dict shape as
+    ``_resolve_footprint`` produces ({activity, quantity, factor, footprint}),
+    ``meta`` is a parallel list of the matched factor metadata (value/unit/source/
+    year/keyword/...), and ``unmatched`` is the list of considered column names that
+    matched nothing. ``rows``/``meta`` are empty if no column matches.
+
+    Only columns that are numeric-coercible AND not already consumed as a config
+    label/factor column are considered. Activity columns excluded: any config
+    activity/factor/functional_unit columns (so a multi-source mix can't double-count).
+    """
+    import pandas as pd
+
+    df, cfg, fp = ctx.df, ctx.cfg, ctx.fp
+
+    # columns reserved by config so the library never re-uses a label/unit column
+    reserved = set()
+    for k in ("activity", "factor", "factor_column", "functional_unit"):
+        v = cfg.get(k)
+        if isinstance(v, str):
+            reserved.add(v)
+    # a 'quantity' column on its own (no resolved factor) is still a candidate column
+
+    rows, meta, unmatched = [], [], []
+    for col in df.columns:
+        if col in reserved:
+            continue
+        s = pd.to_numeric(df[col], errors="coerce")
+        if s.notna().sum() == 0:
+            continue  # non-numeric column -> not an activity quantity
+        fac, m = lookup_factor(str(col), category)
+        if fac is None:
+            unmatched.append(str(col))
+            continue
+        qty = float(s.fillna(0.0).sum())
+        rows.append({
+            "activity": str(col),
+            "quantity": qty,
+            "factor": float(fac),
+            "footprint": qty * float(fac),
+        })
+        mm = dict(m)
+        mm["activity"] = str(col)
+        meta.append(mm)
+    return rows, meta, unmatched
 
 
 def _save_fig(d, fname, files, build):
@@ -236,7 +368,7 @@ def _branch_footprint_analysis(ctx: Ctx) -> None:
     import numpy as np
     import pandas as pd
 
-    rows, src_note, err = _resolve_footprint(ctx)
+    rows, src_note, err, _src_kind = _resolve_footprint(ctx)
     if err is not None:
         summary.append(f"足迹分析(footprint) 跳过：{err}")
         return
@@ -299,6 +431,8 @@ def _branch_footprint_analysis(ctx: Ctx) -> None:
             "n_activities": float(n_act),
             "top_contributor_share": round(top_share, 8) if top_share == top_share else float("nan"),
         })
+        if _src_kind == "library":
+            estimates["n_library_matched"] = float(n_act)
         # per-activity footprint (plain floats). Guard against duplicate sanitised keys.
         seen: dict[str, int] = {}
         for act, fv in zip(activities, foots):

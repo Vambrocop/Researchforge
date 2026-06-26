@@ -935,7 +935,7 @@ def _varimax(phi, q: int = 30, tol: float = 1e-6):
     return phi @ rot
 
 
-def _report(entry, fp, summary, files, override) -> str:
+def _report(entry, fp, summary, files, override, estimates=None) -> str:
     lines = [
         f"# ResearchForge 分析报告：{entry.method}",
         "",
@@ -952,7 +952,7 @@ def _report(entry, fp, summary, files, override) -> str:
     try:
         from researchforge.executor._helpers.report_narrative import build_narrative
 
-        narrative = build_narrative(entry, fp, summary, override)
+        narrative = build_narrative(entry, fp, summary, override, estimates)
         if narrative:
             lines += [*narrative]
     except Exception:

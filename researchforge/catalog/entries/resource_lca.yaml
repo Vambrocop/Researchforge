@@ -61,6 +61,15 @@
       type: column
       description: 功能单位列（其总量作分母，强度=总足迹/功能单位总量）
       default: 无（仅报绝对足迹，强度=NaN）
+    - name: category
+      type: choice
+      choices: [carbon, water, energy]
+      description: 影响类别（无 config 因子时,用内置公开因子库的该类别按活动列名匹配）
+      default: carbon
+    - name: categories
+      type: str
+      description: 多影响类别列表（如 [carbon, water]）；提供则各类别分别汇总报告
+      default: 无（仅算单一 category）
   biases:
     - footprint quality EQUALS factor quality - the emission / intensity factors are user-supplied and the engine neither fabricates nor validates them; a wrong factor scales the whole result
     - quantity and factor MUST share consistent units (e.g. kWh x kgCO2e/kWh); summing burdens computed in inconsistent units is meaningless

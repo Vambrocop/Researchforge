@@ -134,15 +134,40 @@ def test_footprint_factor_column(tmp_path: Path) -> None:
 # (c) degrade with no factors
 # --------------------------------------------------------------------------- #
 def test_footprint_degrade_no_factors(tmp_path: Path) -> None:
-    """Numeric data but NO factor source -> honest 跳过 (factors never fabricated)."""
+    """Numeric data, NO config factors AND no library-matchable column name -> honest
+    跳过 (factors are never fabricated)."""
     csv = _csv(tmp_path, "x.csv", pd.DataFrame({
-        "electricity": [100.0, 200.0],
-        "fuel": [50.0, 50.0],
+        "widget_a": [100.0, 200.0],
+        "gizmo_b": [50.0, 50.0],
     }))
     fp = profile_dataset(csv)
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
     assert "跳过" in res.summary
     assert "total_footprint" not in res.estimates
+
+
+def test_footprint_library_fallback(tmp_path: Path) -> None:
+    """No config factors, but a column name matches the built-in public library
+    (electricity grid intensity) -> computed from the library, with source disclosed."""
+    csv = _csv(tmp_path, "x.csv", pd.DataFrame({"electricity": [100.0, 200.0]}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    assert "跳过" not in res.summary
+    assert res.estimates.get("total_footprint", 0) > 0
+    assert "因子库" in res.summary  # discloses the library source
+    assert res.estimates.get("n_library_matched", 0) >= 1
+
+
+def test_footprint_water_library_wfn(tmp_path: Path) -> None:
+    """category=water uses the real Water Footprint Network global averages: a 'beef'
+    column of 2 kg -> 2 * 15400 = 30800 L water."""
+    csv = _csv(tmp_path, "w.csv", pd.DataFrame({"beef": [1.0, 1.0]}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"category": "water"})
+    assert "跳过" not in res.summary
+    assert abs(res.estimates.get("total_footprint", 0) - 30800.0) < 1.0
+    assert "Hoekstra" in res.summary or "Water Footprint" in res.summary or "WFN" in res.summary
 
 
 def test_footprint_degrade_factors_no_match(tmp_path: Path) -> None:

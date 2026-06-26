@@ -70,6 +70,28 @@ def test_build_narrative_core_pieces() -> None:
     assert "稳健" in md or "vif" in md or "heteroskedasticity" in md
 
 
+def test_build_narrative_cites_estimates() -> None:
+    # the leading numeric estimates are surfaced as 关键数值 (NaN/inf skipped)
+    import math
+
+    summary = ["主要结论一句话。"]
+    estimates = {"coef_x": 1.2345, "r2": 0.62, "bad": float("nan"),
+                 "se_x": 0.31, "extra1": 1.0, "extra2": 2.0, "extra3": 3.0, "extra4": 4.0}
+    lines = build_narrative(_entry(), _fp(), summary, override=False, estimates=estimates)
+    md = "\n".join(lines)
+    assert "关键数值" in md
+    est_line = next(ln for ln in lines if "关键数值" in ln)
+    assert "`coef_x`" in est_line and "1.234" in est_line  # 4g formatting
+    assert "`bad`" not in est_line                          # NaN skipped
+    assert est_line.count(" = ") <= 6                       # capped at 6 estimates
+
+
+def test_build_narrative_no_estimates_ok() -> None:
+    # estimates omitted (default None) -> no 关键数值 line, no crash
+    lines = build_narrative(_entry(), _fp(), ["finding"], override=False)
+    assert "关键数值" not in "\n".join(lines)
+
+
 def test_build_narrative_override_caution() -> None:
     summary = ["效应估计 = 0.4。"]
     lines = build_narrative(_entry(), _fp(), summary, override=True)

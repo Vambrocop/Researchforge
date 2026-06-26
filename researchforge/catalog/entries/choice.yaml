@@ -1,0 +1,107 @@
+# Discrete-choice / choice-modeling family (economics). Two qualitative-choice
+# models — pure Python (statsmodels MNLogit + a hand-rolled conditional logit).
+#
+# NOTE on the id ``mnl_choice``: the engine already ships a basic ``multinomial_logit``
+# (statistics family). To avoid a duplicate-handler / duplicate-catalog-id collision,
+# this richer economics-family MNL (RRR with the base category named, overall LR test,
+# config outcome/predictors, RRR forest plot) is registered as ``mnl_choice``.
+
+- id: mnl_choice
+  method: Multinomial logit (unordered choice, case-specific)
+  domain: economics
+  family: choice
+  goal: explain
+  description: >-
+    Unordered multinomial logistic choice model (McFadden MNL) via statsmodels
+    MNLogit, for an UNORDERED categorical outcome with 3+ levels regressed on
+    case-specific numeric predictors (predictors vary by CASE, not by alternative).
+    Resolves the outcome from config outcome (else a categorical/low-cardinality
+    column with 3+ levels) and the predictors from config predictors (else the
+    remaining numeric columns). Reports, per non-base alternative, the coefficients
+    relative to the base category and the relative risk ratios RRR = exp(coef) (with
+    the base level named), the McFadden pseudo-R2 = 1 - llf/llnull, an overall
+    likelihood-ratio test (chi2, df, p) vs the null, and a predicted-probability
+    summary (observed vs mean predicted share). Produces a coefficient/RRR table and
+    a forest-style plot of RRRs. Degrades honestly when there is no unordered 3+ level
+    outcome, no numeric predictor, or too few rows.
+  preconditions:
+    min_rows: 30
+    min_categorical_cols: 1
+    min_numeric_cols: 1
+  produces:
+    - per-alternative coefficients (relative to the base category) + relative risk ratios RRR
+    - McFadden pseudo-R2 + overall LR test (chi2, df, p) + in-sample accuracy
+    - coefficient/RRR table (CSV) + RRR forest plot + predicted-probability summary
+  executor_ref: "py::mnl_choice"
+  params:
+    - name: outcome
+      type: column
+      description: 无序多类别结果列（≥3 类）
+      default: 第一个 3+ 类的类别/低基数列
+    - name: predictors
+      type: columns
+      description: 案例层(case-specific)数值预测变量列表
+      default: 其余数值列（连续/计数/二值）
+  biases:
+    - assumes the outcome is nominal / UNORDERED — for ordered categories use proportional_odds_logit / ordered_logit
+    - assumes Independence of Irrelevant Alternatives (IIA) — adding or removing an alternative does not change the relative odds of the others; if violated use nested or mixed logit
+    - all coefficients and RRRs are interpreted RELATIVE TO THE BASE CATEGORY (the base level's coefficients are fixed at 0)
+    - many alternatives or rare classes need a large sample for stable estimates
+    - predictors here are case-specific (vary by observation); alternative-specific attributes need conditional_logit
+
+- id: conditional_logit
+  method: Conditional logit (McFadden, alternative-specific attributes)
+  domain: economics
+  family: choice
+  goal: explain
+  description: >-
+    McFadden's conditional (alternative-specific) logit on LONG-format choice data:
+    each row is a (chooser / choice-situation, alternative) pair carrying attributes,
+    with exactly one alternative chosen per situation. Config choice_id groups the
+    alternatives of one choice situation, config chosen is a 0/1 indicator (1 = the
+    chosen alternative), and the attribute columns come from config attributes (else
+    the remaining numeric columns); an optional cost/price attribute (config cost or
+    price) enables willingness-to-pay. The model P(chosen=j) = exp(sum_k beta_k x_jk)
+    / sum_j' exp(sum_k beta_k x_j'k) is fit by maximum likelihood (scipy BFGS with an
+    analytic gradient); standard errors come from the inverse analytic Hessian of the
+    negative log-likelihood (the observed information). Reports each attribute's
+    beta / SE / z / p, the marginal willingness-to-pay WTP_k = -beta_k / beta_cost (if
+    a cost attribute is given), a point own-elasticity at means
+    (E_k ~= beta_k * mean(x_k) * (1 - mean(P))), and the McFadden pseudo-R2. Produces a
+    coefficient table and a coefficient plot. Degrades honestly without a choice_id,
+    a 0/1 chosen, at least one varying attribute, or enough well-formed choice sets.
+  preconditions:
+    min_rows: 10
+    min_numeric_cols: 1
+  produces:
+    - per-attribute coefficient beta + SE + z + p (conditional logit MLE)
+    - willingness-to-pay WTP = -beta_attr / beta_cost (if a cost attribute is given) + own-elasticity at means
+    - McFadden pseudo-R2 + coefficient table (CSV) + coefficient plot
+  executor_ref: "py::conditional_logit"
+  params:
+    - name: choice_id
+      type: column
+      description: 选择情景分组列（同一情景的各备选）
+      default: 面板单位列（若有）
+    - name: chosen
+      type: column
+      description: 0/1 选中指示列（每情景恰有一个 1）
+      default: 自动找 {0,1} 二值列
+    - name: attributes
+      type: columns
+      description: 备选层(alternative-specific)属性列表
+      default: 其余数值列
+    - name: cost
+      type: column
+      description: 成本/价格属性列（用于计算 WTP）
+      default: 无
+    - name: price
+      type: column
+      description: cost 的别名（成本/价格属性）
+      default: 无
+  biases:
+    - conditional logit assumes Independence of Irrelevant Alternatives (IIA) — if alternatives are close substitutes use nested or mixed logit
+    - the willingness-to-pay ratio WTP = -beta_attr / beta_cost is a ratio of estimates; its confidence interval needs the delta method (only the point estimate is reported here)
+    - the point own-elasticity uses E_k ~= beta_k * mean(x_k) * (1 - mean(P)) — a local approximation at the means, not an exact per-alternative elasticity
+    - identification requires variation in each attribute ACROSS alternatives within a choice set (attributes constant within every set are differenced out and dropped)
+    - needs an adequate number of well-formed choice sets (each with >=2 alternatives and exactly one chosen) for reliable MLE

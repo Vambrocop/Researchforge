@@ -196,12 +196,36 @@ def _next_steps(entry, override: bool) -> list[str]:
     return steps[:3]
 
 
-def build_narrative(entry, fp, summary, override) -> list[str]:
+def _fmt_estimates(estimates, cap: int = 6) -> list[str]:
+    """Pick the leading numeric estimates (dict insertion order ≈ salience: branches
+    assign the headline quantity first) and format them compactly. Skips NaN/inf.
+    Never recomputes — only surfaces what the analysis already produced."""
+    import math
+
+    try:
+        items = list((estimates or {}).items())
+    except Exception:
+        return []
+    out = []
+    for k, v in items:
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(fv):
+            continue
+        out.append(f"`{k}` = {fv:.4g}")
+        if len(out) >= cap:
+            break
+    return out
+
+
+def build_narrative(entry, fp, summary, override, estimates=None) -> list[str]:
     """Return markdown lines for the "## 解读（自动生成）" section.
 
-    Additive + presentation-only: references ``summary`` content (never recomputes
-    numbers) and the catalog/fingerprint metadata. Returns ``[]`` on any failure
-    so the caller can simply omit the section.
+    Additive + presentation-only: references ``summary`` content + the leading
+    ``estimates`` (never recomputes numbers) and the catalog/fingerprint metadata.
+    Returns ``[]`` on any failure so the caller can simply omit the section.
     """
     try:
         summary = list(summary or [])
@@ -227,6 +251,9 @@ def build_narrative(entry, fp, summary, override) -> list[str]:
             lines.append(f"**关键发现**：{str(findings[0]).lstrip('- ').strip()}")
         elif not summary:
             lines.append("本次未产出可解读的结果行（见下方产物文件与日志）。")
+        est_lines = _fmt_estimates(estimates)
+        if est_lines:
+            lines.append(f"**关键数值**：{'；'.join(est_lines)}。")
         lines.append("")
 
         # 2) how to read — what this goal/family answers + precondition stance.

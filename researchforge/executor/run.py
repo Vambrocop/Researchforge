@@ -149,7 +149,8 @@ def run_analysis(
     (d / "analysis_code.py").write_text("\n".join(code), encoding="utf-8")
     files.append("analysis_code.py")
 
-    (d / "report.md").write_text(_report(entry, fp, summary, files, override), encoding="utf-8")
+    (d / "report.md").write_text(
+        _report(entry, fp, summary, files, override, estimates), encoding="utf-8")
     files.append("report.md")
 
     return RunResult(

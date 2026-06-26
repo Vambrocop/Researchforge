@@ -1,0 +1,101 @@
+# Hydrology / environmental time-series & frequency methods. Pure Python
+# (numpy/scipy). Honest degrade when the needed columns aren't identifiable.
+
+- id: mann_kendall_trend
+  method: Mann-Kendall trend test + Sen's slope
+  domain: environmental
+  family: hydrology
+  goal: relate
+  description: >-
+    Non-parametric monotonic trend test for a time-ordered series (Mann-Kendall S
+    statistic with tie-corrected variance and a continuity-corrected Z), plus the
+    Theil-Sen median slope and its rank-based confidence interval. Distribution-free
+    and robust to outliers; the standard test for trend in hydrological / environmental
+    series. Series = config value (else the first continuous column), ordered by config
+    time (else row order).
+  preconditions:
+    min_rows: 4
+  produces:
+    - trend verdict (increasing / decreasing / no-trend), S, Z and two-sided p
+    - Theil-Sen slope per step + rank-based confidence interval
+    - the series plot with the fitted Sen trend line
+  executor_ref: "py::mann_kendall_trend"
+  params:
+    - name: value
+      type: column
+      description: 要检验趋势的数值序列列
+      default: 第一个连续列
+    - name: time
+      type: column
+      description: 排序用的时间列
+      default: 行顺序
+    - name: alpha
+      type: float
+      description: 显著性水平（趋势判定与 Sen 斜率置信区间）
+      default: "0.05"
+  biases:
+    - Mann-Kendall assumes INDEPENDENT observations; positive serial autocorrelation inflates the significance (too many false trends) - pre-whiten or use the modified Hamed-Rao / Yue-Pilon variance for autocorrelated series
+    - the test detects a MONOTONIC trend only; it will miss non-monotonic (e.g. U-shaped) change and says nothing about its cause
+    - Sen's slope assumes an approximately linear trend; a step change or regime shift is better handled by a change-point method
+
+- id: flow_duration_curve
+  method: Flow-duration curve (exceedance-probability)
+  domain: environmental
+  family: hydrology
+  goal: describe
+  description: >-
+    The flow-duration curve summarises a flow (or any magnitude) series by exceedance
+    probability - the fraction of time each level is exceeded (Weibull plotting position
+    P = i/(n+1)). Reports the key exceedance percentiles Q5/Q10/Q50/Q90/Q95 (the flow
+    exceeded that percent of the time), a low-flow index (Q90/Q50) and the mid-range
+    slope as a flashiness indicator. Series = config value (else first continuous).
+  preconditions:
+    min_rows: 5
+  produces:
+    - exceedance percentiles Q5/Q10/Q50/Q90/Q95 and the low-flow index Q90/Q50
+    - the flow-duration curve plot (flow vs exceedance probability)
+  executor_ref: "py::flow_duration_curve"
+  params:
+    - name: value
+      type: column
+      description: 流量/数值序列列
+      default: 第一个连续列
+  biases:
+    - the FDC is a magnitude-frequency summary and IGNORES the timing/sequence of flows (two very different hydrographs can share an FDC)
+    - the curve depends on the record length and period; a short or non-stationary record gives an unrepresentative FDC
+    - extreme tails (Q1 / Q99) are sensitive to a few values and to the plotting-position convention
+
+- id: idf_curve
+  method: Rainfall intensity-duration-frequency (IDF) fit
+  domain: environmental
+  family: hydrology
+  goal: relate
+  description: >-
+    Fits the standard Talbot-family rainfall intensity-duration relationship
+    "i = a / (d + b)^c" by non-linear least squares on (duration, intensity) data
+    (optionally per return period). Reports the fitted parameters, the fit R-squared and
+    predicted intensities at standard durations. Needs duration + intensity columns
+    (config duration / intensity, optional return_period); honest degrade otherwise.
+  preconditions:
+    min_rows: 4
+  produces:
+    - fitted IDF parameters a, b, c and the fit R-squared
+    - the IDF curve plot (intensity vs duration)
+  executor_ref: "py::idf_curve"
+  params:
+    - name: duration
+      type: column
+      description: 降雨历时列（分钟/小时）
+      default: 名称含 duration/dur/min/hour 的列
+    - name: intensity
+      type: column
+      description: 降雨强度列
+      default: 名称含 intensity/rain/precip 的列
+    - name: return_period
+      type: column
+      description: 重现期列（可选，分重现期拟合）
+      default: 无（整体拟合）
+  biases:
+    - extrapolating the fitted curve beyond the observed durations or return periods is model-dependent and risky
+    - the fit assumes the chosen Talbot functional form i=a/(d+b)^c; a poor form gives a misleading curve even at high R-squared
+    - too few duration points, or noisy short-record intensities, make the 3-parameter fit unstable
