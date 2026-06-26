@@ -36,20 +36,63 @@
     - linear models assume no X-by-M interaction (moderated mediation not modelled)
 
 - id: bayesian_sem
-  method: Bayesian structural equation modeling (blavaan)
+  method: Bayesian confirmatory factor analysis (PyMC)
   domain: statistics
   family: sem
   goal: explain
-  description: Bayesian SEM — posterior distributions and credible intervals for loadings and structural paths, relaxing classical identification constraints and giving full uncertainty. Needs R blavaan plus a JAGS or Stan (C++ toolchain) backend and a theory-driven measurement model, none of which the engine can infer or safely auto-install — so it surfaces install guidance and the runnable frequentist alternatives (sem / efa).
+  description: >-
+    Single-factor Bayesian confirmatory factor analysis (CFA) — the auto-runnable core
+    of Bayesian SEM (a measurement model). Estimates standardized factor loadings with
+    full posterior uncertainty (94% HDI), indicator residual variances, and McDonald's
+    omega construct reliability via modern PyMC NUTS — no R blavaan / JAGS / Stan
+    compiler needed (the same unblocking applied to the Bayesian regression family).
+    The factor scale is fixed (factor variance = 1) for identification and the loadings
+    are sign-fixed to be predominantly positive. Indicators default to the continuous
+    columns (config indicators / model_spec to choose them). Full structural paths
+    between multiple latent variables are out of scope (need a theory-driven multi-factor
+    spec); for frequentist CB-SEM with fit indices use the sem analysis.
   preconditions:
     min_continuous: 3
-    min_rows: 50
+    min_rows: 30
   produces:
-    - guidance (requires blavaan + a JAGS/Stan backend + a measurement model)
-  executor_ref: blavaan
+    - standardized loadings per indicator + 94% HDI + residual SD (CSV)
+    - McDonald's omega construct reliability + average variance extracted (AVE)
+    - ArviZ forest plot of loadings + convergence (R-hat / ESS)
+  executor_ref: py::bayesian_sem
+  params:
+    - name: indicators
+      type: columns
+      description: 测量指标列
+      default: 连续列(单因子)
+    - name: model_spec
+      type: text
+      description: lavaan 风格指标声明(单因子;仅取其中列名)
+      default: 自动单因子
+    - name: draws
+      type: int
+      description: 后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 预热(tuning)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
   biases:
-    - requires a Bayesian backend (JAGS or Stan/RTools) + a theory-driven measurement model — not auto-runnable nor auto-installable here
-    - for point estimates + fit indices now, use the sem analysis (CB-SEM, lavaan/semopy) with config model_spec
+    - this is a SINGLE-FACTOR Bayesian CFA (a measurement model), NOT a full structural model with paths between multiple latent variables (those need a theory-driven multi-factor spec)
+    - the factor scale is fixed at variance = 1 for identification; loadings are reported on the standardized-indicator scale
+    - the factor sign is not identified (factor and all loadings can flip); loadings are sign-fixed to be predominantly positive (a reporting convention)
+    - weakly-informative priors are used and indicators are standardized; check convergence (R-hat near 1.0, adequate ESS) and read omega as a construct-reliability summary, not a model-fit test
 
 - id: pls_sem
   method: PLS-SEM (partial least squares SEM)

@@ -16,35 +16,148 @@ from researchforge.executor.run import (
 
 @register("bayesian_sem")
 def _branch_bayesian_sem(ctx: Ctx) -> None:
+    """Bayesian confirmatory factor analysis (single latent factor) — the auto-runnable
+    core of Bayesian SEM (a measurement model). Re-implemented with modern PyMC NUTS,
+    so it no longer needs R blavaan + a JAGS/Stan compiler (same unblocking as the
+    Bayesian regression family). Full structural paths between multiple latents are out
+    of scope here (need a theory-driven multi-factor spec) — disclosed."""
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    from researchforge.executor import rbridge
+    method = entry.method
+    import re
+
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.executor.branches.bayesian_mcmc import (
+        _conv_note,
+        _convergence,
+        _degrade,
+        _forest,
+        _have_pymc,
+        _hdi_bounds,
+        _sampler_cfg,
+    )
+
+    if not _have_pymc():
+        _degrade(summary, method, "频率派 sem（CB-SEM, lavaan/semopy）/ efa（探索因子）")
+        return
 
     _excl = {fp.unit_col, fp.time_col}
-    n_cont = sum(1 for c in fp.columns if c.kind == "continuous" and c.name not in _excl)
-    has_blavaan = rbridge.r_available() and rbridge.r_package_available("blavaan")
-    # Bayesian SEM needs blavaan + a JAGS or Stan backend (a C++ toolchain), AND a
-    # theory-driven measurement model — none auto-inferable. Honest-degrade to the
-    # runnable frequentist `sem` rather than trigger a heavy/fragile toolchain install.
-    if n_cont < 3:
-        summary.append("贝叶斯 SEM 跳过：需要 ≥3 个连续指标变量。")
+    # resolve indicators: config indicators, else columns named in a lavaan-style
+    # model_spec, else the continuous columns (single-factor CFA on all of them).
+    user_spec = cfg.get("model_spec")
+    cfg_inds = cfg.get("indicators")
+    if cfg_inds and isinstance(cfg_inds, (list, tuple)):
+        inds = [c for c in cfg_inds if c in df.columns]
+    elif user_spec:
+        inds = [c for c in df.columns
+                if re.search(rf"(?<![\w.]){re.escape(str(c))}(?![\w.])", str(user_spec))]
     else:
-        backend = (
-            "已检测到 blavaan，但仍需 JAGS 或 Stan(C++ 编译工具链) 后端运行，且需你提供测量模型"
-            if has_blavaan
-            else "未检测到 R 包 blavaan（且需 JAGS 或 Stan/RTools 编译后端）"
-        )
-        summary.append(
-            f"贝叶斯 SEM 暂以诚实降级提示（{backend}）。安装路径：install.packages('blavaan') + "
-            "装 JAGS（jags 官网二进制）或 Stan/RTools；并需理论测量模型。"
-            "**可直接运行的替代**：① `sem`（频率派 CB-SEM，经 lavaan/semopy，"
-            "用 config={\"model_spec\":\"<lavaan 语法>\"} 指定结构，给点估计 + CFI/TLI/RMSEA）；"
-            "② `efa`（探索因子结构）。贝叶斯 SEM 的后验分布/可信区间待后端就绪后接。"
-        )
-        code += [
-            "# 贝叶斯 SEM（待 blavaan + JAGS/Stan 后端）",
-            "library(blavaan)  # bsem(model, data, target='stan'|'jags')  —— 需测量模型 + 编译后端",
-        ]
+        inds = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+    inds = inds[:8]
+    if len(inds) < 3:
+        summary.append("贝叶斯 SEM 跳过：需要 ≥3 个连续指标变量（单因子 CFA 识别要求）。")
+        return
+
+    Y = df[inds].apply(lambda s: pd.to_numeric(s, errors="coerce")).dropna()
+    if len(Y) < 24:
+        summary.append("贝叶斯 SEM 跳过：有效样本不足（去缺失后 < 24 行）。")
+        return
+    n, p = Y.shape
+    Yv = Y.to_numpy(float)
+    sd_y = Yv.std(axis=0, ddof=0)
+    sd_y = np.where(sd_y < 1e-12, 1.0, sd_y)
+    Z = (Yv - Yv.mean(axis=0)) / sd_y  # standardized indicators (loadings on std scale)
+
+    sc = _sampler_cfg(cfg)
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    # Marginalize out the latent factor: with a standard-normal factor (var fixed = 1
+    # for scale identification) and diagonal residuals, the indicator covariance is
+    # Σ = λλᵀ + Ψ (Ψ = diag(ψ²)). Marginalizing avoids the n per-observation factor
+    # scores (a multiplicative funnel that mixes terribly) — far better-conditioned for
+    # NUTS, recovering loadings reliably with modest draws.
+    with pm.Model() as model:
+        lam = pm.Normal("lam", 0.0, 1.0, shape=p)        # loadings (standardized-indicator scale)
+        psi = pm.HalfNormal("psi", 1.0, shape=p)         # indicator residual SDs
+        cov = pt.outer(lam, lam) + pt.diag(psi ** 2)     # Σ = λλᵀ + Ψ  (always PD)
+        pm.MvNormal("y_obs", mu=pt.zeros(p), cov=cov, observed=Z)  # Z standardized → mean 0
+        idata = pm.sample(draws=sc["draws"], tune=sc["tune"], chains=sc["chains"],
+                          cores=1, random_seed=sc["seed"], progressbar=False,
+                          target_accept=0.95)
+
+    # convergence keys off the structural params (lam/psi); eta has n noisy params.
+    max_rhat, min_ess = _convergence(idata, ["lam", "psi"])
+    post = idata.posterior
+    lam_mean0 = post["lam"].values.reshape(-1, p).mean(axis=0)
+    psi_mean = post["psi"].values.reshape(-1, p).mean(axis=0)
+    # sign indeterminacy (factor sign + all loadings can flip): fix loadings to be
+    # predominantly positive (a single global flip; disclosed).
+    flip = bool(lam_mean0.sum() < 0)
+    lam_mean = -lam_mean0 if flip else lam_mean0
+    lam_lo0, lam_hi0 = _hdi_bounds(idata, "lam", sc["hdi"])
+    lam_lo, lam_hi = ((-np.asarray(lam_hi0), -np.asarray(lam_lo0)) if flip
+                      else (np.asarray(lam_lo0), np.asarray(lam_hi0)))
+
+    # McDonald's omega (single-factor construct reliability) + AVE on the std scale.
+    s_lam = float(np.sum(lam_mean))
+    sum_psi2 = float(np.sum(psi_mean ** 2))
+    omega = (s_lam ** 2) / ((s_lam ** 2) + sum_psi2) if (s_lam ** 2 + sum_psi2) > 0 else float("nan")
+    sum_lam2 = float(np.sum(lam_mean ** 2))
+    ave = sum_lam2 / (sum_lam2 + sum_psi2) if (sum_lam2 + sum_psi2) > 0 else float("nan")
+
+    # estimates — headline reliability + per-indicator standardized loadings first.
+    estimates["omega_reliability"] = round(omega, 4)
+    estimates["avg_variance_extracted"] = round(ave, 4)
+    for j, ind in enumerate(inds):
+        estimates[f"lam_{ind}"] = round(float(lam_mean[j]), 4)
+        estimates[f"lam_{ind}_hdi_low"] = round(float(lam_lo[j]), 4)
+        estimates[f"lam_{ind}_hdi_high"] = round(float(lam_hi[j]), 4)
+    estimates["n_indicators"] = float(p)
+    estimates["n_obs"] = float(n)
+    estimates["max_rhat"] = round(max_rhat, 4)
+    estimates["min_ess"] = round(min_ess, 1)
+
+    try:
+        ltbl = pd.DataFrame({
+            "indicator": inds,
+            "loading_mean": np.round(lam_mean, 5),
+            "hdi_low": np.round(lam_lo, 5),
+            "hdi_high": np.round(lam_hi, 5),
+            "residual_sd": np.round(psi_mean, 5),
+        })
+        ltbl.to_csv(d / "bayesian_sem_loadings.csv", index=False, encoding="utf-8")
+        files.append("bayesian_sem_loadings.csv")
+    except Exception:
+        pass
+    _forest(idata, ["lam"], d / "bayesian_sem_loadings.png",
+            "Bayesian CFA standardized loadings (94% HDI)")
+    if (d / "bayesian_sem_loadings.png").exists():
+        files.append("bayesian_sem_loadings.png")
+
+    n_strong = int(np.sum(np.abs(lam_mean) > 0.5))
+    summary.append(
+        f"{method} 完成：单因子贝叶斯验证性因子分析（CFA，PyMC NUTS，{sc['chains']}链×{sc['draws']}抽样），"
+        f"指标={inds}（{p} 个，n={n}）。构念信度 McDonald's ω≈{omega:.3f}"
+        f"（>0.7 通常可接受），AVE≈{ave:.3f}；标准化载荷范围 "
+        f"[{float(np.min(lam_mean)):.2f}, {float(np.max(lam_mean)):.2f}]，"
+        f"其中 {n_strong}/{p} 个载荷 |λ|>0.5（强载荷）。载荷+HDI 见 bayesian_sem_loadings.csv。"
+        f"{_conv_note(max_rhat, min_ess, sc['chains'])}。"
+        " ⚠ 这是**单因子测量模型**（贝叶斯 CFA），非含潜变量间结构路径的完整 SEM"
+        "（后者需理论驱动的多因子设定，属后续扩展）；因子方差固定为 1 以识别尺度；"
+        "存在符号不定性，已将载荷统一翻转为以正为主（约定）；先验为弱信息、指标已标准化。"
+    )
+    code += [
+        "import pymc as pm, pytensor.tensor as pt  # 单因子贝叶斯 CFA（边际化潜因子）",
+        "with pm.Model():",
+        "    lam=pm.Normal('lam',0,1,shape=p); psi=pm.HalfNormal('psi',1,shape=p)",
+        "    cov=pt.outer(lam,lam)+pt.diag(psi**2)        # Σ=λλᵀ+Ψ（因子方差固定=1）",
+        "    pm.MvNormal('y_obs', mu=pt.zeros(p), cov=cov, observed=Z)  # Z=标准化指标",
+        "    idata=pm.sample(1000,tune=1000,chains=2,target_accept=0.95,random_seed=42)",
+        "# omega=(Σλ)^2/((Σλ)^2+Σψ^2)  # 单因子构念信度（McDonald's omega）",
+    ]
 
 
 
