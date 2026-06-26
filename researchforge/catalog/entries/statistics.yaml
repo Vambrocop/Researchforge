@@ -50,11 +50,13 @@
     ('F1 =~ a+b+c \n F2 =~ d+e+f') routes to a CORRELATED multi-factor CFA
     (marginalized Σ = Λ Φ Λᵀ + Ψ) that additionally reports the inter-factor correlations
     — the standardized structural associations between latents — and a per-factor omega.
-    The factor scale is fixed (factor variance = 1) for identification; loadings are
-    sign-identified (single-factor: predominantly-positive convention; multi-factor: a
-    positive anchor loading per factor). Directed structural regressions (mediation /
-    path models) between latents remain future work; for frequentist CB-SEM with fit
-    indices use the sem analysis.
+    Adding DIRECTED regressions among factors ('F2 ~ F1', 'F3 ~ F2') routes to a recursive
+    structural SEM (η = Bη + ζ, Cov(η) = (I−B)⁻¹Σ_ζ(I−B)⁻ᵀ) that reports the STANDARDIZED
+    PATH COEFFICIENTS (directed structural effects — mediation / path models) and the
+    endogenous-factor R². Scale/sign identification uses fixed factor variance = 1 (CFA
+    paths) or marker-variable loadings = 1 (structural path); only recursive (acyclic)
+    structural models are supported. For frequentist CB-SEM with fit indices use the sem
+    analysis.
   preconditions:
     min_continuous: 3
     min_rows: 30
@@ -62,6 +64,7 @@
     - standardized loadings per indicator + 94% HDI + residual SD (CSV)
     - McDonald's omega construct reliability + AVE (single-factor) or per-factor omega (multi-factor)
     - inter-factor correlation matrix (multi-factor model_spec) = standardized structural associations (CSV)
+    - standardized directed path coefficients + endogenous-factor R² (structural model_spec with 'F2 ~ F1', CSV)
     - ArviZ forest plot of loadings + convergence (R-hat / ESS)
   executor_ref: py::bayesian_sem
   params:
@@ -94,8 +97,9 @@
       description: HDI 可信区间概率(0.5-1)
       default: "0.94"
   biases:
-    - this is a CFA MEASUREMENT model (single- or correlated-multi-factor); it does NOT fit directed structural regressions / mediation between latents (those need a path-model spec, future work)
-    - the factor scale is fixed at variance = 1 for identification; loadings are reported on the standardized-indicator scale
+    - measurement-only specs give a CFA (single- or correlated-multi-factor); adding 'F2 ~ F1' regressions gives a RECURSIVE structural SEM (directed paths) — only acyclic (non-feedback) structural models are supported
+    - structural path coefficients are directed associations under the specified model; a causal reading still needs design + assumptions (no unobserved confounding, correct direction), not just the spec
+    - the factor scale is fixed at variance = 1 (CFA) or via marker loadings = 1 (structural path) for identification; loadings/paths are reported on the standardized scale
     - factor sign is not identified; single-factor uses a predominantly-positive convention, multi-factor anchors each factor's first loading positive (so inter-factor correlations are consistently signed)
     - inter-factor correlations are the standardized structural associations between latents (for two factors, equal to the standardized regression coefficient); they are associational, not directed causal paths
     - weakly-informative priors are used and indicators are standardized; check convergence (R-hat near 1.0, adequate ESS) and read omega as a construct-reliability summary, not a model-fit test

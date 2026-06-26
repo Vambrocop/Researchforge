@@ -84,6 +84,40 @@ def test_bayesian_sem_multifactor_recovers_factor_correlation(tmp_path: Path) ->
     assert res.estimates["max_rhat"] < 1.15
 
 
+def _mediation_data(seed: int = 0, n: int = 400, b1: float = 0.6, b2: float = 0.5):
+    """Recursive chain F1→F2→F3 (3 indicators each), known standardized paths b1,b2."""
+    rng = np.random.default_rng(seed)
+    f1 = rng.normal(0, 1, n)
+    f2 = b1 * f1 + rng.normal(0, np.sqrt(1 - b1 ** 2), n)
+    f3 = b2 * f2 + rng.normal(0, np.sqrt(1 - b2 ** 2), n)
+    F = np.column_stack([f1, f2, f3])
+    lam = [0.9, 0.8, 0.7] * 3
+    fac = [0, 0, 0, 1, 1, 1, 2, 2, 2]
+    cols = {f"q{j + 1}": lam[j] * F[:, fac[j]] + rng.normal(0, np.sqrt(1 - lam[j] ** 2), n)
+            for j in range(9)}
+    return pd.DataFrame(cols)
+
+
+def test_bayesian_sem_structural_recovers_paths(tmp_path: Path) -> None:
+    pytest.importorskip("pymc")
+    csv = tmp_path / "med.csv"
+    _mediation_data(b1=0.6, b2=0.5).to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    spec = ("F1 =~ q1 + q2 + q3\nF2 =~ q4 + q5 + q6\nF3 =~ q7 + q8 + q9\n"
+            "F2 ~ F1\nF3 ~ F2")
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"model_spec": spec, "draws": 500, "tune": 700, "chains": 2})
+    out = Path(res.output_dir)
+    assert res.estimates["n_paths"] == 2.0
+    # standardized directed paths recovered near the true 0.6 / 0.5 (correct sign)
+    assert abs(res.estimates["path_F2_on_F1_std"] - 0.6) < 0.25
+    assert abs(res.estimates["path_F3_on_F2_std"] - 0.5) < 0.25
+    # endogenous factors report R²; path CSV exists
+    assert "r2_F2" in res.estimates and "r2_F3" in res.estimates
+    assert (out / "bayesian_sem_paths.csv").exists()
+    assert res.estimates["max_rhat"] < 1.15
+
+
 def test_bayesian_sem_degrades_without_pymc(monkeypatch, tmp_path: Path) -> None:
     csv = tmp_path / "cfa.csv"
     _one_factor_data().to_csv(csv, index=False)

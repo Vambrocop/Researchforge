@@ -53,6 +53,198 @@ def _parse_measurement(spec, columns):
     return factors, dropped
 
 
+def _parse_structural(spec, factor_names):
+    """Parse structural regressions among FACTORS ('F_out ~ F_p1 + F_p2' lines — '~'
+    but not '=~') into [(outcome_factor, predictor_factor), ...] over known factor names."""
+    import re
+
+    fset = set(factor_names)
+    paths, seen = [], set()
+    for line in re.split(r"[\n;]+", str(spec)):
+        if "=~" in line or "~" not in line:
+            continue
+        lhs, rhs = line.split("~", 1)
+        out = lhs.strip()
+        if out not in fset:
+            continue
+        for tok in rhs.split("+"):
+            pr = tok.strip()
+            if "*" in pr:
+                pr = pr.split("*", 1)[1].strip()
+            if pr in fset and pr != out and (out, pr) not in seen:
+                paths.append((out, pr))
+                seen.add((out, pr))
+    return paths
+
+
+def _topo_order(names, paths):
+    """Topological order so every path goes predictor->outcome (recursive SEM); None if
+    the structural graph has a cycle (non-recursive models are not supported here)."""
+    from collections import deque
+
+    preds = {n: set() for n in names}
+    succ = {n: [] for n in names}
+    for out, pr in paths:
+        preds[out].add(pr)
+    for out, pr in paths:
+        succ[pr].append(out)
+    indeg = {n: len(preds[n]) for n in names}
+    q = deque([n for n in names if indeg[n] == 0])
+    order = []
+    while q:
+        n = q.popleft()
+        order.append(n)
+        for s in succ[n]:
+            indeg[s] -= 1
+            if indeg[s] == 0:
+                q.append(s)
+    return order if len(order) == len(names) else None
+
+
+def _run_bayesian_structural(ctx, factors, paths, dropped=()) -> None:
+    """Recursive structural Bayesian SEM: a measurement model (Λ) PLUS directed paths
+    between latents (η = Bη + ζ ⇒ Cov(η) = (I−B)⁻¹ Σ_ζ (I−B)⁻ᵀ, B strictly lower-
+    triangular under a topological order). Marker-variable identification (each factor's
+    first loading fixed = 1) pins both scale AND sign (so paths are sign-identified and
+    NOT bimodal). Reports the STANDARDIZED path coefficients (the directed structural
+    effects — mediation/path model) + endogenous-factor R²."""
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    method = entry.method
+
+    import numpy as np
+    import pandas as pd
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    from researchforge.executor.branches.bayesian_mcmc import (
+        _conv_note, _convergence, _hdi_bounds, _sampler_cfg,
+    )
+
+    fdict = dict(factors)
+    order = _topo_order([f for f, _ in factors], paths)
+    if order is None:
+        # cyclic / non-recursive → fall back to the correlated multi-factor CFA honestly.
+        summary.append("⚠ 结构路径含回路（非递归），本引擎仅支持递归路径模型——已退回相关多因子 CFA。")
+        _run_bayesian_multifactor(ctx, factors, dropped)
+        return
+    fac_names = order                                  # factors in topological order
+    fidx = {nm: i for i, nm in enumerate(fac_names)}
+    ind_list, fac_of = [], []
+    for nm in fac_names:
+        for c in fdict[nm]:
+            ind_list.append(c)
+            fac_of.append(fidx[nm])
+    p, k = len(ind_list), len(fac_names)
+
+    Y = df[ind_list].apply(lambda s: pd.to_numeric(s, errors="coerce")).dropna()
+    if len(Y) < 24:
+        summary.append("贝叶斯 SEM 跳过：有效样本不足（去缺失后 < 24 行）。")
+        return
+    n = len(Y)
+    Yv = Y.to_numpy(float)
+    sdv = Yv.std(axis=0, ddof=0)
+    sdv = np.where(sdv < 1e-12, 1.0, sdv)
+    Z = (Yv - Yv.mean(axis=0)) / sdv
+    fac_idx = np.asarray(fac_of)
+    anchor = np.array([int(np.where(fac_idx == f)[0][0]) for f in range(k)])
+    is_anchor = np.zeros(p, dtype=bool)
+    is_anchor[anchor] = True
+    path_ij = [(fidx[o], fidx[pr]) for o, pr in paths]   # (outcome_idx, predictor_idx), idx_o>idx_pr
+
+    sc = _sampler_cfg(cfg)
+    with pm.Model() as model:
+        lam_free = pm.Normal("lam_free", 0.0, 1.0, shape=int((~is_anchor).sum()))
+        lam_t = pt.ones(p)                              # marker loadings fixed = 1 (scale+sign id)
+        lam_t = pt.set_subtensor(lam_t[~is_anchor], lam_free)
+        lam = pm.Deterministic("lam", lam_t)
+        psi = pm.HalfNormal("psi", 1.0, shape=p)
+        beta = pm.Normal("beta", 0.0, 1.0, shape=len(path_ij))
+        B = pt.zeros((k, k))
+        for bi, (i, j) in enumerate(path_ij):
+            B = pt.set_subtensor(B[i, j], beta[bi])
+        zvar = pm.HalfNormal("zvar", 1.0, shape=k)      # factor disturbance/exogenous variances
+        Iinv = pt.linalg.inv(pt.eye(k) - B)
+        Ceta = pm.Deterministic("Ceta", Iinv @ pt.diag(zvar) @ Iinv.T)
+        Lam = pt.zeros((p, k))
+        for j in range(p):
+            Lam = pt.set_subtensor(Lam[j, int(fac_idx[j])], lam[j])
+        pm.MvNormal("y_obs", mu=pt.zeros(p), cov=Lam @ Ceta @ Lam.T + pt.diag(psi ** 2), observed=Z)
+        idata = pm.sample(draws=sc["draws"], tune=sc["tune"], chains=sc["chains"],
+                          cores=1, random_seed=sc["seed"], progressbar=False,
+                          target_accept=0.95)
+
+    max_rhat, min_ess = _convergence(idata, ["beta", "psi", "zvar"])
+    post = idata.posterior
+    beta_d = post["beta"].values.reshape(-1, len(path_ij))
+    Ceta_d = post["Ceta"].values.reshape(-1, k, k)
+    zvar_d = post["zvar"].values.reshape(-1, k)
+    fac_sd = np.sqrt(np.clip(np.diagonal(Ceta_d, axis1=1, axis2=2), 1e-12, None))  # (draws,k)
+    fac_var = np.clip(np.diagonal(Ceta_d, axis1=1, axis2=2), 1e-12, None)
+
+    # standardized path = beta * SD(predictor)/SD(outcome); headline structural effects.
+    endo = sorted({i for i, _ in path_ij})
+    for bi, (i, j) in enumerate(path_ij):
+        bstd = beta_d[:, bi] * fac_sd[:, j] / fac_sd[:, i]
+        lo, hi = float(np.percentile(bstd, 3)), float(np.percentile(bstd, 97))
+        key = f"path_{fac_names[i]}_on_{fac_names[j]}_std"   # outcome <- predictor
+        estimates[key] = round(float(bstd.mean()), 4)
+        estimates[f"{key}_hdi_low"] = round(lo, 4)
+        estimates[f"{key}_hdi_high"] = round(hi, 4)
+        estimates[f"path_{fac_names[i]}_on_{fac_names[j]}_raw"] = round(float(beta_d[:, bi].mean()), 4)
+    # endogenous-factor R² = 1 - disturbance variance / total factor variance
+    for f in endo:
+        r2 = 1.0 - (zvar_d[:, f] / fac_var[:, f])
+        estimates[f"r2_{fac_names[f]}"] = round(float(np.mean(r2)), 4)
+    estimates["n_factors"] = float(k)
+    estimates["n_paths"] = float(len(path_ij))
+    estimates["n_indicators"] = float(p)
+    estimates["n_obs"] = float(n)
+    estimates["max_rhat"] = round(max_rhat, 4)
+    estimates["min_ess"] = round(min_ess, 1)
+
+    try:
+        rows = []
+        for bi, (i, j) in enumerate(path_ij):
+            bstd = beta_d[:, bi] * fac_sd[:, j] / fac_sd[:, i]
+            rows.append({"outcome": fac_names[i], "predictor": fac_names[j],
+                         "std_coef": round(float(bstd.mean()), 5),
+                         "raw_coef": round(float(beta_d[:, bi].mean()), 5),
+                         "hdi_low": round(float(np.percentile(bstd, 3)), 5),
+                         "hdi_high": round(float(np.percentile(bstd, 97)), 5)})
+        pd.DataFrame(rows).to_csv(d / "bayesian_sem_paths.csv", index=False, encoding="utf-8")
+        files.append("bayesian_sem_paths.csv")
+    except Exception:
+        pass
+
+    path_txt = "、".join(
+        f"{fac_names[j]}→{fac_names[i]} β*≈{estimates[f'path_{fac_names[i]}_on_{fac_names[j]}_std']:.2f}"
+        for (i, j) in path_ij)
+    r2_txt = "、".join(f"{fac_names[f]} R²≈{estimates[f'r2_{fac_names[f]}']:.2f}" for f in endo)
+    drop_note = ""
+    if dropped:
+        _dl = "、".join(f"{c}(被 {f} 重复声明)" for c, f in dropped)
+        drop_note = f" ⚠ 不支持交叉载荷：指标 {_dl} 已归属更早因子、被丢弃。"
+    summary.append(
+        f"{method} 完成：递归结构贝叶斯 SEM（{k} 因子 / {len(path_ij)} 条有向路径 / {p} 指标，"
+        f"PyMC NUTS，{sc['chains']}链×{sc['draws']}抽样，标记变量识别 marker=1）。"
+        f"标准化路径系数（潜变量间有向结构效应）：{path_txt}。内生因子被解释方差：{r2_txt}。"
+        f"路径见 bayesian_sem_paths.csv。{_conv_note(max_rhat, min_ess, sc['chains'])}。"
+        " ⚠ 这是**递归（无回路）**路径模型；每因子首指标载荷固定为 1 以识别尺度与符号；"
+        "标准化路径=原始路径×SD(自变量因子)/SD(因变量因子)。路径为模型设定下的有向关联，"
+        "因果解读仍需设计与假设支撑（无未观测混杂等）；弱信息先验、指标已标准化。"
+        + drop_note
+    )
+    code += [
+        "import pymc as pm, pytensor.tensor as pt  # 递归结构贝叶斯 SEM（marker=1 识别）",
+        "with pm.Model():",
+        "    # 每因子首指标载荷=1; B=路径矩阵(拓扑序严格下三角)",
+        "    Iinv=pt.linalg.inv(pt.eye(k)-B); Ceta=Iinv@pt.diag(zvar)@Iinv.T  # Cov(η)",
+        "    cov=Lam@Ceta@Lam.T+pt.diag(psi**2); pm.MvNormal('y_obs',mu=0,cov=cov,observed=Z)",
+        "# 标准化路径 = beta * SD(自变量因子)/SD(因变量因子)",
+    ]
+
+
 def _run_bayesian_multifactor(ctx, factors, dropped=()) -> None:
     """Correlated multi-factor Bayesian CFA (marginalized): Σ = Λ Φ Λᵀ + Ψ, Φ the factor
     CORRELATION matrix (LKJ, unit-variance factors for identification). Reports per-factor
@@ -246,7 +438,13 @@ def _branch_bayesian_sem(ctx: Ctx) -> None:
     if _user_spec0:
         _factors, _dropped = _parse_measurement(_user_spec0, set(df.columns))
         if len(_factors) >= 2 and all(len(i) >= 2 for _, i in _factors):
-            _run_bayesian_multifactor(ctx, _factors, _dropped)
+            # directed structural paths among factors ('F2 ~ F1') → recursive structural
+            # SEM; else (only '=~' measurement) → correlated multi-factor CFA.
+            _paths = _parse_structural(_user_spec0, [f for f, _ in _factors])
+            if _paths:
+                _run_bayesian_structural(ctx, _factors, _paths, _dropped)
+            else:
+                _run_bayesian_multifactor(ctx, _factors, _dropped)
             return
     # resolve indicators: config indicators, else columns named in a lavaan-style
     # model_spec, else the continuous columns (single-factor CFA on all of them).
