@@ -211,6 +211,22 @@
   @media (max-width:420px){
     .sc{grid-template-columns:1fr}
   }
+
+  /* ── DESIGN.md polish (additive; preserves all ids/contracts) ───────────── */
+  html{scroll-behavior:smooth}
+  /* brand-consistent text selection + focus-visible parity for links/details */
+  ::selection{background:var(--accent-soft);color:var(--accent-hover)}
+  a:focus-visible,summary:focus-visible,[role=button]:focus-visible{outline:none;box-shadow:var(--ring);border-radius:var(--radius-sm)}
+  /* quiet, on-brand scrollbar (Firefox + WebKit) */
+  *{scrollbar-width:thin;scrollbar-color:#cdd6cf transparent}
+  *::-webkit-scrollbar{width:10px;height:10px}
+  *::-webkit-scrollbar-thumb{background:#cdd6cf;border-radius:8px;border:2px solid var(--bg)}
+  *::-webkit-scrollbar-thumb:hover{background:#b7c3ba}
+  /* honor reduced-motion: kill spinner + transitions for users who ask for it */
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+      transition-duration:.001ms!important;scroll-behavior:auto!important}
+  }
 </style>
 </head>
 <body>

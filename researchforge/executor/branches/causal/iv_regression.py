@@ -202,20 +202,25 @@ def _branch_iv_regression(ctx: Ctx) -> None:
         head = endog[0]
         b_iv = float(params[head])
         b_ols = naive.get(head, float("nan"))
-        weak = (min_first_F == min_first_F and min_first_F < 10.0)
+        has_F = (min_first_F == min_first_F)
+        weak = (has_F and min_first_F < 10.0)
+        f_txt = (f"第一阶段最弱工具 F={min_first_F:.4g}"
+                 f"（{'⚠ <10 弱工具，2SLS 偏向 OLS、SE 不可靠' if weak else '≥10 工具够强'}）。"
+                 if has_F else "第一阶段 F 未能提取（无法判断工具强度）。")
         wh_txt = ("内生性显著（Wu-Hausman 拒绝外生→IV 优于 OLS）" if (wh_p == wh_p and wh_p < 0.05)
                   else "未检出显著内生性（Wu-Hausman 不拒→OLS 可能已足够）" if wh_p == wh_p else "")
         sg_txt = ("、Sargan 过度识别不拒（工具有效）" if (sargan_p == sargan_p and sargan_p > 0.05)
                   else f"、⚠ Sargan 被拒(p={sargan_p:.3g}, 工具有效性存疑)" if sargan_p == sargan_p else "")
+        weak_ci_note = (" ⚠ 弱工具下报告的稳健 CI 仍不可靠（cov_type='robust' 仅异方差稳健、非弱工具稳健）"
+                        "——应改看 Anderson-Rubin/CLR 弱工具稳健区间。" if weak else "")
         summary.append(
             f"{entry.method} 完成（linearmodels 2SLS，稳健 SE，n={len(sub)}）：内生回归元={endog}，"
             f"工具={instruments}" + (f"，控制={controls}" if controls else "") + "。"
             f"因果系数 {head}：2SLS={b_iv:.4g}（朴素 OLS={b_ols:.4g}，差异即内生性偏误的纠正）。"
-            f"第一阶段最弱工具 F={min_first_F:.4g}"
-            f"（{'⚠ <10 弱工具，2SLS 偏向 OLS、SE 不可靠' if weak else '≥10 工具够强'}）。{wh_txt}{sg_txt}。"
-            "系数见 iv_2sls_coefficients.csv。"
+            f"{f_txt}{wh_txt}{sg_txt}。系数见 iv_2sls_coefficients.csv。"
             " ⚠ 2SLS 一致性依赖**排除约束**（工具只通过内生回归元影响结果、与误差无关）——此为不可检验的"
             "识别假设；弱工具会放大偏误与 SE；异质效应下 2SLS 估计的是工具相关子总体的 LATE（需单调性）。"
+            + weak_ci_note
         )
         code += [
             "from linearmodels.iv import IV2SLS",
