@@ -1,0 +1,174 @@
+# Operations-research catalog entries (classic OR / management-science decision
+# models). Each runs from a handful of SCALAR parameters supplied via config OR
+# read from same-named columns (first data row). Pure Python (numpy / scipy).
+
+- id: eoq_inventory
+  method: Economic Order Quantity (EOQ / Wilson lot-sizing)
+  domain: operations
+  family: operations_research
+  goal: optimize
+  description: >-
+    Deterministic economic-order-quantity (Wilson) inventory model. From annual
+    demand D, order/setup cost S and unit annual holding cost H (config
+    demand / order_cost / holding_cost, else same-named columns' first row),
+    computes the optimal lot size EOQ Q* = sqrt(2*D*S/H), the number of orders per
+    year D/Q*, the order cycle time, and the minimum total annual cost (ordering
+    D/Q*S + holding Q/2*H, plus purchase D*c if a unit_price is given). Also computes
+    the reorder point ROP = demand over the lead time (config lead_time in years),
+    optionally adding safety stock z*sigma_L when a service_level and demand_sd are
+    supplied (z = inverse-normal of the service level). Fails honestly if D, S or H
+    is missing or non-positive.
+  preconditions:
+    min_rows: 1
+  produces:
+    - economic order quantity Q* + number of orders per year + cycle time (days)
+    - minimum total annual cost (ordering + holding + optional purchase)
+    - reorder point + (optional) safety stock + EOQ cost-curve table and chart
+  executor_ref: "py::eoq_inventory"
+  params:
+    - name: demand
+      type: float
+      description: 年需求 D（与持有期/提前期同口径，年）
+      default: "同名列首行（若有）"
+    - name: order_cost
+      type: float
+      description: 单次订货/准备成本 S
+      default: "同名列首行（若有）"
+    - name: holding_cost
+      type: float
+      description: 单位每年持有成本 H
+      default: "同名列首行（若有）"
+    - name: unit_price
+      type: float
+      description: 单位采购价 c（用于在总成本中计入采购成本 D·c，可选）
+      default: "无（不计采购成本）"
+    - name: lead_time
+      type: float
+      description: 补货提前期（年，与 D 同口径），用于再订货点
+      default: "0（不计提前期需求）"
+    - name: demand_sd
+      type: float
+      description: 提前期内需求标准差 σ_L（与 service_level 一起算安全库存）
+      default: "无（不计安全库存）"
+    - name: service_level
+      type: float
+      description: 目标服务水平 ∈(0,1)，如 0.95，决定安全库存的 z=Φ⁻¹(service_level)
+      default: "无（不计安全库存）"
+  biases:
+    - the EOQ (Wilson) model assumes constant, known demand with no stockouts allowed, fixed ordering and holding costs, instantaneous replenishment, no quantity discounts and a single product
+    - real settings with stochastic demand, quantity discounts or explicit shortage costs need a (Q,r) / newsvendor / discounted-EOQ model instead
+    - lead_time must be expressed in the same time unit (years) as annual demand D; the safety-stock term assumes normally distributed lead-time demand with the supplied sigma
+
+- id: queue_mmc
+  method: M/M/c queue steady-state (Erlang-C)
+  domain: operations
+  family: operations_research
+  goal: evaluate
+  description: >-
+    Steady-state analysis of an M/M/c multi-server queue. From the arrival rate
+    lambda, the per-server service rate mu and the number of servers c (config
+    lambda / mu / servers, else same-named columns' first row), computes the server
+    utilisation rho = lambda/(c*mu), the empty-system probability P0, the Erlang-C
+    probability that an arrival must wait, and the steady-state performance measures
+    Lq (mean queue length), Wq (mean wait in queue), L (mean number in system) and W
+    (mean time in system, via Little's law). Requires rho < 1 for a stable queue and
+    degrades honestly (unstable, no steady state) when rho >= 1. Outputs the
+    number-in-system distribution P(n).
+  preconditions:
+    min_rows: 1
+  produces:
+    - server utilisation rho + empty-system probability P0 + Erlang-C wait probability
+    - mean queue length Lq, mean wait Wq, mean number in system L, mean time in system W
+    - number-in-system distribution P(n) table and chart
+  executor_ref: "py::queue_mmc"
+  params:
+    - name: lambda
+      type: float
+      description: 到达率 λ（单位时间到达的顾客数，泊松到达）
+      default: "同名列首行（若有）"
+    - name: arrival_rate
+      type: float
+      description: lambda 的别名（到达率）
+      default: "无"
+    - name: mu
+      type: float
+      description: 每个服务台的服务率 μ（单位时间可服务数，指数服务）
+      default: "同名列首行（若有）"
+    - name: service_rate
+      type: float
+      description: mu 的别名（服务率）
+      default: "无"
+    - name: servers
+      type: int
+      description: 服务台数 c（c≥1）
+      default: "1"
+    - name: c
+      type: int
+      description: servers 的别名（服务台数）
+      default: "1"
+  biases:
+    - M/M/c assumes Poisson arrivals (exponential inter-arrival times), exponential service times, first-come-first-served discipline, an infinite queue capacity and an infinite calling population, and c homogeneous parallel servers
+    - real arrivals/service are often non-exponential (coefficient of variation != 1); with balking, reneging, priorities or finite capacity, use M/G/c, G/G/c approximations or simulation
+    - the model gives long-run STEADY-STATE averages and says nothing about transient behaviour or the variance of waiting times; it is undefined when rho = lambda/(c*mu) >= 1
+
+- id: newsvendor
+  method: Newsvendor (single-period stochastic inventory, critical fractile)
+  domain: operations
+  family: operations_research
+  goal: optimize
+  description: >-
+    Single-period stochastic inventory (newsvendor / critical-fractile) model. From
+    the per-unit underage cost Cu and overage cost Co (config underage_cost /
+    overage_cost, or derived as Cu = price - cost and Co = cost - salvage), computes
+    the critical ratio CR = Cu/(Cu+Co) and the optimal order quantity. For NORMAL
+    demand (config demand_mean & demand_sd) Q* = mu_d + z*sigma_d with z = Phi^-1(CR);
+    if a demand column is supplied (config demand_col) it instead uses the EMPIRICAL
+    CR-quantile of the data (disclosed). Also reports the expected mismatch cost
+    (Cu*E[(D-Q)+] + Co*E[(Q-D)+]), an approximate fill rate, and the expected profit
+    when a price and cost are available. Fails honestly if costs are missing /
+    non-positive or no demand model can be formed.
+  preconditions:
+    min_rows: 1
+  produces:
+    - critical ratio CR = Cu/(Cu+Co) + optimal order quantity Q*
+    - z-value Phi^-1(CR) (normal demand) + expected profit / expected mismatch cost + fill rate
+    - optimal-Q vs critical-ratio curve (CSV) and chart
+  executor_ref: "py::newsvendor"
+  params:
+    - name: underage_cost
+      type: float
+      description: 单位缺货成本 Cu（少订一件的边际损失，如损失的毛利）
+      default: "由 price−cost 推导（若给）"
+    - name: overage_cost
+      type: float
+      description: 单位过量成本 Co（多订一件的边际损失，如 cost−salvage）
+      default: "由 cost−salvage 推导（若给）"
+    - name: price
+      type: float
+      description: 单位售价（用于推导 Cu=price−cost 及期望利润）
+      default: "无"
+    - name: cost
+      type: float
+      description: 单位成本（用于推导 Cu、Co 及期望利润）
+      default: "无"
+    - name: salvage
+      type: float
+      description: 单位残值（用于推导 Co=cost−salvage）
+      default: "0"
+    - name: demand_mean
+      type: float
+      description: 正态需求均值 μ_d
+      default: "无（除非用 demand_col）"
+    - name: demand_sd
+      type: float
+      description: 正态需求标准差 σ_d
+      default: "无（除非用 demand_col）"
+    - name: demand_col
+      type: column
+      description: 需求数据列（给定则用其经验 CR 分位数作为 Q*）
+      default: "无（用正态 μ_d/σ_d）"
+  biases:
+    - the newsvendor is a SINGLE-PERIOD model (one ordering decision, end-of-period salvage/loss, no replenishment and no inventory carried over)
+    - under the normal-demand assumption Q* can be negative when CR < 0.5 and sigma is large (truncate to >= 0), and a normal is a poor fit for skewed or bounded demand — prefer the empirical distribution (demand_col) or a lognormal in that case
+    - the empirical option just takes the sample CR-quantile, so it is limited by sample size and representativeness (small-sample quantiles are unstable) with no smoothing/extrapolation
+    - results hinge on how Cu and Co are defined; omitting goodwill/penalty in Cu or holding/disposal in Co biases the optimal quantity

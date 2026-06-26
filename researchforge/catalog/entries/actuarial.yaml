@@ -1,0 +1,149 @@
+# Actuarial / demography catalog entries. Pure Python (numpy / pandas /
+# scipy.stats). life_table is demographic; chain_ladder and loss_distribution
+# perform real estimation (development-factor reserving, severity MLE).
+
+- id: life_table
+  method: Period life table (from age-specific mortality)
+  domain: actuarial
+  family: actuarial
+  goal: describe
+  description: >-
+    Builds a period life table from age-specific mortality. Input = an age column
+    (config age) plus either age-specific death rates m_x (config rate) or death
+    probabilities q_x (config qx), OR deaths + exposure (config deaths & exposure,
+    giving m_x = deaths/exposure). Computes the standard columns from
+    q_x = n*m_x/(1+(n-a_x)*m_x) with a_x=0.5 (mid-period; config a_x): the survival
+    probability p_x, survivors l_x (radix l_0=100000, config radix), deaths d_x,
+    person-years L_x and T_x, and the life expectancy e_x = T_x/l_x. Reports e_0
+    (life expectancy at birth) prominently. The last open age interval is closed
+    with q_x=1 and L_x=l_x/m_x. Produces the full life table and a survival /
+    life-expectancy plot.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 1
+  produces:
+    - full period life table (q_x / p_x / l_x / d_x / L_x / T_x / e_x) as CSV
+    - life expectancy at birth e_0 and e_x at every age
+    - survival curve l_x and life-expectancy e_x plot
+  executor_ref: "py::life_table"
+  params:
+    - name: age
+      type: column
+      description: 年龄（区间起点）列
+      default: 名为 age 的列或第一个数值列
+    - name: rate
+      type: column
+      description: 年龄别死亡率 m_x 列（中心死亡率）
+      default: 名为 mx/m_x 的列（若有）
+    - name: qx
+      type: column
+      description: 年龄别死亡概率 q_x 列（若直接给定）
+      default: 名为 qx/q_x 的列（若有）
+    - name: deaths
+      type: column
+      description: 死亡数列（与 exposure 合成 m_x=deaths/exposure）
+      default: 无
+    - name: exposure
+      type: column
+      description: 暴露/人口列（与 deaths 合成 m_x）
+      default: 无
+    - name: a_x
+      type: float
+      description: 区间内死亡的平均存活比例（年中假定，0..1）
+      default: "0.5"
+    - name: radix
+      type: float
+      description: 生命表基数 l_0
+      default: "100000"
+  biases:
+    - this is a PERIOD (not cohort) life table — it synthesises a hypothetical cohort from current age-specific rates and does not reflect any real birth cohort's experience if mortality changes over time
+    - within-interval deaths are assumed to occur on average at a_x=0.5 of the interval (mid-period, uniform); this is poor for infant and very-old ages and can be overridden via config a_x
+    - the final open-ended age interval is closed with q_x=1 and L_x=l_x/m_x, so life expectancy at the oldest ages is sensitive to this closure assumption and to the data quality at high ages
+
+- id: chain_ladder
+  method: Chain-ladder claims reserving (run-off triangle)
+  domain: actuarial
+  family: actuarial
+  goal: predict
+  description: >-
+    Chain-ladder reserving on a cumulative run-off triangle of claims (accident /
+    origin period in rows, development period in columns). Accepts a WIDE numeric
+    triangle (upper triangle filled, lower-left NaN) OR a LONG form via config
+    origin & dev & claims (pivoted to a triangle). Estimates volume-weighted
+    age-to-age development factors f_j = sum_i C_{i,j+1} / sum_i C_{i,j} over origins
+    present in both columns, the cumulative development factors, projects the lower
+    triangle (C_{i,j+1} = C_{i,j}*f_j), and reports the IBNR reserve per origin and
+    in total (projected ultimate minus latest paid). When the triangle is regular it
+    also reports the Mack (1993) standard error of the total reserve. Produces the
+    completed triangle, a per-origin reserve table, a development-factor table, and a
+    development-factor bar chart.
+  preconditions:
+    min_rows: 2
+    min_numeric_cols: 2
+  produces:
+    - total IBNR reserve and reserve per origin period (projected ultimate - latest paid)
+    - volume-weighted age-to-age and cumulative development factors
+    - completed (projected) triangle CSV + reserve table + development-factor bar chart
+    - Mack (1993) standard error of the total reserve when the triangle is regular
+  executor_ref: "py::chain_ladder"
+  params:
+    - name: origin
+      type: column
+      description: 长表的事故年/起始期列（行）
+      default: 宽表则取首个非数值列作为标签
+    - name: dev
+      type: column
+      description: 长表的发展期列（列）
+      default: 宽表则用各数值列作为发展期 0,1,2,...
+    - name: claims
+      type: column
+      description: 长表的累计赔款列（透视为三角）
+      default: 宽表则用数值矩阵本身
+  biases:
+    - chain-ladder assumes development patterns are stable across origin periods and that future development is proportional to past — broken by changes in claims handling speed, case-reserve adequacy, or mix
+    - it assumes NO calendar-year (diagonal) effects such as inflation shocks, legal or regulatory changes, or claim-settlement-speed shifts that hit all origin periods in a given year
+    - the basic method gives a POINT estimate with no confidence interval; a Mack standard error is reported only when the triangle is regular enough to estimate the volatility parameters, otherwise reserve uncertainty is not quantified
+    - development factors that cannot be estimated (no overlapping data / zero exposure) are set to 1.0 (no further development), which can understate the reserve
+
+- id: loss_distribution
+  method: Loss severity fit (MLE) with VaR / TVaR risk measures
+  domain: actuarial
+  family: actuarial
+  goal: describe
+  description: >-
+    Severity (loss-amount) modelling by maximum likelihood with tail risk measures.
+    Input = a loss / claim-amount column (config loss or amount; else the first
+    predominantly-positive numeric column). Fits candidate severity distributions
+    (lognormal, gamma, pareto, weibull) by MLE (scipy .fit with loc fixed at 0) and
+    selects the best by AIC = 2k - 2*loglik. Reports the fitted parameters, the
+    mean and median loss, and the risk measures Value-at-Risk VaR = F^{-1}(alpha)
+    (the alpha-quantile) and Tail-VaR / Conditional VaR TVaR = E[X | X > VaR]
+    (the tail mean above VaR) at the 95% and 99% levels (extra levels via config
+    alpha). Produces a histogram with the fitted pdf overlay, a table of all fits
+    ranked by AIC, and a risk-measure table.
+  preconditions:
+    min_rows: 5
+    min_numeric_cols: 1
+  produces:
+    - best-fit severity distribution (by AIC) with fitted parameters
+    - VaR (quantile) and TVaR / CVaR (tail mean) at 95% and 99%
+    - mean and median loss + histogram with fitted-pdf overlay + ranked-fits CSV
+  executor_ref: "py::loss_distribution"
+  params:
+    - name: loss
+      type: column
+      description: 损失/赔款金额列（仅正值）
+      default: 首个主要为正的数值列
+    - name: amount
+      type: column
+      description: loss 的别名
+      default: 无
+    - name: alpha
+      type: float
+      description: 风险度量置信水平（除默认 0.95/0.99 外追加）
+      default: "0.95"
+  biases:
+    - "VaR and TVaR depend entirely on the FITTED tail — this is model risk: different distributions with similar overall fit can give very different tail measures, and AIC mainly rewards overall fit, not extreme-tail accuracy"
+    - heavy-tailed data (e.g. pareto) needs care — moments may not exist and extrapolation to the 99%+ quantile is unstable, especially in small samples
+    - the fit assumes positive losses with loc fixed at 0; deductibles or policy limits (truncation / censoring) are NOT handled and would require a truncated / censored likelihood
+    - TVaR (the tail conditional mean) is a coherent (sub-additive) risk measure and is generally preferable to VaR, which is not coherent and ignores the shape of losses beyond the quantile

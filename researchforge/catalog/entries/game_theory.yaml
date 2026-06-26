@@ -1,0 +1,82 @@
+# Game-theory catalog entries (decision domain). Non-cooperative (normal-form
+# strategic games) + cooperative (Shapley value). Pure Python (numpy / pandas).
+
+- id: normal_form_game
+  method: Normal-form (strategic) game analysis
+  domain: decision
+  family: game_theory
+  goal: evaluate
+  description: >-
+    Two-player normal-form (strategic) game analysis. Identifies strictly and weakly
+    dominated strategies for each player, runs iterated elimination of strictly
+    dominated strategies (IESDS), finds all pure-strategy Nash equilibria via the
+    best-response test (P1's payoff is a column-max within its column and P2's payoff
+    is a row-max within its row), and for the 2x2 case computes the mixed-strategy
+    Nash equilibrium in closed form (each player mixes to make the other indifferent)
+    plus the game value; larger games report pure NE only and note that mixed NE needs
+    LP / Lemke-Howson. For a zero-sum game it also reports the minimax / maximin values
+    and whether a pure saddle point exists. Input is a payoff structure: config
+    "player1_payoff" / "player2_payoff" naming two equal-shape numeric payoff blocks
+    (rows = P1 strategies, cols = P2 strategies); a bimatrix long form with columns
+    p1_strategy, p2_strategy, payoff1, payoff2; or, if neither resolves, a single
+    numeric matrix treated as a zero-sum game (P2 payoff = -P1 payoff). Produces a
+    payoff-matrix heatmap and an equilibria CSV.
+  preconditions:
+    min_rows: 1
+    min_numeric_cols: 1
+  produces:
+    - strictly / weakly dominated strategies per player + IESDS survivors
+    - all pure-strategy Nash equilibria (best-response test) + 2x2 mixed-strategy NE & game value
+    - zero-sum minimax / maximin value + saddle-point flag; payoff heatmap + equilibria CSV
+  executor_ref: "py::normal_form_game"
+  params:
+    - name: player1_payoff
+      type: columns
+      description: P1 支付矩阵的列块（列名列表/逗号串；行=P1 策略、列=P2 策略）
+      default: 无（缺则按零和处理）
+    - name: player2_payoff
+      type: columns
+      description: P2 支付矩阵的列块（与 player1_payoff 等形）
+      default: 无（缺则 = −P1，零和）
+  biases:
+    - "assumes fully rational players, complete information (both know every payoff), and simultaneous (one-shot static) play — repeated, sequential, or incomplete-information games need different solution concepts"
+    - "mixed-strategy Nash equilibria are computed in closed form ONLY for the 2x2 case; larger games report pure NE only and need LP / Lemke-Howson for mixed NE (not computed here)"
+    - "pure NE are found by the best-response test with a 1e-9 tolerance; weak dominance and exact ties can create equilibria that are not strict, and IESDS only eliminates STRICTLY dominated strategies (weakly dominated ones are kept, since the order of weak elimination is not order-independent)"
+    - "when only one payoff matrix is supplied the game is assumed zero-sum (P2 payoff = -P1); a genuine non-zero-sum game must supply both player payoff blocks"
+
+- id: shapley_value
+  method: Shapley value (cooperative game fair allocation)
+  domain: decision
+  family: game_theory
+  goal: evaluate
+  description: >-
+    Exact Shapley value for a cooperative (transferable-utility) game. Given a
+    characteristic function v(S) over coalitions of n players, computes each player's
+    Shapley value phi_i = sum over S subset of N minus {i} of
+    [|S|!(n-|S|-1)!/n!] * (v(S union {i}) - v(S)) by enumerating all subsets (exact,
+    2^n; capped at n <= 10 with an honest degrade beyond), the efficiency check
+    (sum of phi_i equals v(N)), and each player's share %. Input: config "coalition"
+    + "value" columns (each row is a coalition — a bitmask like "101", a set string
+    like "A,C", or a player-count integer — and its value) OR one 0/1 membership
+    column per player plus a value column. Missing coalitions are assumed to have
+    value 0 (disclosed). Produces a Shapley bar chart and a CSV of values and shares.
+  preconditions:
+    min_rows: 2
+  produces:
+    - exact Shapley value per player + each player's share % of v(N)
+    - efficiency check (sum of Shapley values vs grand-coalition value v(N))
+    - Shapley bar chart + values/shares CSV; count of supplied vs missing coalitions
+  executor_ref: "py::shapley_value"
+  params:
+    - name: coalition
+      type: column
+      description: 联盟列（每行一个联盟：位掩码"101"/集合串"A,C"/玩家计数）
+      default: 自动（首个非价值列）
+    - name: value
+      type: column
+      description: 联盟价值 v(S) 列
+      default: 自动（value/v/payoff/worth 列）
+  biases:
+    - "the Shapley value needs the value of (ideally all) coalitions; any coalition not supplied is assumed to have value 0, which distorts the allocation and the efficiency check if the true value is non-zero — supply a complete or near-complete characteristic function"
+    - "exact enumeration is 2^n in the number of players, so n is capped at 10; beyond that a sampling / Monte-Carlo approximation would be required (not computed here)"
+    - "the Shapley value assumes a transferable-utility (TU) game and that all orderings of coalition formation are equally likely; it is a NORMATIVE 'fair' allocation satisfying efficiency / symmetry / dummy / additivity axioms, not a prediction of actual bargaining outcomes"

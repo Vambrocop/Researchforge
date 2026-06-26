@@ -76,6 +76,8 @@ SLOW_MODULES = {
     "test_missing_data",
     # discrete choice: statsmodels MNLogit fit + hand-rolled conditional-logit MLE
     "test_choice",
+    # actuarial: loss-distribution MLE (scipy .fit over several candidates) + TVaR quad
+    "test_actuarial",
 }
 
 

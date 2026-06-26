@@ -61,6 +61,8 @@
 - [x] **离散选择/选择模型(2026-06-26)**:`choice` 族 mnl_choice(MNLogit)/conditional_logit(手搓 clogit MLE+WTP,与 statsmodels 逐位一致)。冷审 ZERO MUST。
 - [x] **能值分析 + LCA 因子库(2026-06-26)**:`emergy_analysis`(Odum EYR/ELR/ESI + 转换率库);LCA `footprint_analysis` 加**内置公开因子库**(IPCC/EPA/DEFRA/IEA 碳 + **WFN 真水足迹** + 多影响类别)。排放/水/能值因子多为公开常数,带出处+年份内嵌;"最新"无法运行时联网(分析不联网红线),库带版本可刷新。
 - [x] **报告智能接 estimates(2026-06-26)**:报告「解读」段新增「关键数值」(前几个估计量,4g)。
+- [x] **运筹/博弈/市场/精算 4 领域波(2026-06-26)**:`operations_research`(EOQ/M-M-c/newsvendor)、`game_theory`(纳什均衡/Shapley)、`marketing`(RFM/CLV/购物篮 Apriori)、`actuarial`(生命表/链梯+Mack/损失分布 VaR-TVaR)。冷审 ZERO MUST(博弈对 Osborne-Rubinstein、Mack 对 Mack1993)。→274 法/45 族。
+- [x] **因子库刷新到最新(2026-06-26)**:LCA 库 v0.2、DEFRA 2025 燃料、Ember 2026 电网(0.458)、真 WFN 水足迹、as-of 标注;诚实"分析不联网,库带版本可定期刷新"。
   - **领域聚焦(用户 2026-06-16 定)**:主战场 = **生态 / 农学 / 经济 / 环境 / 社科**;**医学暂缓**(MICE/竞争风险/生存缺失等临床向后推,不进 1.0 前序)。方法扩张优先这五域高频法。
 - [~] **文本/网络/空间**:空间侧已大幅上线 —— GWR(`gwr`)、空间依赖(`moran_i`/`local_moran`/`getis_ord_gi`/`getis_ord`/`bivariate_moran`/`local_geary`/`skater`/`ripleys_k`/`join_count`)、空间回归(`spatial_regression`)、网络科学(`community_detection`/`centrality_suite`/`epidemic_model`);**仍开**:文本挖掘(LDA 主题/情感)、ERGM、网络 meta。
 - [x] **快速选择器已上线(2026-06-16)**:目标感知 `recommend --goal <compare/relate/causal/…>` → 聚焦 top-N + 讲清"为什么"(14 目标分类 `recommender/goals.py` + `select_top`)。治"方法多到不知道用啥"。

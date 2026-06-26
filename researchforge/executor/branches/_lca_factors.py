@@ -46,11 +46,12 @@ from typing import Optional
 # --------------------------------------------------------------------------- #
 # Version / disclaimer (surfaced verbatim in the analysis summary)
 # --------------------------------------------------------------------------- #
-LIBRARY_VERSION = "rf-lca-factors-0.1"
+LIBRARY_VERSION = "rf-lca-factors-0.2 (as of 2026-06)"
 
 DISCLAIMER = (
-    "小型公开因子库(IPCC/EPA/DEFRA/IEA),非完整 LCA 数据库(ecoinvent/GaBi 等需授权);"
-    "因子为通用近似,务必按你的场景与年份核实。"
+    "小型公开因子库(碳:IPCC AR6 2021 GWP / DEFRA-DESNZ 2025 燃料 / Ember 2026 电网;"
+    "水:WFN Mekonnen-Hoekstra 全球均值),非完整 LCA 数据库(ecoinvent/GaBi 等需授权);"
+    "因子为通用近似,且无法运行时联网取最新——库带版本号+年份,请按你的场景/年份核实并定期对照官方源刷新。"
 )
 
 # --------------------------------------------------------------------------- #
@@ -106,46 +107,44 @@ _GWP100 = [
 #   DEFRA/EPA published combustion (scope-1) factors. Units stated explicitly per
 #   fuel; mixing units is meaningless, so the unit is part of the disclosure.
 # --------------------------------------------------------------------------- #
+# DEFRA/DESNZ "UK Government GHG Conversion Factors 2025" (published June 2025) —
+# CO2e per physical unit (CO2+CH4+N2O combined at IPCC AR5 GWP100, DEFRA convention).
+_DEFRA = "DEFRA/DESNZ UK GHG Conversion Factors 2025 (CO2e, AR5 GWP)"
 _FUEL_COMBUSTION = [
     {
-        "value": 2.0,
-        "unit": "kg CO2 / m3 natural gas",
-        "source": "DEFRA/EPA published combustion factors",
-        "year": 2023,
+        "value": 0.18296,
+        "unit": "kg CO2e / kWh natural gas (gross CV)",
+        "source": _DEFRA, "year": 2025,
         "keywords": ["natural gas", "natural_gas", "naturalgas", "nat gas", "ng"],
-        "note": "天然气燃烧≈2.0 kg CO2 / m³（按体积；若你的列是 kWh，请改用≈0.20 kg CO2/kWh）。",
+        "note": "天然气 0.18296 kgCO2e/kWh(总热值,DEFRA 2025);若列是体积 m³≈2.0 kgCO2e/m³。",
     },
     {
-        "value": 2.68,
-        "unit": "kg CO2 / L diesel",
-        "source": "DEFRA/EPA published combustion factors",
-        "year": 2023,
+        "value": 2.57082,
+        "unit": "kg CO2e / L diesel",
+        "source": _DEFRA, "year": 2025,
         "keywords": ["diesel", "gas oil", "gasoil"],
-        "note": "柴油燃烧≈2.68 kg CO2 / L。",
+        "note": "柴油 2.57082 kgCO2e/L(DEFRA 2025,平均生物柴油掺混)。",
     },
     {
-        "value": 2.31,
-        "unit": "kg CO2 / L gasoline",
-        "source": "DEFRA/EPA published combustion factors",
-        "year": 2023,
+        "value": 2.06916,
+        "unit": "kg CO2e / L petrol",
+        "source": _DEFRA, "year": 2025,
         "keywords": ["gasoline", "petrol"],
-        "note": "汽油/petrol 燃烧≈2.31 kg CO2 / L。",
+        "note": "汽油/petrol 2.06916 kgCO2e/L(DEFRA 2025)。",
     },
     {
-        "value": 1.51,
-        "unit": "kg CO2 / L LPG",
-        "source": "DEFRA/EPA published combustion factors",
-        "year": 2023,
+        "value": 1.55709,
+        "unit": "kg CO2e / L LPG",
+        "source": _DEFRA, "year": 2025,
         "keywords": ["lpg", "liquefied petroleum"],
-        "note": "LPG 燃烧≈1.51 kg CO2 / L。",
+        "note": "LPG≈1.557 kgCO2e/L(DEFRA 2025)。",
     },
     {
-        "value": 2.42,
+        "value": 2.40,
         "unit": "kg CO2 / kg coal",
-        "source": "DEFRA/EPA published combustion factors",
-        "year": 2023,
+        "source": "IPCC/DEFRA (coal, varies by rank/CV)", "year": 2025,
         "keywords": ["coal"],
-        "note": "煤燃烧≈2.42 kg CO2 / kg（随煤种/热值差异大）。",
+        "note": "煤≈2.4 kg CO2/kg(随煤种/热值差异大,取代表值)。",
     },
 ]
 
@@ -176,12 +175,12 @@ _GRID = [
         "note": "示例：高煤占比电网≈0.9 kg CO2/kWh（说明用，非你的电网实值）。",
     },
     {
-        "value": 0.48,
+        "value": 0.458,
         "unit": "kg CO2 / kWh",
-        "source": "IEA/Ember (world average, illustrative)",
-        "year": 2023,
+        "source": "Ember Global Electricity Review 2026 (2025 world average)",
+        "year": 2025,
         "keywords": ["electricity", "grid", "power", "kwh", "elec"],
-        "note": "电网用电≈0.48 kg CO2/kWh（世界平均，示意）；请用你所在电网/年份的实值替换。",
+        "note": "电网用电≈0.458 kg CO2/kWh（2025 世界平均,Ember GER 2026;2024=0.471）；请用你所在电网/年份的实值替换。",
     },
 ]
 

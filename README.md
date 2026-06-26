@@ -10,11 +10,11 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~263 analyses across ~41 method families (causal, regression, survival,
+> spans ~274 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
-> discrete-choice, nonparametric, machine learning, and more — see
-> [What's inside](#whats-inside)).
+> discrete-choice, operations-research, game-theory, marketing, actuarial,
+> nonparametric, machine learning, and more — see [What's inside](#whats-inside)).
 
 ResearchForge is research-grade and actively evolving; it is not a finished
 1.0 product. The method recommendation/run UI surfaces text in Chinese; this
@@ -133,7 +133,7 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~263 analyses, grouped by methodology family. Highlights by
+The catalog holds ~274 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /

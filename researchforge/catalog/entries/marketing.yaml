@@ -1,0 +1,154 @@
+# Marketing-analytics catalog entries (customer / commercial analytics). Pure
+# Python (numpy / pandas / matplotlib); mlxtend used only if importable.
+
+- id: rfm_segmentation
+  method: RFM (Recency / Frequency / Monetary) segmentation
+  domain: business
+  family: marketing
+  goal: describe
+  description: >-
+    Behavioural customer segmentation from transaction-level data. For each
+    customer (config customer, else an id/categorical column) computes Recency =
+    days since their last purchase relative to the maximum date in the data,
+    Frequency = number of transactions, and Monetary = sum of amount (config
+    amount, else a money-like numeric column); a date column (config date, else a
+    parseable datetime column) anchors recency. Each of R, F, M is scored into
+    quintiles 1-5 (Recency reversed so the most recent = 5); the concatenated
+    R-F-M score and a standard named segment (Champions, Loyal Customers, At Risk,
+    Lost, Hibernating, ...) are assigned by the widely-used RFM matrix rules.
+    Reports segment sizes and average R/F/M. Needs transaction-level (per-purchase)
+    data; quintile cut-points are data-relative.
+  preconditions:
+    min_rows: 2
+  produces:
+    - per-customer RFM table (recency/frequency/monetary + R/F/M quintile scores + RFM score + named segment) as CSV
+    - segment-count table (CSV) + a segment-size bar chart (English labels)
+    - summary counts (n customers, n Champions, n At-Risk) + average recency/frequency/monetary
+  executor_ref: "py::rfm_segmentation"
+  params:
+    - name: customer
+      type: column
+      description: 客户 id 列
+      default: profiler unit_col 或第一个 id/类别列
+    - name: date
+      type: column
+      description: 交易日期列（用于 Recency）
+      default: profiler time_col 或第一个可解析日期列
+    - name: amount
+      type: column
+      description: 金额列（用于 Monetary）
+      default: money-like 数值列或第一个数值列
+    - name: monetary
+      type: column
+      description: amount 的别名
+      default: 无
+  biases:
+    - quintile cut-points are DATA-RELATIVE — the same customer can score differently across datasets, so RFM scores are not comparable between data extracts or over time without re-anchoring
+    - Recency is measured relative to the maximum date IN THE DATA, not "today"; a stale extract makes everyone look more recent than they are
+    - RFM is a descriptive heuristic, not a predictive model — it ignores tenure, product mix, margins, and acquisition channel, and the named-segment thresholds are conventional rather than estimated
+    - requires transaction-level (per-purchase) rows; pre-aggregated per-customer data cannot yield a true Frequency
+
+- id: customer_lifetime_value
+  method: Customer Lifetime Value (CLV)
+  domain: business
+  family: marketing
+  goal: predict
+  description: >-
+    Customer Lifetime Value from per-customer or transaction data. The default is
+    HISTORICAL CLV = total monetary (sum of amount, config amount) per customer
+    (config customer), with average order value AOV = total / number of orders. An
+    optional PREDICTIVE projection uses the discounted contribution-margin closed
+    form CLV = sum_t (m*r^t)/(1+d)^t = m*r/(1+d-r) for per-period margin m (config
+    margin, else the mean AOV), retention rate r (config retention), and discount
+    rate d (config discount, default 0.10) over an infinite horizon. Reports the
+    mean and median CLV and the share of total value held by the top-decile of
+    customers. Historical CLV is backward-looking; the projection depends on the
+    retention/discount assumptions, which are disclosed.
+  preconditions:
+    min_rows: 1
+  produces:
+    - per-customer CLV table (historical CLV + n orders + average order value) as CSV
+    - CLV distribution histogram (mean & median marked, English labels)
+    - mean/median CLV, top-decile value share, and the predictive projection (if retention given)
+  executor_ref: "py::customer_lifetime_value"
+  params:
+    - name: customer
+      type: column
+      description: 客户 id 列
+      default: profiler unit_col 或第一个 id/类别列
+    - name: amount
+      type: column
+      description: 金额列（用于累计消费 / AOV）
+      default: money-like 数值列或第一个数值列
+    - name: monetary
+      type: column
+      description: amount 的别名
+      default: 无
+    - name: retention
+      type: float
+      description: 每期留存率 r（0..1，触发预测 CLV）
+      default: 无（不给则只算历史 CLV）
+    - name: discount
+      type: float
+      description: 每期折现率 d
+      default: "0.10"
+    - name: margin
+      type: float
+      description: 每期边际贡献 m
+      default: 平均 AOV
+  biases:
+    - historical CLV is BACKWARD-LOOKING — it sums only past spend and says nothing about future value, censoring customers who have not yet churned
+    - the predictive CLV is only as good as its assumptions — retention r and discount d (and the constant per-period margin m) drive the result; the geometric/infinite-horizon form assumes a constant retention rate forever, which is optimistic for most cohorts
+    - using mean AOV as the per-period margin conflates revenue with contribution margin unless an explicit margin is supplied
+    - CLV is highly skewed (a few customers dominate), so the mean is sensitive to outliers — report the median and the top-decile share alongside it
+
+- id: market_basket
+  method: Market-basket analysis (Apriori association rules)
+  domain: business
+  family: marketing
+  goal: relate
+  description: >-
+    Association-rule mining over transaction baskets. Accepts long-form data (config
+    transaction id + item, one row per item) or a one-hot 0/1 item matrix (one row
+    per basket). A hand-rolled Apriori finds frequent itemsets up to a capped size
+    (config max_len, default 3) above a minimum support (config min_support, default
+    0.01), then derives association rules above a minimum confidence (config
+    min_confidence, default 0.3), reporting support, confidence and lift for each
+    rule. support(X) = baskets-containing-X / N; confidence(A->B) = support(A&B)/
+    support(A); lift(A->B) = confidence/support(B) = support(A&B)/(support(A)*
+    support(B)). Rules are ranked by lift. mlxtend is used only if importable; the
+    hand-rolled engine is the default. lift>1 indicates positive association (not
+    causation).
+  preconditions:
+    min_rows: 2
+  produces:
+    - top association rules (antecedent -> consequent with support/confidence/lift) as CSV
+    - bar chart of the top rules by lift (lift=1 independence line marked, English labels)
+    - counts of frequent itemsets and rules, the top lift and top confidence, and n transactions
+  executor_ref: "py::market_basket"
+  params:
+    - name: transaction
+      type: column
+      description: 交易/订单 id 列（长表）
+      default: transaction/order/invoice-like 列（自动）
+    - name: item
+      type: column
+      description: 商品列（长表）
+      default: item/product/sku-like 列（自动）
+    - name: min_support
+      type: float
+      description: 频繁项集最小支持度
+      default: "0.01"
+    - name: min_confidence
+      type: float
+      description: 关联规则最小置信度
+      default: "0.3"
+    - name: max_len
+      type: int
+      description: 项集最大长度（限制组合成本，2..5）
+      default: "3"
+  biases:
+    - lift>1 means positive association, NOT causation — co-occurrence can be driven by a confounder (a promotion, seasonality, or store layout) rather than a true complementarity
+    - the chosen support and confidence thresholds shape which rules appear; high support hides niche but valuable cross-sells, while low support inflates spurious rules
+    - confidence is asymmetric and ignores the base rate of the consequent — a frequent item produces high-confidence rules trivially, which is why rules are ranked by lift
+    - the combinatorial cost is capped by max_len, so longer-itemset patterns are not mined; very large item vocabularies still grow candidate counts quickly
