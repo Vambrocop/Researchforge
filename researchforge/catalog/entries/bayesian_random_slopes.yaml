@@ -1,0 +1,81 @@
+# Bayesian random-slopes multilevel model (PyMC NUTS, MCMC) — bayesian_mcmc.py.
+# Deepening of bayesian_hierarchical (varying-intercept) to varying-intercept AND
+# varying-slope, with correlated random effects via an LKJ prior on the 2x2
+# intercept/slope covariance. Optional + graceful degrade when PyMC is unavailable.
+
+- id: bayesian_random_slopes
+  method: Bayesian random-slopes multilevel model (PyMC)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Bayesian multilevel model with varying intercepts AND varying slopes (random
+    slopes) via PyMC NUTS — the natural deepening of the varying-intercept
+    bayesian_hierarchical. Needs a grouping column (config group/unit, else the panel
+    unit column or a low-cardinality categorical), a continuous outcome (config
+    outcome), and one within-group continuous predictor (config predictor) whose slope
+    is allowed to vary by group. The per-group (intercept, slope) pairs are drawn from
+    a 2D Normal whose 2x2 covariance carries an LKJ(eta=2) prior on the correlation, so
+    intercepts and slopes are CORRELATED (a non-centered parameterization keeps the
+    sampling geometry stable). Reports the population slope and its 94% HDI, the
+    between-group slope SD (how much dose-response varies across groups), the
+    intercept-slope correlation, within-group SD, ICC, per-group intercepts/slopes, and
+    convergence diagnostics, plus a posterior predictive check (Bayesian p-values for
+    mean and SD). The slope is on the standardized-x scale (a raw-x back-transform is
+    also reported). If no within-group predictor exists, it skips honestly and points at
+    bayesian_hierarchical (random slopes require a covariate to vary).
+  preconditions:
+    min_continuous: 1
+    min_rows: 12
+  produces:
+    - per-group table (n, partial-pooled intercept, slope on std-x and raw-x scales) as CSV
+    - ArviZ forest plot of the per-group slopes (partial pooling)
+    - posterior predictive check plot (observed vs replicated densities)
+    - "population slope + 94% HDI, between-group slope SD, intercept-slope correlation, ICC, convergence diagnostics"
+  executor_ref: "py::bayesian_random_slopes"
+  params:
+    - name: group
+      type: column
+      description: 分组变量(个体/班级/地区等)
+      default: 面板单位列或低基数分类列
+    - name: unit
+      type: column
+      description: group 的别名(分组变量)
+      default: 同 group
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictor
+      type: column
+      description: 组内连续预测变量(其斜率随组变化;随机斜率必需)
+      default: 第一个非结果的连续列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - random slopes let each group have its own dose-response slope; partial pooling shrinks group slopes toward the population slope (a modelling choice, more stable for small groups)
+    - the LKJ(eta=2) prior mildly favors low intercept-slope correlation; the population/between-group variance components depend on the (weakly-informative) priors, which are stated
+    - a non-centered parameterization is used for sampling geometry; check convergence (R-hat near 1.0, ESS adequate)
+    - the population slope and per-group slopes are on the standardized-x scale; a raw-x back-transform (slope_raw = slope_std / sd_x) is reported alongside
+    - x is centered before scaling, so population_intercept is the intercept at mean-x (approximately mean-y), NOT the intercept at x=0
+    - under random slopes the total between-group variance depends on x (var_a + 2x*cov_ab + x^2*var_b); the single reported ICC is the intercept ICC evaluated at mean-x, an approximation
+    - credible intervals (HDI) are direct probability statements, not frequentist confidence intervals
+    - the posterior predictive Bayesian p-values (mean/SD) near 0 or 1 flag a misfit for that statistic; ~0.5 means the data are consistent with the model

@@ -156,6 +156,15 @@ def _resolve_matrix(ctx: Ctx):
             return None, None, None, (
                 f"total_output 列 {to_name} 含非正/缺失总产出，无法按 A = Z / x̂ 列归一化。"
             )
+        # A productive Leontief technical-coefficient matrix must be non-negative; with
+        # x>0 this holds iff the inter-industry flows are non-negative. Reject negative
+        # flows rather than build an economically-meaningless A (the later ρ(A)<1 guard
+        # does not catch sign problems).
+        if np.any(M < 0):
+            return None, None, None, (
+                f"投入产出流量矩阵含负值——技术系数 A 必须非负方为有意义的 Leontief 模型；"
+                "请核对流量列（行=投入来源部门、列=消耗部门，均应≥0）。"
+            )
         A = M / x[np.newaxis, :]  # column j divided by x_j
         path = (
             f"路径＝Z + total_output：以 {to_name} 列为各部门总产出 x，"

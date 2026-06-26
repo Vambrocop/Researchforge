@@ -1,0 +1,159 @@
+# Limited-dependent-variable (LDV) econometrics — fills the censored/truncated/
+# selection gap (catalog has OLS/logit/IV/quantile/panel but none of these).
+# Auto-discovered (catalog loads every *.yaml here). Each id maps to a @register
+# handler in executor/branches/limited_dependent.py. Pure Python (numpy +
+# scipy.optimize + statsmodels probit) — NO R, NO new deps. Resolve roles like the
+# regression family (outcome = first continuous; predictors = remaining numeric);
+# config can override outcome/predictors and the method-specific keys below.
+
+- id: tobit_regression
+  method: Tobit (Type-I censored normal regression)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Fit a Type-I Tobit model (Tobin 1958) by maximum likelihood for an outcome that
+    is CENSORED at a limit (e.g. spending bottom-coded at 0, hours bounded below).
+    Uncensored observations contribute the normal log-density log phi((y-Xb)/sigma)/sigma;
+    censored observations contribute the tail mass log Phi((c-Xb)/sigma) for left
+    censoring or log Phi((Xb-c)/sigma) for right censoring. The likelihood is maximised
+    over (beta, log sigma) via scipy BFGS, started from OLS. Reports each predictor's
+    latent-index beta with SE / 95% CI / z / p (from the inverse numerical Hessian),
+    sigma-hat, the log-likelihood, the censored / uncensored counts, the scale factor
+    Phi(xbar*beta/sigma) that converts the latent-index beta into a marginal effect on
+    observed E[y], and a side-by-side naive-OLS contrast (which is biased toward zero on
+    censored data). Only runs when a real censoring mass (>=5% and >=3 obs) sits at the
+    limit; otherwise it skips and points to ols_regression.
+  preconditions:
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - latent-index beta + SE + 95% CI + z/p per predictor (CSV)
+    - sigma-hat, log-likelihood, censored/uncensored counts
+    - marginal-on-E[y] scale factor and naive-OLS bias contrast
+    - Tobit coefficient plot with 95% CIs
+  executor_ref: py::tobit_regression
+  params:
+    - name: outcome
+      type: column
+      description: 被删失的连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量（潜变量指数回归元）
+      default: 其余数值列
+    - name: censoring
+      type: choice
+      choices: [left, right]
+      description: 删失方向（左/右）
+      default: left
+    - name: censor_value
+      type: float
+      description: 删失门限值
+      default: 左删失取观测最小值、右删失取观测最大值
+  biases:
+    - "the Tobit beta is the effect on the LATENT index y*, NOT the marginal effect on observed E[y]; the latter is scaled by Phi(xbar*beta/sigma) (reported as the scale factor / marginal_on_Ey column)"
+    - naive OLS on censored y is biased toward zero (attenuated); the naive_ols_coef column shows the contrast
+    - "Tobit assumes the latent error is normal and homoskedastic; heteroskedasticity or non-normality makes the MLE inconsistent (unlike OLS)"
+    - "standard errors come from the inverse numerical Hessian (observed information); a near-singular Hessian yields NaN SE for the affected terms; a non-convergence flag is reported"
+
+- id: truncated_regression
+  method: Truncated-normal regression (MLE)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Fit a truncated-normal regression by maximum likelihood for a sample that is
+    TRUNCATED at a threshold — observations beyond the threshold are entirely ABSENT
+    from the data (e.g. only earners above a poverty line are surveyed), unlike Tobit
+    where censored observations are present but bottom/top-coded. Every row is treated
+    as drawn from the conditional (truncated) distribution, so the log-density is divided
+    by the truncation probability: LL (lower truncation at a) = sum[ log phi((y-Xb)/sigma)/sigma
+    - log(1 - Phi((a-Xb)/sigma)) ], maximised over (beta, log sigma) via scipy BFGS from
+    OLS start. Reports beta + SE + 95% CI + z / p (inverse numerical Hessian), sigma-hat,
+    the log-likelihood, n, the truncation point, and a naive-OLS contrast (OLS on a
+    truncated sample is attenuated / biased). Complements the Tobit (censoring) model.
+  preconditions:
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - truncated-regression beta + SE + 95% CI + z/p per predictor (CSV)
+    - sigma-hat, log-likelihood, truncation point, n
+    - naive-OLS bias contrast (attenuated under truncation)
+    - truncated-regression coefficient plot with 95% CIs
+  executor_ref: py::truncated_regression
+  params:
+    - name: outcome
+      type: column
+      description: 被截断的连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 其余数值列
+    - name: truncation
+      type: choice
+      choices: [lower, upper]
+      description: 截断方向（下/上）
+      default: lower
+    - name: trunc_value
+      type: float
+      description: 截断门限值
+      default: 下截断取观测最小值、上截断取观测最大值
+  biases:
+    - "truncation is NOT censoring: truncated observations are absent from the sample (Tobit's censored obs are present but limit-coded); using the wrong model mis-specifies the likelihood"
+    - naive OLS on a truncated sample is biased / attenuated; the naive_ols_coef column shows the contrast
+    - the estimate assumes the truncation point is correct and the error is normal; a mis-specified threshold or non-normal error makes the MLE inconsistent
+    - "standard errors come from the inverse numerical Hessian; a near-singular Hessian yields NaN SE; a non-convergence flag is reported"
+
+- id: heckman_selection
+  method: Heckman two-step sample-selection model (heckit)
+  domain: economics
+  family: econometrics
+  goal: explain
+  description: >-
+    Correct for non-random sample selection with the Heckman (1979) two-step estimator
+    (heckit). An outcome is observed only for a selected subset (e.g. wages only for
+    those who work); naive OLS on the selected rows is biased when the selection and
+    outcome errors are correlated. Step 1 fits a probit of the selection indicator on
+    [predictors + exclusion] over ALL rows (statsmodels Probit) and forms the inverse
+    Mills ratio lambda = phi(z*gamma)/Phi(z*gamma). Step 2 regresses the outcome on
+    [predictors + lambda] over the SELECTED rows (OLS); the coefficient on lambda equals
+    rho*sigma_eps, and its t-test is the selection-bias test (H0: rho=0, no selection
+    bias). Reports the outcome-equation betas with SE / 95% CI / p, the lambda (IMR)
+    coefficient + t + p, rho-hat and sigma_eps-hat (recovered via Heckman's formulas),
+    the selected / total counts, and a naive-OLS contrast. The selection column can be
+    given explicitly, taken as the first binary column, or derived from the outcome's
+    missingness pattern.
+  preconditions:
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - outcome-equation beta + SE + 95% CI + p (CSV)
+    - lambda (inverse Mills ratio) coefficient + t + p = selection-bias test
+    - rho-hat and sigma_eps-hat (selection correlation and outcome error scale)
+    - selected/total counts and naive-OLS bias contrast
+    - Heckman outcome-equation coefficient plot with 95% CIs
+  executor_ref: py::heckman_selection
+  params:
+    - name: outcome
+      type: column
+      description: 仅在被选中时观测的连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 结果方程预测变量
+      default: 其余数值列
+    - name: selection
+      type: column
+      description: 选择指示列（被选中=1）
+      default: 第一个二值列；缺则由结果变量缺失推断
+    - name: exclusion
+      type: columns
+      description: 排除性约束变量（仅进入选择方程的工具）
+      default: 无（仅靠 probit 非线性识别，较弱）
+  biases:
+    - "identification leans on the exclusion restriction (a variable in the selection equation but NOT the outcome equation); without one it relies on probit nonlinearity, which is weak and collinearity-prone"
+    - "the two-step standard errors are UNCORRECTED naive OLS SEs (the second step treats the estimated lambda as a known regressor, ignoring the extra variance and heteroskedasticity it induces); use bootstrap or the Heckman MLE for valid inference"
+    - "rho-hat and sigma_eps-hat are recovered approximately from the lambda coefficient and residual variance via the Heckman (1979) formulas (sigma_eps^2 approx MSE + beta_lambda^2 * mean(delta))"
+    - naive OLS on the selected rows (the *_naive_ols estimates) is biased when rho is non-zero; this is a model-based correction, not structural causation

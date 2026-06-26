@@ -205,6 +205,51 @@ def _forest(idata, var_names, path, title):
         pass
 
 
+def _ppc(model, idata, y_obs, d, fname, estimates, *, seed=42):
+    """Best-effort posterior predictive check. Samples y_rep from the fitted model,
+    plots ``az.plot_ppc`` (observed density vs replicated densities, English labels),
+    and computes Bayesian posterior-predictive p-values for two test statistics
+    (mean & SD): p = P(T(y_rep) ≥ T(y_obs)). p ≈ 0.5 means the data are consistent
+    with the model for that statistic; p near 0 or 1 means the model mis-captures it.
+
+    Writes ``ppc_bayes_p_mean`` / ``ppc_bayes_p_sd`` into ``estimates`` and returns
+    the plot filename (or None). NEVER raises — PPC is purely additive, so any failure
+    (no matplotlib, ArviZ quirk, sampling hiccup) leaves the host method intact."""
+    try:
+        import arviz as az
+        import matplotlib
+        import numpy as np
+        import pymc as pm
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        with model:
+            pp = pm.sample_posterior_predictive(idata, random_seed=seed, progressbar=False)
+        # (chain, draw, obs) → (n_samples, n_obs); the likelihood var is named "y_obs"
+        yrep = np.asarray(pp.posterior_predictive["y_obs"].values, dtype=float).reshape(
+            -1, len(y_obs))
+        yo = np.asarray(y_obs, dtype=float)
+        # Bayesian p-value = P(T(y_rep) ≥ T(y_obs)); ~0.5 = good fit, near 0/1 = misfit
+        p_mean = float(np.mean(yrep.mean(axis=1) >= yo.mean()))
+        p_sd = float(np.mean(yrep.std(axis=1) >= yo.std()))
+        estimates["ppc_bayes_p_mean"] = round(p_mean, 4)
+        estimates["ppc_bayes_p_sd"] = round(p_sd, 4)
+        try:
+            idata.extend(pp)                       # attach posterior_predictive group
+            az.plot_ppc(idata, num_pp_samples=100)
+            plt.title("Posterior predictive check (observed vs replicated)")
+            plt.tight_layout()
+            plt.savefig(d / fname, dpi=110, bbox_inches="tight")
+            plt.close("all")
+            return fname if (d / fname).exists() else None
+        except Exception:
+            plt.close("all")
+            return None
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) Bayesian linear regression
 # ─────────────────────────────────────────────────────────────────────────────
@@ -284,13 +329,24 @@ def _branch_bayesian_regression(ctx: Ctx) -> None:
     if (d / "bayesian_regression_forest.png").exists():
         files.append("bayesian_regression_forest.png")
 
+    ppc_png = _ppc(model, idata, y, d, "bayesian_regression_ppc.png", estimates, seed=sc["seed"])
+    if ppc_png:
+        files.append(ppc_png)
+
     sig = [preds[j] for j in range(len(preds)) if raw_lo[j] > 0 or raw_hi[j] < 0]
+    ppc_note = (
+        f" 后验预测检查：贝叶斯 p（均值）≈{estimates['ppc_bayes_p_mean']:.2f}、"
+        f"p（标准差）≈{estimates['ppc_bayes_p_sd']:.2f}（≈0.5=数据与模型一致；"
+        "接近 0 或 1=模型未能复现该统计量）。"
+        if "ppc_bayes_p_mean" in estimates else ""
+    )
     summary.append(
         f"{method} 完成：贝叶斯线性回归（PyMC NUTS，{sc['chains']}链×{sc['draws']}抽样），"
         f"结果={outcome}，预测变量 {len(preds)} 个。{int(sc['hdi']*100)}% HDI 不含 0 的："
         + ("、".join(sig) if sig else "无")
         + f"。贝叶斯 R²≈{bayes_r2:.3f}。{_conv_note(max_rhat, min_ess, sc['chains'])}。"
-        " ⚠ 系数为后验均值 + 最高密度可信区间（HDI，非频率派置信区间）；先验为弱信息 "
+        + ppc_note
+        + " ⚠ 系数为后验均值 + 最高密度可信区间（HDI，非频率派置信区间）；先验为弱信息 "
         "Normal/HalfNormal；预测变量已标准化采样后回传原尺度。"
     )
     code.append(
@@ -525,6 +581,189 @@ def _branch_bayesian_hierarchical(ctx: Ctx) -> None:
         "    s=pm.HalfNormal('sigma',2.5*y.std())\n"
         "    pm.Normal('y_obs',a[group_idx],s,observed=y)\n"
         "    idata=pm.sample(1000,tune=1000,chains=2,target_accept=0.95,random_seed=42)"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b) Bayesian random slopes (varying intercept AND slope, correlated via LKJ)
+# ─────────────────────────────────────────────────────────────────────────────
+@register("bayesian_random_slopes")
+def _branch_bayesian_random_slopes(ctx: Ctx) -> None:
+    import numpy as np
+    import pandas as pd
+
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    method = entry.method
+
+    if not _have_pymc():
+        _degrade(summary, method, "glmm（随机斜率混合效应）")
+        return
+
+    excl = {fp.unit_col, fp.time_col}
+    cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in excl]
+    # grouping column: config 'group'/'unit', else unit_col, else a low-cardinality
+    # categorical/count/id column with 2..(len/3) levels (same rule as hierarchical).
+    forced_g = cfg.get("group") or cfg.get("unit")
+    group_col = forced_g if forced_g in df.columns else fp.unit_col
+    if group_col not in (df.columns if group_col else []):
+        cands = [
+            c.name for c in fp.columns
+            if c.kind in {"categorical", "binary", "count", "id"} and c.name not in excl
+            and 2 <= df[c.name].dropna().nunique() <= max(2, len(df) // 3)
+        ]
+        group_col = cands[0] if cands else None
+    if not group_col:
+        summary.append(f"{method} 跳过：未找到分组变量（需 1 个分组列，如个体/班级/地区）。")
+        return
+
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    if not outcome:
+        summary.append(f"{method} 跳过：未找到连续结果变量。")
+        return
+    # random slopes REQUIRE a within-group covariate (the slope to vary). If none, skip
+    # honestly and point at the varying-intercept-only model.
+    pred = cfg.get("predictor") if cfg.get("predictor") in df.columns else next(
+        (c for c in cont if c != outcome), None)
+    if not pred:
+        summary.append(
+            f"{method} 跳过：随机斜率需 1 个组内连续预测变量（斜率才有可变对象）；"
+            "仅 1 个连续列时请改用 bayesian_hierarchical（变截距）。"
+        )
+        return
+
+    sub = df[[outcome, group_col, pred]].copy()
+    sub[outcome] = pd.to_numeric(sub[outcome], errors="coerce")
+    sub[pred] = pd.to_numeric(sub[pred], errors="coerce")
+    sub = sub.dropna()
+    if len(sub) < 12 or sub[group_col].nunique() < 3:
+        summary.append(f"{method} 跳过：随机斜率建模需 ≥3 组且 ≥12 个有效观测。")
+        return
+
+    codes, uniques = pd.factorize(sub[group_col])
+    n_groups = len(uniques)
+    y = sub[outcome].to_numpy(float)
+    y_mean, y_sd = float(np.mean(y)), float(np.std(y)) or 1.0
+    xv = sub[pred].to_numpy(float)
+    x_sd = float(xv.std(ddof=0)) or 1.0
+    x = (xv - xv.mean()) / x_sd            # centered+scaled covariate (stable NUTS geometry)
+
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    sc = _sampler_cfg(cfg)
+    with pm.Model() as model:
+        mu_a = pm.Normal("mu_a", mu=y_mean, sigma=2.5 * y_sd)        # population intercept
+        mu_b = pm.Normal("mu_b", mu=0.0, sigma=2.5 * y_sd)          # population slope (std-x)
+        sd_dist = pm.HalfNormal.dist(2.5 * y_sd, shape=2)
+        chol, corr, sigmas = pm.LKJCholeskyCov(
+            "chol", n=2, eta=2.0, sd_dist=sd_dist, compute_corr=True)
+        z = pm.Normal("z", 0.0, 1.0, shape=(2, n_groups))          # non-centered
+        ab = pm.Deterministic("ab", pt.dot(chol, z))               # 2 x n_groups offsets
+        a = pm.Deterministic("a", mu_a + ab[0])                    # group intercepts
+        b = pm.Deterministic("b", mu_b + ab[1])                    # group slopes (std-x)
+        sigma = pm.HalfNormal("sigma", sigma=2.5 * y_sd)          # within-group SD
+        mu = a[codes] + b[codes] * x
+        pm.Normal("y_obs", mu=mu, sigma=sigma, observed=y)
+        idata = pm.sample(draws=sc["draws"], tune=sc["tune"], chains=sc["chains"],
+                          cores=1, random_seed=sc["seed"], progressbar=False,
+                          target_accept=0.95)
+
+    conv_vars = ["mu_a", "mu_b", "sigma", "chol_corr", "chol_stds"]
+    max_rhat, min_ess = _convergence(idata, conv_vars)
+    post = idata.posterior
+    mu_a_m = float(post["mu_a"].values.mean())
+    mu_b_m = float(post["mu_b"].values.mean())
+    b_lo, b_hi = _hdi_bounds(idata, "mu_b", sc["hdi"])
+    sig_m = float(post["sigma"].values.mean())
+    # LKJCholeskyCov(compute_corr=True) exposes <name>_stds (the 2 SDs: [intercept, slope])
+    # and <name>_corr (2x2 correlation matrix). sigmas[0]=intercept SD, sigmas[1]=slope SD.
+    stds = post["chol_stds"].values.reshape(-1, 2).mean(axis=0)
+    intercept_sd, slope_sd = float(stds[0]), float(stds[1])
+    corr_vals = post["chol_corr"].values.reshape(-1, 2, 2)
+    corr_is = float(corr_vals[:, 0, 1].mean())                     # intercept-slope correlation
+    # Intercept ICC, evaluated at x = mean(x) (x is centered before scaling, so the
+    # intercept is at mean-x). Under random slopes the total between-group variance is
+    # var_a + 2·x·cov_ab + x²·var_b — it depends on x — so a single ICC is an
+    # approximation (the intercept-ICC at mean-x), disclosed in the summary/biases.
+    icc = (intercept_sd ** 2 / (intercept_sd ** 2 + sig_m ** 2)
+           if (intercept_sd + sig_m) > 0 else float("nan"))
+
+    estimates["population_slope_std"] = round(mu_b_m, 5)           # headline FIRST
+    estimates["population_slope_hdi_low"] = round(float(b_lo), 5)
+    estimates["population_slope_hdi_high"] = round(float(b_hi), 5)
+    estimates["population_slope_raw"] = round(mu_b_m / x_sd, 5)    # back-transform to raw-x scale
+    estimates["population_intercept"] = round(mu_a_m, 5)
+    estimates["slope_sd"] = round(slope_sd, 5)                     # between-group slope SD (std-x)
+    estimates["intercept_sd"] = round(intercept_sd, 5)
+    estimates["intercept_slope_corr"] = round(corr_is, 4)
+    estimates["within_sd"] = round(sig_m, 5)
+    estimates["icc"] = round(icc, 4)
+    estimates["n_groups"] = float(n_groups)
+    estimates["max_rhat"] = round(max_rhat, 4)
+    estimates["min_ess"] = round(min_ess, 1)
+
+    # per-group (intercept, slope) table — both on the model (std-x) scale plus raw-x slope
+    try:
+        a_mean = post["a"].values.reshape(-1, n_groups).mean(axis=0)
+        bg_mean = post["b"].values.reshape(-1, n_groups).mean(axis=0)
+        gtbl = pd.DataFrame({
+            "group": [str(u) for u in uniques],
+            "n": sub.groupby(group_col)[outcome].size().reindex(uniques).to_numpy(),
+            "intercept": np.round(a_mean, 5),
+            "slope_std": np.round(bg_mean, 5),
+            "slope_raw": np.round(bg_mean / x_sd, 5),
+        })
+        gtbl.to_csv(d / "bayesian_random_slopes_groups.csv", index=False, encoding="utf-8")
+        files.append("bayesian_random_slopes_groups.csv")
+    except Exception:
+        pass
+    _forest(idata, ["b"], d / "bayesian_random_slopes_forest.png",
+            "Group slopes (partial pooling, 94% HDI)")
+    if (d / "bayesian_random_slopes_forest.png").exists():
+        files.append("bayesian_random_slopes_forest.png")
+
+    ppc_png = _ppc(model, idata, y, d, "bayesian_random_slopes_ppc.png", estimates, seed=sc["seed"])
+    if ppc_png:
+        files.append(ppc_png)
+
+    slope_excludes0 = b_lo > 0 or b_hi < 0
+    corr_txt = ("正相关（截距高的组斜率也偏高）" if corr_is > 0.1
+                else "负相关（截距高的组斜率偏低）" if corr_is < -0.1
+                else "近乎无关")
+    ppc_note = (
+        f" 后验预测检查：贝叶斯 p（均值）≈{estimates['ppc_bayes_p_mean']:.2f}、"
+        f"p（标准差）≈{estimates['ppc_bayes_p_sd']:.2f}（≈0.5=数据与模型一致；接近 0 或 1=模型未能复现该统计量）。"
+        if "ppc_bayes_p_mean" in estimates else ""
+    )
+    summary.append(
+        f"{method} 完成：贝叶斯随机斜率模型（变截距+变斜率，相关随机效应经 LKJ，"
+        f"PyMC NUTS，{sc['chains']}链×{sc['draws']}抽样），结果={outcome}，分组={group_col}"
+        f"（{n_groups} 组），组内预测变量={pred}。"
+        f"总体斜率（标准化 x）≈{mu_b_m:.3g}，{int(sc['hdi']*100)}% HDI=[{float(b_lo):.3g}, {float(b_hi):.3g}]"
+        f"（{'不含 0，效应方向稳健' if slope_excludes0 else '含 0，方向不确定'}）。"
+        f"斜率组间 SD≈{slope_sd:.3g}（衡量各组剂量-反应差异），"
+        f"截距-斜率相关≈{corr_is:.2f}（{corr_txt}）。组内 SD≈{sig_m:.3g}，"
+        f"ICC≈{icc:.3f}（截距 ICC、于 x 均值处）。"
+        f"{_conv_note(max_rhat, min_ess, sc['chains'])}。{ppc_note}"
+        " ⚠ 随机斜率让每组拥有自己的剂量-反应斜率；部分汇集把各组斜率向总体收缩（小组借力总体）；"
+        "LKJ(η=2) 轻度偏好低相关；非中心化参数化采样；斜率为标准化 x 尺度"
+        "（population_slope_raw 已回传原始 x 尺度）；x 已中心化，故 population_intercept "
+        "是 x 取均值处的截距（≈y 的均值）、非 x=0 处；随机斜率下总组间方差随 x 变化，"
+        "单一 ICC 为截距处的近似。"
+    )
+    code.append(
+        "import pymc as pm, pytensor.tensor as pt\n"
+        "# 随机斜率：相关的 (截距,斜率) 随机效应，LKJ 先验 + 非中心化\n"
+        "with pm.Model():\n"
+        "    mu_a=pm.Normal('mu_a',y.mean(),2.5*y.std()); mu_b=pm.Normal('mu_b',0,2.5*y.std())\n"
+        "    sd_dist=pm.HalfNormal.dist(2.5*y.std(),shape=2)\n"
+        "    chol,corr,sds=pm.LKJCholeskyCov('chol',n=2,eta=2.0,sd_dist=sd_dist,compute_corr=True)\n"
+        "    z=pm.Normal('z',0,1,shape=(2,n_groups)); ab=pt.dot(chol,z)\n"
+        "    a=mu_a+ab[0]; b=mu_b+ab[1]; s=pm.HalfNormal('sigma',2.5*y.std())\n"
+        "    pm.Normal('y_obs',a[g]+b[g]*x,s,observed=y)\n"
+        "    idata=pm.sample(1000,tune=1000,chains=2,target_accept=0.95,random_seed=42)\n"
+        "# 斜率为标准化 x 尺度；原尺度 slope_raw = mu_b / sd_x"
     )
 
 

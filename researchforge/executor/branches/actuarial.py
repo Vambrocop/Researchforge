@@ -69,12 +69,15 @@ def _save_fig(d, fname, files, build):
 #
 #    Given age-specific mortality m_x (or deaths D_x + exposure E_x -> m_x = D_x/E_x)
 #    on age intervals of width n_x (from the age column spacing, default 1):
-#      q_x = n*m_x / (1 + (n - a_x)*m_x)      probability of death in [x, x+n)
+#      q_x = n*m_x / (1 + (n - a_x*n)*m_x)    probability of death in [x, x+n)
 #      p_x = 1 - q_x                          probability of survival
 #      l_0 = radix (default 100000)           survivors at exact age x
 #      l_{x+1} = l_x * p_x
 #      d_x = l_x - l_{x+1} = l_x * q_x        deaths in the interval
-#      L_x = n*l_{x+1} + a_x*d_x              person-years lived in [x, x+n)
+#      L_x = n*l_{x+1} + a_x*n*d_x            person-years lived in [x, x+n)
+#      (a_x is the within-interval fraction lived by those who die; a_x*n = years,
+#       so both q_x and L_x carry the *n factor — identical to the code, which uses
+#       ax_years = a_x*n. For unit intervals n=1 the factor is invisible.)
 #      T_x = sum_{y>=x} L_y                   person-years lived above age x
 #      e_x = T_x / l_x                        life expectancy at exact age x
 #    Last (open) interval is closed with q_x=1, L_x = l_x / m_x (if m_x>0).
@@ -617,8 +620,11 @@ def _mack_total_se(tri, f, latest_dev, ultimate):
                 sigma2[j] = np.sum(cj[m] * (ratio - f[j]) ** 2) / (cnt - 1)
             elif cnt == 1:
                 sigma2[j] = np.nan  # filled below by Mack's tail rule
-        # Mack tail rule for the last (or any unestimable) sigma:
-        # sigma_J^2 = min(sigma_{J-1}^2, sigma_{J-2}^2, sigma_{J-1}^4/sigma_{J-2}^2)
+        # Mack (1993) tail rule for the last (or any unestimable) sigma. The sigma2
+        # array is 0-based with last index J-1, filled from the last two ESTIMABLE
+        # sigmas a=sigma2[finite_idx[-1]], b=sigma2[finite_idx[-2]]:
+        #   sigma2[J-1] = min(a, b, a^2/b)
+        # (using finite_idx, not J-2/J-3 literally, so it is robust to interior gaps.)
         finite_idx = [j for j in range(J) if np.isfinite(sigma2[j])]
         if len(finite_idx) == 0:
             return float("nan")
@@ -894,6 +900,16 @@ def _branch_loss_distribution(ctx: Ctx) -> None:
         v99 = var_at.get(0.99, float("nan"))
         t95 = tvar_at.get(0.95, float("nan"))
         t99 = tvar_at.get(0.99, float("nan"))
+        # Heavy-tail diagnostic: a Pareto with shape b<=1 (or any fit with a divergent
+        # tail mean) has TVaR = +inf — the conditional tail mean is mathematically
+        # UNDEFINED, not a large finite number. Flag it honestly rather than print "inf".
+        tvar_undefined = any(not np.isfinite(tvar_at[a]) for a in alphas)
+        tvar_note = (
+            f" ⚠ 最优分布={best_name} 的尾部均值发散（如 Pareto 形状参数≤1），"
+            "TVaR/CVaR 在数学上**未定义**（=∞，非一个很大的有限值）——"
+            "重尾下应改看分位数(VaR)或对损失设上限(政策限额)后再算尾部期望。"
+            if tvar_undefined else ""
+        )
         summary.append(
             f"{ctx.entry.method} 完成：损失列={loss_name}（n={n}，均值={mean_loss:.4g}、中位数={median_loss:.4g}）；"
             f"按 AIC 在 lognormal/gamma/pareto/weibull 中选优——**最优={best_name}**（AIC={best['aic']:.2f}），"
@@ -905,6 +921,7 @@ def _branch_loss_distribution(ctx: Ctx) -> None:
             " ⚠ 重尾(如 pareto)数据需谨慎：均值/方差可能不存在，外推到 99%+ 分位很不稳定，样本量小尤甚。"
             " ⚠ 仅适用于正值损失（loc 固定为 0）；若数据含免赔额/限额(截断/删失)，应改用截断/删失似然，本次未处理。"
             " ⚠ TVaR(尾部条件均值)比 VaR 更稳健且为一致性风险度量(可加)，建议优先看 TVaR。"
+            + tvar_note
         )
         code += [
             "from scipy import stats, integrate",

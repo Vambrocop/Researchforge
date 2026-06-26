@@ -444,6 +444,16 @@ def _branch_flow_duration_curve(ctx: Ctx) -> None:
 
         lfi_txt = (f"{low_flow_index:.4g}" if low_flow_index == low_flow_index else "不可估")
         sl_txt = (f"{fdc_slope:.4g}" if fdc_slope == fdc_slope else "不可估(含非正流量)")
+        n_neg = int(np.count_nonzero(x < 0))
+        neg_note = (
+            f" ⚠ 序列含 {n_neg} 个负值：物理径流不应为负，请核对是否选错了列（{vcol}）或单位/符号约定；"
+            "负流量会扭曲低流指数与对数斜率。"
+            if n_neg > 0 else ""
+        )
+        n_small_note = (
+            " ⚠ 样本期较短（n<10），经验百分位与代表性不稳，谨慎外推到极端低/高流。"
+            if n < 10 else ""
+        )
         summary.append(
             f"{ctx.entry.method} 完成：流量序列={vcol}（n={n}，Weibull 位置 P=i/(n+1)）{vnote}；"
             f"关键超越百分位流量 Q5={q5:.4g}、Q10={q10:.4g}、Q50(中位)={q50:.4g}、"
@@ -454,6 +464,7 @@ def _branch_flow_duration_curve(ctx: Ctx) -> None:
             "两条时序完全不同的序列可有相同的 FDC，不能据此判断季节/事件时序。"
             " ⚠ 百分位由经验绘点位置插值得到，受样本期长度与代表性影响；对数纵轴要求流量为正"
             "（含 0 或负值时按线性轴绘制，且对数斜率不可估）。"
+            + neg_note + n_small_note
         )
         code += [
             "import numpy as np",

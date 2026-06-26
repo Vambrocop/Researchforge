@@ -86,6 +86,37 @@ def test_build_narrative_cites_estimates() -> None:
     assert est_line.count(" = ") <= 6                       # capped at 6 estimates
 
 
+def test_fmt_estimates_smart_salience() -> None:
+    """Smarter key selection: point estimates lead; bookkeeping/diagnostics
+    (counts, seed, R-hat, ESS) are pushed below; a point estimate folds in its
+    matching CI bounds into one slot instead of three."""
+    from researchforge.executor._helpers.report_narrative import _fmt_estimates
+
+    estimates = {
+        "max_rhat": 1.01, "min_ess": 420.0, "n_groups": 5.0, "seed": 42.0,  # diagnostics
+        "population_slope": 0.83, "icc": 0.31,                              # headline points
+        "x_coef": 1.20, "x_coef_ci_low": 0.40, "x_coef_ci_high": 2.00,     # point + its CI
+    }
+    lines = _fmt_estimates(estimates, cap=6)
+    joined = "；".join(lines)
+
+    # the real point estimates are surfaced
+    assert any("`population_slope`" in ln for ln in lines)
+    assert any("`icc`" in ln for ln in lines)
+    # the point estimate folds its CI bounds into a single bracketed entry
+    assert any("`x_coef` = 1.2 [0.4, 2]" in ln for ln in lines)
+    # the standalone CI bound keys do NOT each take their own slot
+    assert not any(ln.startswith("`x_coef_ci_low`") for ln in lines)
+    # within the cap, headline points rank ahead of bookkeeping/diagnostics
+    assert "`population_slope`" in joined
+    # diagnostics are demoted: with 4 point/CI entries + cap 6, at most the two
+    # lowest-priority diagnostics could appear, and never before the points.
+    idx_point = next(i for i, ln in enumerate(lines) if "`population_slope`" in ln)
+    diag_idxs = [i for i, ln in enumerate(lines)
+                 if any(d in ln for d in ("`max_rhat`", "`min_ess`", "`n_groups`", "`seed`"))]
+    assert all(i > idx_point for i in diag_idxs)
+
+
 def test_build_narrative_no_estimates_ok() -> None:
     # estimates omitted (default None) -> no 关键数值 line, no crash
     lines = build_narrative(_entry(), _fp(), ["finding"], override=False)

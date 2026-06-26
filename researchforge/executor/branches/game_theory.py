@@ -460,6 +460,13 @@ def _branch_normal_form_game(ctx: Ctx) -> None:
             "game_value": (round(mv1, 6) if (is_2x2 and mstatus == "ok")
                            else (round(maximin, 6) if (is_zero_sum and has_saddle) else float("nan"))),
         })
+        # game_value above is P1's equilibrium payoff. In a NON-zero-sum game the two
+        # players' equilibrium payoffs differ, so surface P2's explicitly (in a
+        # zero-sum game P2's value = -game_value by construction).
+        estimates["game_value_p2"] = (
+            round(mv2, 6) if (is_2x2 and mstatus == "ok")
+            else (round(-maximin, 6) if (is_zero_sum and has_saddle) else float("nan"))
+        )
         if is_zero_sum:
             estimates["maximin_value"] = round(maximin, 6)
             estimates["minimax_value"] = round(minimax, 6)

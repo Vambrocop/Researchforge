@@ -359,15 +359,23 @@ def _branch_conditional_logit(ctx: Ctx) -> None:
     # ---- resolve the 0/1 chosen indicator ----------------------------------
     chosen_col = cfg.get("chosen")
     if chosen_col is None:
-        # auto: a binary column whose value set is exactly {0,1}.
+        # auto: a binary column whose value set is exactly {0,1}. PREFER a column whose
+        # NAME looks like a choice indicator (chosen/choice/selected/select/y/picked)
+        # over an arbitrary 0/1 attribute, then fall back to the first 0/1 column.
         import pandas as pd  # local for the scan
+        _name_hint = ("chosen", "choice", "selected", "select", "picked", "y")
+        binary_cols = []
         for c in df.columns:
             if c in {choice_id} | excl:
                 continue
             vals = pd.to_numeric(df[c], errors="coerce").dropna().unique()
             if set(vals).issubset({0.0, 1.0}) and len(set(vals)) == 2:
-                chosen_col = c
-                break
+                binary_cols.append(c)
+        named = [c for c in binary_cols if str(c).strip().lower() in _name_hint]
+        if not named:  # looser: name contains a hint token
+            named = [c for c in binary_cols
+                     if any(h in str(c).strip().lower() for h in _name_hint)]
+        chosen_col = named[0] if named else (binary_cols[0] if binary_cols else None)
     if chosen_col is None or chosen_col not in df.columns:
         summary.append(
             f"{method} 跳过：需要 0/1 的选中指示列 chosen（每个选择情景恰有一行=1）。"

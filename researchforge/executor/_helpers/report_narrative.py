@@ -15,6 +15,7 @@ but we belt-and-braces it here as well so callers can use it directly.
 from __future__ import annotations
 
 import os
+import re
 
 # goal code -> 中文意思 (graceful fallback for unknown codes).
 _GOAL_ZH: dict[str, str] = {
@@ -196,25 +197,99 @@ def _next_steps(entry, override: bool) -> list[str]:
     return steps[:3]
 
 
+_LO_RE = re.compile(r"^(?P<b>.+?)_(ci_low|ci_lower|hdi_low|lower)$", re.IGNORECASE)
+_HI_RE = re.compile(r"^(?P<b>.+?)_(ci_high|ci_upper|hdi_high|upper)$", re.IGNORECASE)
+# A raw CI/SE *bound* key (a point estimate's accessory, not a headline number).
+_BOUND_RE = re.compile(
+    r"(^(ci|hdi)_(low|high|lower|upper)$"
+    r"|_(ci_low|ci_high|ci_lower|ci_upper|hdi_low|hdi_high|lower|upper|se|std_err|stderr)$"
+    r"|^(se|std_err)_)",
+    re.IGNORECASE,
+)
+# Bookkeeping / convergence diagnostics — true but not the headline finding.
+_DIAG_RE = re.compile(
+    r"(^n$|^n_|_n$|^seed$|_seed$|^df$|_df$|r_?hat|^ess$|^ess_|_ess$"
+    r"|^(min|max)_(ess|rhat|r_hat|df|eff))",
+    re.IGNORECASE,
+)
+_P_RE = re.compile(r"(^p$|_p$|_pval$|_pvalue$|_p_value$|p_value)", re.IGNORECASE)
+
+
+def _est_tier(key: str) -> int:
+    """Salience tier: 0 = point estimate (headline), 1 = p-value, 2 = CI/SE bound,
+    3 = bookkeeping/diagnostic. Lower tiers are surfaced first."""
+    if _BOUND_RE.search(key):
+        return 2
+    if _DIAG_RE.search(key):
+        return 3
+    if _P_RE.search(key):
+        return 1
+    return 0
+
+
 def _fmt_estimates(estimates, cap: int = 6) -> list[str]:
-    """Pick the leading numeric estimates (dict insertion order ≈ salience: branches
-    assign the headline quantity first) and format them compactly. Skips NaN/inf.
-    Never recomputes — only surfaces what the analysis already produced."""
+    """Surface the most salient numeric estimates for the report's 关键数值 line.
+
+    Presentation only — never recomputes. Branches assign the headline quantity
+    first, so insertion order ≈ salience; we preserve that order WITHIN each
+    priority tier but push bookkeeping/diagnostics (counts, seeds, R-hat / ESS, df)
+    and raw CI/SE bound keys *below* the actual point estimates, and fold a point
+    estimate's matching CI bounds into the same entry (`coef = 1.2 [0.4, 2.0]`)
+    rather than spending three of the `cap` slots on them. Skips NaN/inf."""
     import math
 
     try:
-        items = list((estimates or {}).items())
+        raw = list((estimates or {}).items())
     except Exception:
         return []
-    out = []
-    for k, v in items:
+
+    fin: dict[str, float] = {}
+    order: list[str] = []
+    for k, v in raw:
+        key = str(k)
         try:
             fv = float(v)
         except (TypeError, ValueError):
             continue
         if not math.isfinite(fv):
             continue
-        out.append(f"`{k}` = {fv:.4g}")
+        if key not in fin:
+            order.append(key)
+        fin[key] = fv
+
+    # Map a point-estimate base -> its low/high bound keys (exact-base match only).
+    los: dict[str, str] = {}
+    his: dict[str, str] = {}
+    for key in order:
+        m = _LO_RE.match(key)
+        if m:
+            los.setdefault(m.group("b"), key)
+        m = _HI_RE.match(key)
+        if m:
+            his.setdefault(m.group("b"), key)
+
+    consumed: set[str] = set()
+    out: list[str] = []
+
+    def _emit(key: str) -> None:
+        if key in consumed:
+            return
+        consumed.add(key)
+        lo_k, hi_k = los.get(key), his.get(key)
+        if lo_k in fin and hi_k in fin and lo_k not in consumed and hi_k not in consumed:
+            consumed.add(lo_k)
+            consumed.add(hi_k)
+            out.append(f"`{key}` = {fin[key]:.4g} [{fin[lo_k]:.4g}, {fin[hi_k]:.4g}]")
+        else:
+            out.append(f"`{key}` = {fin[key]:.4g}")
+
+    for want in (0, 1, 2, 3):
+        for key in order:
+            if len(out) >= cap:
+                break
+            if key in consumed or _est_tier(key) != want:
+                continue
+            _emit(key)
         if len(out) >= cap:
             break
     return out

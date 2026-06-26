@@ -475,6 +475,14 @@ def _branch_cost_effectiveness_analysis(ctx: Ctx) -> None:
             "⚠ ACER(平均比)只反映单方案的性价比，不能用于在方案间做边际取舍；"
             "决策应看前沿上的增量 ICER 与 WTP 的对比。"
         )
+        import numpy as _np
+        if _np.any(effects <= 0):
+            n_neg = int(_np.count_nonzero(effects <= 0))
+            lines.append(
+                f"⚠ 有 {n_neg} 个方案的效果值 ≤0：ACER=成本/效果 与 ICER 在此象限**难以解释**"
+                "（负效果意味着方案使结果变差，性价比为负或方向反转）——"
+                "请核对效果列方向/单位，必要时剔除或重新编码后再读比率。"
+            )
         summary.append(" ".join(lines))
     except Exception as exc:  # never crash the run
         summary.append(

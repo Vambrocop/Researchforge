@@ -78,6 +78,8 @@ SLOW_MODULES = {
     "test_choice",
     # actuarial: loss-distribution MLE (scipy .fit over several candidates) + TVaR quad
     "test_actuarial",
+    # bayesian random slopes: PyMC NUTS sampling of an LKJ-correlated multilevel model
+    "test_bayesian_random_slopes",
 }
 
 
