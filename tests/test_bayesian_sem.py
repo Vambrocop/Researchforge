@@ -52,6 +52,38 @@ def test_bayesian_sem_recovers_loadings(tmp_path: Path) -> None:
     assert res.estimates["max_rhat"] < 1.15
 
 
+def _two_factor_data(seed: int = 0, n: int = 300, rho: float = 0.5):
+    """2 correlated factors (true corr=rho); F1→q1..q3, F2→q4..q6, known loadings."""
+    rng = np.random.default_rng(seed)
+    Lf = np.linalg.cholesky([[1.0, rho], [rho, 1.0]])
+    F = rng.normal(0, 1, (n, 2)) @ Lf.T
+    lam = [0.9, 0.8, 0.7, 0.85, 0.75, 0.65]
+    fac = [0, 0, 0, 1, 1, 1]
+    cols = {f"q{j + 1}": lam[j] * F[:, fac[j]] + rng.normal(0, np.sqrt(1 - lam[j] ** 2), n)
+            for j in range(6)}
+    return pd.DataFrame(cols)
+
+
+def test_bayesian_sem_multifactor_recovers_factor_correlation(tmp_path: Path) -> None:
+    pytest.importorskip("pymc")
+    csv = tmp_path / "mf.csv"
+    _two_factor_data(rho=0.5).to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    spec = "F1 =~ q1 + q2 + q3\nF2 =~ q4 + q5 + q6"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"model_spec": spec, "draws": 400, "tune": 400, "chains": 2})
+    out = Path(res.output_dir)
+    assert res.estimates["n_factors"] == 2.0
+    # the inter-factor correlation (the structural association) is recovered near 0.5
+    assert "corr_F1_F2" in res.estimates
+    assert abs(res.estimates["corr_F1_F2"] - 0.5) < 0.3
+    # anchor (first) loading of each factor is positive (sign-identified)
+    assert res.estimates["lam_q1"] > 0 and res.estimates["lam_q4"] > 0
+    assert "omega_F1" in res.estimates and "omega_F2" in res.estimates
+    assert (out / "bayesian_sem_factor_corr.csv").exists()
+    assert res.estimates["max_rhat"] < 1.15
+
+
 def test_bayesian_sem_degrades_without_pymc(monkeypatch, tmp_path: Path) -> None:
     csv = tmp_path / "cfa.csv"
     _one_factor_data().to_csv(csv, index=False)

@@ -41,32 +41,37 @@
   family: sem
   goal: explain
   description: >-
-    Single-factor Bayesian confirmatory factor analysis (CFA) — the auto-runnable core
-    of Bayesian SEM (a measurement model). Estimates standardized factor loadings with
-    full posterior uncertainty (94% HDI), indicator residual variances, and McDonald's
-    omega construct reliability via modern PyMC NUTS — no R blavaan / JAGS / Stan
-    compiler needed (the same unblocking applied to the Bayesian regression family).
-    The factor scale is fixed (factor variance = 1) for identification and the loadings
-    are sign-fixed to be predominantly positive. Indicators default to the continuous
-    columns (config indicators / model_spec to choose them). Full structural paths
-    between multiple latent variables are out of scope (need a theory-driven multi-factor
-    spec); for frequentist CB-SEM with fit indices use the sem analysis.
+    Bayesian confirmatory factor analysis (CFA) — the auto-runnable core of Bayesian SEM
+    (a measurement model) — via modern PyMC NUTS, no R blavaan / JAGS / Stan compiler
+    needed (the same unblocking applied to the Bayesian regression family). Default is a
+    SINGLE-factor CFA on the continuous columns: standardized factor loadings with full
+    posterior uncertainty (94% HDI), indicator residual variances, and McDonald's omega
+    construct reliability. A lavaan-style model_spec defining TWO OR MORE factors
+    ('F1 =~ a+b+c \n F2 =~ d+e+f') routes to a CORRELATED multi-factor CFA
+    (marginalized Σ = Λ Φ Λᵀ + Ψ) that additionally reports the inter-factor correlations
+    — the standardized structural associations between latents — and a per-factor omega.
+    The factor scale is fixed (factor variance = 1) for identification; loadings are
+    sign-identified (single-factor: predominantly-positive convention; multi-factor: a
+    positive anchor loading per factor). Directed structural regressions (mediation /
+    path models) between latents remain future work; for frequentist CB-SEM with fit
+    indices use the sem analysis.
   preconditions:
     min_continuous: 3
     min_rows: 30
   produces:
     - standardized loadings per indicator + 94% HDI + residual SD (CSV)
-    - McDonald's omega construct reliability + average variance extracted (AVE)
+    - McDonald's omega construct reliability + AVE (single-factor) or per-factor omega (multi-factor)
+    - inter-factor correlation matrix (multi-factor model_spec) = standardized structural associations (CSV)
     - ArviZ forest plot of loadings + convergence (R-hat / ESS)
   executor_ref: py::bayesian_sem
   params:
     - name: indicators
       type: columns
-      description: 测量指标列
+      description: 测量指标列(单因子)
       default: 连续列(单因子)
     - name: model_spec
       type: text
-      description: lavaan 风格指标声明(单因子;仅取其中列名)
+      description: lavaan 风格声明;单因子取列名,≥2 因子(F1 =~ a+b+c)走相关多因子 CFA
       default: 自动单因子
     - name: draws
       type: int
@@ -88,10 +93,10 @@
       type: float
       description: HDI 可信区间概率(0.5-1)
       default: "0.94"
-  biases:
-    - this is a SINGLE-FACTOR Bayesian CFA (a measurement model), NOT a full structural model with paths between multiple latent variables (those need a theory-driven multi-factor spec)
+    - this is a CFA MEASUREMENT model (single- or correlated-multi-factor); it does NOT fit directed structural regressions / mediation between latents (those need a path-model spec, future work)
     - the factor scale is fixed at variance = 1 for identification; loadings are reported on the standardized-indicator scale
-    - the factor sign is not identified (factor and all loadings can flip); loadings are sign-fixed to be predominantly positive (a reporting convention)
+    - factor sign is not identified; single-factor uses a predominantly-positive convention, multi-factor anchors each factor's first loading positive (so inter-factor correlations are consistently signed)
+    - inter-factor correlations are the standardized structural associations between latents (for two factors, equal to the standardized regression coefficient); they are associational, not directed causal paths
     - weakly-informative priors are used and indicators are standardized; check convergence (R-hat near 1.0, adequate ESS) and read omega as a construct-reliability summary, not a model-fit test
 
 - id: pls_sem

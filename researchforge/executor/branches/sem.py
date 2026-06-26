@@ -14,13 +14,177 @@ from researchforge.executor.run import (
 )
 
 
+def _parse_measurement(spec, columns):
+    """Parse a lavaan-style measurement spec ('F1 =~ a + b + c' lines) into
+    [(factor_name, [indicators]), ...], keeping only existing columns, preserving order,
+    and assigning each indicator to its FIRST factor (no cross-loadings)."""
+    import re
+
+    factors, assigned = [], set()
+    for line in re.split(r"[\n;]+", str(spec)):
+        if "=~" not in line:
+            continue
+        lhs, rhs = line.split("=~", 1)
+        fname = lhs.strip()
+        inds = []
+        for tok in rhs.split("+"):
+            c = tok.strip()
+            if c in columns and c not in assigned:
+                inds.append(c)
+                assigned.add(c)
+        if fname and inds:
+            factors.append((fname, inds))
+    return factors
+
+
+def _run_bayesian_multifactor(ctx, factors) -> None:
+    """Correlated multi-factor Bayesian CFA (marginalized): Σ = Λ Φ Λᵀ + Ψ, Φ the factor
+    CORRELATION matrix (LKJ, unit-variance factors for identification). Reports per-factor
+    standardized loadings, indicator residuals, factor reliabilities (omega), and the
+    inter-factor correlations — the standardized structural associations between latents.
+    A positive anchor (marker) loading per factor breaks the per-factor sign indeterminacy
+    (so the correlations are consistently signed and chains don't split into sign modes)."""
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    method = entry.method
+
+    import numpy as np
+    import pandas as pd
+    import pymc as pm
+    import pytensor.tensor as pt
+
+    from researchforge.executor.branches.bayesian_mcmc import (
+        _conv_note, _convergence, _hdi_bounds, _sampler_cfg,
+    )
+
+    fac_names = [f for f, _ in factors]
+    ind_list, fac_of = [], []
+    for fi, (_, inds) in enumerate(factors):
+        for c in inds:
+            ind_list.append(c)
+            fac_of.append(fi)
+    p, k = len(ind_list), len(factors)
+
+    Y = df[ind_list].apply(lambda s: pd.to_numeric(s, errors="coerce")).dropna()
+    if len(Y) < 24:
+        summary.append("贝叶斯 SEM 跳过：有效样本不足（去缺失后 < 24 行）。")
+        return
+    n = len(Y)
+    Yv = Y.to_numpy(float)
+    sd = Yv.std(axis=0, ddof=0)
+    sd = np.where(sd < 1e-12, 1.0, sd)
+    Z = (Yv - Yv.mean(axis=0)) / sd
+    fac_idx = np.asarray(fac_of)
+    # anchor = first indicator (global position) of each factor — its loading is forced
+    # positive to identify that factor's sign.
+    anchor = np.array([int(np.where(fac_idx == f)[0][0]) for f in range(k)])
+    is_anchor = np.zeros(p, dtype=bool)
+    is_anchor[anchor] = True
+
+    sc = _sampler_cfg(cfg)
+    with pm.Model() as model:
+        lam_pos = pm.HalfNormal("lam_pos", 1.0, shape=k)              # positive anchor per factor
+        lam_free = pm.Normal("lam_free", 0.0, 1.0, shape=int((~is_anchor).sum()))
+        lam_t = pt.zeros(p)
+        lam_t = pt.set_subtensor(lam_t[anchor], lam_pos)
+        lam_t = pt.set_subtensor(lam_t[~is_anchor], lam_free)
+        lam = pm.Deterministic("lam", lam_t)
+        psi = pm.HalfNormal("psi", 1.0, shape=p)
+        Lchol = pm.LKJCorr("L", n=k, eta=2.0)                        # Cholesky of factor corr matrix
+        Phi = pm.Deterministic("Phi", pt.dot(Lchol, Lchol.T))        # factor correlation matrix
+        Lam = pt.zeros((p, k))
+        for j in range(p):
+            Lam = pt.set_subtensor(Lam[j, int(fac_idx[j])], lam[j])
+        cov = Lam @ Phi @ Lam.T + pt.diag(psi ** 2)
+        pm.MvNormal("y_obs", mu=pt.zeros(p), cov=cov, observed=Z)
+        idata = pm.sample(draws=sc["draws"], tune=sc["tune"], chains=sc["chains"],
+                          cores=1, random_seed=sc["seed"], progressbar=False,
+                          target_accept=0.95)
+
+    max_rhat, min_ess = _convergence(idata, ["lam", "psi", "Phi"])
+    post = idata.posterior
+    lam_mean = post["lam"].values.reshape(-1, p).mean(axis=0)
+    psi_mean = post["psi"].values.reshape(-1, p).mean(axis=0)
+    lam_lo, lam_hi = _hdi_bounds(idata, "lam", sc["hdi"])
+    Phi_mean = post["Phi"].values.reshape(-1, k, k).mean(axis=0)
+
+    # per-factor reliability (omega) on the standardized scale
+    omega = {}
+    for f in range(k):
+        idxs = [j for j in range(p) if fac_idx[j] == f]
+        sl = float(np.sum(lam_mean[idxs]))
+        sp = float(np.sum(psi_mean[idxs] ** 2))
+        omega[f] = (sl ** 2) / ((sl ** 2) + sp) if (sl ** 2 + sp) > 0 else float("nan")
+
+    # estimates — factor correlations (the structural associations) first, then loadings.
+    for i in range(k):
+        for j in range(i + 1, k):
+            estimates[f"corr_{fac_names[i]}_{fac_names[j]}"] = round(float(Phi_mean[i, j]), 4)
+    for f in range(k):
+        estimates[f"omega_{fac_names[f]}"] = round(float(omega[f]), 4)
+    for j, c in enumerate(ind_list):
+        estimates[f"lam_{c}"] = round(float(lam_mean[j]), 4)
+        estimates[f"lam_{c}_hdi_low"] = round(float(lam_lo[j]), 4)
+        estimates[f"lam_{c}_hdi_high"] = round(float(lam_hi[j]), 4)
+    estimates["n_factors"] = float(k)
+    estimates["n_indicators"] = float(p)
+    estimates["n_obs"] = float(n)
+    estimates["max_rhat"] = round(max_rhat, 4)
+    estimates["min_ess"] = round(min_ess, 1)
+
+    try:
+        pd.DataFrame({
+            "indicator": ind_list,
+            "factor": [fac_names[f] for f in fac_idx],
+            "loading_mean": np.round(lam_mean, 5),
+            "hdi_low": np.round(lam_lo, 5),
+            "hdi_high": np.round(lam_hi, 5),
+            "residual_sd": np.round(psi_mean, 5),
+        }).to_csv(d / "bayesian_sem_loadings.csv", index=False, encoding="utf-8")
+        files.append("bayesian_sem_loadings.csv")
+        pd.DataFrame(np.round(Phi_mean, 5), index=fac_names, columns=fac_names).to_csv(
+            d / "bayesian_sem_factor_corr.csv", encoding="utf-8")
+        files.append("bayesian_sem_factor_corr.csv")
+    except Exception:
+        pass
+    from researchforge.executor.branches.bayesian_mcmc import _forest
+    _forest(idata, ["lam"], d / "bayesian_sem_loadings.png",
+            "Bayesian multi-factor CFA loadings (94% HDI)")
+    if (d / "bayesian_sem_loadings.png").exists():
+        files.append("bayesian_sem_loadings.png")
+
+    corr_txt = "、".join(
+        f"{fac_names[i]}↔{fac_names[j]} r≈{Phi_mean[i, j]:.2f}"
+        for i in range(k) for j in range(i + 1, k))
+    omega_txt = "、".join(f"{fac_names[f]} ω≈{omega[f]:.2f}" for f in range(k))
+    summary.append(
+        f"{method} 完成：相关多因子贝叶斯 CFA（{k} 因子 / {p} 指标，PyMC NUTS，"
+        f"{sc['chains']}链×{sc['draws']}抽样，边际化 Σ=ΛΦΛᵀ+Ψ）。"
+        f"因子相关（潜变量间的标准化结构关联）：{corr_txt}。构念信度：{omega_txt}。"
+        f"载荷+HDI 见 bayesian_sem_loadings.csv、因子相关阵见 bayesian_sem_factor_corr.csv。"
+        f"{_conv_note(max_rhat, min_ess, sc['chains'])}。"
+        " ⚠ 因子方差固定为 1（Φ 为相关阵）以识别尺度；每因子首指标载荷锚定为正以定符号（约定）；"
+        "因子相关即标准化的潜变量间结构关联（两因子时等于标准化回归系数）；"
+        "这是**相关因子测量模型**，有向结构路径（中介/通径）仍属后续扩展；弱信息先验、指标已标准化。"
+    )
+    code += [
+        "import pymc as pm, pytensor.tensor as pt  # 相关多因子贝叶斯 CFA（边际化）",
+        "with pm.Model():",
+        "    # 每因子首指标载荷正锚定(定符号); 其余 Normal",
+        "    L=pm.LKJCorr('L',n=k,eta=2.0); Phi=pt.dot(L,L.T)   # 因子相关阵",
+        "    cov=Lam@Phi@Lam.T+pt.diag(psi**2)                   # Σ=ΛΦΛᵀ+Ψ",
+        "    pm.MvNormal('y_obs', mu=pt.zeros(p), cov=cov, observed=Z)",
+    ]
+
+
 @register("bayesian_sem")
 def _branch_bayesian_sem(ctx: Ctx) -> None:
-    """Bayesian confirmatory factor analysis (single latent factor) — the auto-runnable
-    core of Bayesian SEM (a measurement model). Re-implemented with modern PyMC NUTS,
-    so it no longer needs R blavaan + a JAGS/Stan compiler (same unblocking as the
-    Bayesian regression family). Full structural paths between multiple latents are out
-    of scope here (need a theory-driven multi-factor spec) — disclosed."""
+    """Bayesian confirmatory factor analysis — the auto-runnable core of Bayesian SEM (a
+    measurement model). Modern PyMC NUTS, so no R blavaan / JAGS / Stan compiler needed.
+    Default = single-factor CFA on the continuous columns; a lavaan-style ``model_spec``
+    with ≥2 factors ('F1 =~ a+b+c \\n F2 =~ d+e+f') routes to a CORRELATED multi-factor
+    CFA that also reports the inter-factor correlations (the standardized structural
+    associations between latents). Directed structural regressions remain future work."""
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     method = entry.method
@@ -44,6 +208,14 @@ def _branch_bayesian_sem(ctx: Ctx) -> None:
         return
 
     _excl = {fp.unit_col, fp.time_col}
+    # multi-factor route: a model_spec defining ≥2 factors (each ≥2 indicators) → a
+    # correlated multi-factor CFA (reports inter-factor correlations).
+    _user_spec0 = cfg.get("model_spec")
+    if _user_spec0:
+        _factors = _parse_measurement(_user_spec0, set(df.columns))
+        if len(_factors) >= 2 and all(len(i) >= 2 for _, i in _factors):
+            _run_bayesian_multifactor(ctx, _factors)
+            return
     # resolve indicators: config indicators, else columns named in a lavaan-style
     # model_spec, else the continuous columns (single-factor CFA on all of them).
     user_spec = cfg.get("model_spec")
