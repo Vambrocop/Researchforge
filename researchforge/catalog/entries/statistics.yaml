@@ -93,6 +93,7 @@
       type: float
       description: HDI 可信区间概率(0.5-1)
       default: "0.94"
+  biases:
     - this is a CFA MEASUREMENT model (single- or correlated-multi-factor); it does NOT fit directed structural regressions / mediation between latents (those need a path-model spec, future work)
     - the factor scale is fixed at variance = 1 for identification; loadings are reported on the standardized-indicator scale
     - factor sign is not identified; single-factor uses a predominantly-positive convention, multi-factor anchors each factor's first loading positive (so inter-factor correlations are consistently signed)
