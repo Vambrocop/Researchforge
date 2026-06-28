@@ -1,0 +1,144 @@
+# Causal-inference deepening wave: Mendelian randomization + interrupted time series
+# + g-computation. Auto-discovered; each id maps to a @register handler in
+# executor/branches/causal/<id>.py. Pure Python (numpy / scipy / statsmodels).
+
+- id: mendelian_randomization
+  method: Mendelian randomization (two-sample summary-data)
+  domain: epidemiology
+  family: causal
+  goal: explain
+  description: >-
+    Estimate the causal effect of an exposure on an outcome using genetic variants as
+    instrumental variables, from per-variant summary statistics (one row per instrument:
+    SNP→exposure effect + SE, SNP→outcome effect + SE). Reports three complementary
+    estimators: IVW (inverse-variance weighted, efficient but assumes no directional
+    pleiotropy; with a multiplicative random-effects SE + Cochran's Q heterogeneity),
+    MR-Egger (slope = pleiotropy-adjusted causal effect, intercept = a formal directional-
+    pleiotropy test), and the weighted median (consistent if ≥50% of the instrument
+    weight is valid). Includes a scatter of SNP-outcome vs SNP-exposure effects with the
+    IVW and Egger slopes.
+  preconditions:
+    min_continuous: 4
+    min_rows: 3
+  produces:
+    - IVW / MR-Egger / weighted-median causal estimates with SE + 95% CI + p (estimates)
+    - MR-Egger intercept = directional-pleiotropy test; Cochran's Q heterogeneity
+    - per-instrument table (Wald ratios) + MR scatter plot with IVW & Egger slopes
+  executor_ref: py::mendelian_randomization
+  params:
+    - name: beta_exposure
+      type: column
+      description: SNP→暴露效应列
+      default: 名含 beta+exposure 的列
+    - name: se_exposure
+      type: column
+      description: SNP→暴露效应的标准误列
+      default: 名含 se+exposure 的列
+    - name: beta_outcome
+      type: column
+      description: SNP→结局效应列
+      default: 名含 beta+outcome 的列
+    - name: se_outcome
+      type: column
+      description: SNP→结局效应的标准误列
+      default: 名含 se+outcome 的列
+    - name: seed
+      type: int
+      description: 加权中位数自助法随机种子
+      default: "42"
+  biases:
+    - MR rests on three assumptions — relevance (instrument predicts exposure), independence (instrument unconfounded), and the exclusion restriction (instrument affects the outcome ONLY through the exposure, i.e. no pleiotropy); the last is untestable directly
+    - IVW assumes no directional pleiotropy and is biased if present; MR-Egger's intercept tests for it and its slope corrects for it (at lower efficiency); the weighted median is consistent if at least half the instrument weight comes from valid instruments
+    - weak instruments bias the estimate toward the observational (confounded) association; report and check instrument strength
+    - this is two-sample summary-data MR (per-variant betas/SEs), not individual-level; between-instrument heterogeneity (Cochran's Q) inflates the IVW SE via a multiplicative random-effects correction
+
+- id: interrupted_time_series
+  method: Interrupted time series (segmented regression)
+  domain: epidemiology
+  family: causal
+  goal: explain
+  description: >-
+    Quasi-experimental analysis of a single series before/after a known intervention by
+    segmented regression: y_t = b0 + b1*t + b2*D + b3*(t-T0)*D, where D=1 after the
+    intervention. Reports the IMMEDIATE LEVEL change (b2) and the SLOPE/trend change (b3,
+    post-slope = b1+b3) with Newey-West (HAC) standard errors for serial correlation,
+    plus Durbin-Watson, and plots the segmented fit against the counterfactual
+    (extrapolated pre-intervention trend). The intervention time is given via config
+    (a time value or row index); without it the series midpoint is used as a flagged
+    placeholder.
+  preconditions:
+    min_continuous: 1
+    min_rows: 8
+  produces:
+    - level change + slope (trend) change with SE + 95% CI + p (HAC) (estimates)
+    - pre/post slopes, Durbin-Watson, R², HAC lag (estimates)
+    - segmented-fit vs counterfactual plot
+  executor_ref: py::interrupted_time_series
+  params:
+    - name: outcome
+      type: column
+      description: 结果序列
+      default: 第一个连续列
+    - name: time
+      type: column
+      description: 时间列(用于排序与作图)
+      default: 面板/时间列或名含 time/date 的列
+    - name: intervention
+      type: text
+      description: 干预时点(时间值或行序号)
+      default: 序列中点(占位,应指定真实时点)
+  biases:
+    - the causal reading assumes that at the intervention time NOTHING else changed (no co-interventions, concurrent policies, or measurement changes) and that the counterfactual is the extrapolated pre-intervention trend
+    - serial correlation is expected in time series — standard errors are Newey-West (HAC) and Durbin-Watson is reported; seasonality must be modelled separately
+    - too few pre- or post-intervention points make the level/slope estimates unreliable; more points each side is better
+    - if the intervention time is not specified the series midpoint is used as a meaningless placeholder (flagged) — always set config intervention to the real time
+
+- id: g_computation
+  method: G-computation (parametric g-formula / standardization)
+  domain: epidemiology
+  family: causal
+  goal: explain
+  description: >-
+    Estimate the average treatment effect (ATE) of a binary treatment by the parametric
+    g-formula: fit an outcome model E[Y | T, W] (with T×W interactions so the effect may
+    vary with covariates), predict every unit's outcome under T=1 and under T=0, and
+    average the difference — standardizing over the observed covariate distribution.
+    Continuous outcome → OLS (ATE = mean difference); binary outcome → logistic (ATE =
+    risk difference). Confidence intervals by nonparametric bootstrap. A complementary,
+    outcome-model-based alternative to IPW/AIPW (not doubly robust), useful for
+    cross-checking. Reports E[Y|do(1)], E[Y|do(0)], the ATE, and the naive (confounded)
+    difference for contrast.
+  preconditions:
+    min_rows: 20
+    min_continuous: 1
+  produces:
+    - ATE (mean / risk difference) with bootstrap SE + 95% CI (estimates)
+    - standardized E[Y|do(1)] and E[Y|do(0)] + naive (confounded) difference
+    - do(0) vs do(1) bar chart with the ATE CI
+  executor_ref: py::g_computation
+  params:
+    - name: treatment
+      type: column
+      description: 二值处理变量(0/1)
+      default: 第一个二值列
+    - name: outcome
+      type: column
+      description: 结果变量(连续→OLS, 二值→logistic 风险差)
+      default: 第一个连续列
+    - name: covariates
+      type: columns
+      description: 用于标准化/混杂调整的协变量
+      default: 其余数值列
+    - name: n_boot
+      type: int
+      description: bootstrap 重复次数
+      default: "500"
+    - name: seed
+      type: int
+      description: bootstrap 随机种子
+      default: "42"
+  biases:
+    - the g-formula assumes (1) no unmeasured confounding — conditional exchangeability given the covariates, (2) positivity — treated and control units exist within each covariate stratum, and (3) a correctly specified outcome model
+    - it is PURELY outcome-model based, so it is sensitive to model misspecification (unlike the doubly-robust aipw) — cross-check the two when possible
+    - standardization is over the observed covariate distribution and the model includes T×covariate interactions to allow heterogeneous effects; the ATE is on the outcome's natural scale (a risk difference for a binary outcome)
+    - this is association made causal only under the stated assumptions; it is not a substitute for randomization or a credible identification design

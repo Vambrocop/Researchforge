@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~280 analyses across ~45 method families (causal, regression, survival,
+> spans ~283 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
 > discrete-choice, operations-research, game-theory, marketing, actuarial,
@@ -133,13 +133,14 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~280 analyses, grouped by methodology family. Highlights by
+The catalog holds ~283 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
   Callaway–Sant'Anna-style and DiD robustness), regression discontinuity, event
-  study, sensitivity analysis (Rosenbaum bounds, E-values), and modern causal ML
-  (double/debiased ML, causal forests) via optional libraries.
+  study, instrumental variables (2SLS) and Mendelian randomization, interrupted
+  time series, g-computation / standardization, sensitivity analysis (Rosenbaum
+  bounds, E-values), and modern causal ML (double/debiased ML, causal forests).
 - **Regression & GLM** — OLS, logistic, count models (Poisson / negative
   binomial / zero-inflated), regularized regression, regression diagnostics,
   relative importance.
