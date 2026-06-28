@@ -1,0 +1,45 @@
+# MacKenzie single-season site-occupancy (detection-corrected occupancy).
+# Auto-discovered (catalog loads every *.yaml here). The id maps to the @register
+# handler in executor/branches/occupancy_model.py. Pure Python (numpy/scipy.optimize),
+# NO R. Resolves the 0/1 detection/non-detection visit columns (config "visits" else
+# columns whose values are a subset of {0,1}); needs >=2 visit columns + >=15 sites.
+
+- id: occupancy_model
+  method: MacKenzie single-season occupancy model
+  domain: ecology
+  family: ecology
+  goal: estimate
+  description: >-
+    Fit MacKenzie et al. (2002) single-season site-occupancy model, the constant
+    model psi(.)p(.), to a detection / non-detection matrix (rows = sites, columns =
+    repeat visits, entries 1 = species detected that visit, 0 = not detected, missing
+    = visit not made). Each site is truly occupied with probability psi; if occupied,
+    the species is detected independently on each visit with probability p. The
+    per-site likelihood for d detections over K visits is psi * p^d * (1-p)^(K-d) when
+    d >= 1, and psi * (1-p)^K + (1-psi) when d = 0 (the latter mixing "occupied but
+    never detected" with "genuinely unoccupied"). The joint log-likelihood is
+    maximised over (psi, p) on the logit scale for unconstrained optimisation, with
+    standard errors from the inverse numerical Hessian back-transformed by the delta
+    method and 95% CIs. Crucially the detection-corrected occupancy psi-hat exceeds
+    the naive occupancy (fraction of sites with >=1 detection), because imperfect
+    detection (p<1) makes the naive figure an UNDER-estimate. Covariate models
+    psi(x)/p(x) are an extension of this constant baseline.
+  preconditions:
+    min_rows: 15
+  produces:
+    - detection-corrected occupancy psi-hat + SE + 95% CI (CSV)
+    - detection probability p-hat + SE + 95% CI
+    - naive (uncorrected) occupancy for contrast
+    - naive vs detection-corrected occupancy bar chart with the psi CI (PNG)
+  executor_ref: py::occupancy_model
+  params:
+    - name: visits
+      type: columns
+      description: 检测/未检测访查列（0/1 矩阵，每列一次重复访查）
+      default: 值域 ⊆ {0,1} 的所有列
+  biases:
+    - imperfect detection (p<1) makes the naive occupancy a systematic UNDER-estimate of true occupancy; this model corrects it, so psi-hat is typically higher than naive
+    - assumes closure — occupancy state does not change across visits within the season (no colonisation/extinction during sampling)
+    - assumes no false positives (an unoccupied site is never recorded as a detection) and that detections are independent across visits
+    - the constant model psi(.)p(.) assumes homogeneous occupancy and detection across all sites; site/visit covariate models psi(x)/p(x) are an extension
+    - psi and p are only separable with enough repeat visits; too few visits (or very low p) leave them weakly identified and the CIs wide

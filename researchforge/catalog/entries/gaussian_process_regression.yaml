@@ -1,0 +1,57 @@
+# Gaussian-process regression (Bayesian nonparametric) — bayesian family.
+# Auto-discovered (catalog loads every *.yaml here). Maps to the @register handler
+# in executor/branches/gaussian_process_regression.py. Pure Python via scikit-learn
+# (always installed; NO R, NO network at runtime). A GP IS Bayesian: it returns a
+# full posterior predictive distribution (mean + variance), with hyper-parameters by
+# empirical Bayes (marginal-likelihood). outcome = first continuous column; predictors
+# = remaining numeric (config-overridable). Reports HONEST held-out R²/RMSE/coverage.
+
+- id: gaussian_process_regression
+  method: Gaussian-process regression (Bayesian nonparametric)
+  domain: statistics
+  family: bayesian
+  goal: predict
+  description: >-
+    Bayesian nonparametric regression with a Gaussian process: a prior over FUNCTIONS
+    that, conditioned on the data, yields a full posterior PREDICTIVE distribution
+    (a mean and a variance at every input). Fitted with scikit-learn using the kernel
+    ConstantKernel times RBF plus WhiteKernel, so the signal scale, the RBF
+    length-scale (how wiggly the function may be, with one length-scale per predictor
+    via ARD) and the observation-noise level are all learned by empirical Bayes
+    (maximising the log marginal likelihood). outcome = first continuous column
+    (config outcome); predictors = the remaining numeric columns (continuous, count or
+    binary; config predictors), capped at eight. X and y are standardized and a seeded
+    75/25 train/test split gives HONEST out-of-sample numbers, reporting held-out
+    R-squared and RMSE, the 95 percent predictive-interval coverage (fraction of test
+    points inside mean plus or minus 1.96 sigma, which should be about 0.95 if the
+    uncertainty is calibrated), the learned length-scale(s), the noise level and the
+    log marginal likelihood. Honest skip when there is no continuous outcome, no
+    numeric predictor, or fewer than 20 rows.
+  preconditions:
+    min_continuous: 2
+    min_rows: 20
+  produces:
+    - held-out predictions (actual, posterior mean, 95% lower/upper) as CSV
+    - GP mean + 95% predictive band over the data (1 predictor) or predicted-vs-actual scatter with error bars
+    - "held-out R²/RMSE, 95% predictive-interval coverage, learned length-scale(s), noise level, log-marginal-likelihood"
+  executor_ref: py::gaussian_process_regression
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 数值预测变量列表（连续/计数/二值），上限 8 个
+      default: 其余数值列
+    - name: random_state
+      type: int
+      description: 训练/测试切分与优化器重启的随机种子（可复现）
+      default: "42"
+  biases:
+    - a Gaussian process returns a full posterior predictive distribution (a Bayesian method); the interval is a direct probability statement about the prediction, NOT a frequentist confidence interval
+    - "the RBF kernel implies a smooth-function prior — the length-scale IS the wiggliness; a true function with jumps/discontinuities will be over-smoothed (consider a Matern or periodic kernel)"
+    - hyper-parameters (signal scale, length-scale, noise) are point-estimated by empirical Bayes (maximising the marginal likelihood), NOT fully sampled, so their uncertainty is not propagated into the predictive intervals
+    - "training scales O(n^3) in the number of rows, so large samples are slow and memory-heavy; the predictor count is capped at eight"
+    - "extrapolation beyond the training range reverts to the prior mean with rapidly widening bands — do not trust the mean far from the data"
+    - 95% coverage well below 0.95 means the model under-states uncertainty; well above means it is over-conservative

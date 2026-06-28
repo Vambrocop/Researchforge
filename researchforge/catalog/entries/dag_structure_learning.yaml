@@ -1,0 +1,51 @@
+# Causal-discovery DAG structure learning via the PC algorithm (Spirtes-Glymour),
+# constraint-based, for continuous/Gaussian data. Auto-discovered (catalog loads
+# every *.yaml here). Maps to the @register("dag_structure_learning") handler in
+# executor/branches/causal/dag_structure_learning.py. Pure numpy/scipy (NO R);
+# networkx used only for the graph plot (optional, heatmap fallback).
+
+- id: dag_structure_learning
+  method: Causal discovery (PC algorithm, CPDAG)
+  domain: statistics
+  family: causal
+  goal: explore
+  description: >-
+    Learn a causal graph (CPDAG) from continuous/Gaussian observational data with the
+    constraint-based PC algorithm (Spirtes-Glymour). Step 1 estimates the undirected
+    SKELETON: starting from the complete graph, an edge i-j is deleted whenever i and j
+    are conditionally independent given some subset S of their neighbours (the separating
+    set is recorded), testing conditioning sets of growing size m=0,1,2,... (PC-stable
+    ordering). The conditional-independence test is the Gaussian partial correlation
+    rho(i,j|S) read from the inverse sub-covariance (precision) matrix, with a Fisher
+    z-transform z=0.5*ln((1+rho)/(1-rho)) and statistic sqrt(n-|S|-3)*|z| ~ Normal;
+    independent iff p>alpha. Step 2 ORIENTS v-structures (colliders): an unshielded
+    triple i-k-j with i,j non-adjacent becomes i->k<-j exactly when k is NOT in the
+    separating set of (i,j). Step 3 applies Meek rules R1-R3 to a fixpoint to propagate
+    orientations without creating new colliders or cycles. The result is a CPDAG -- a
+    Markov-equivalence class -- where remaining undirected edges denote directions that
+    observational data alone cannot identify. Outputs an adjacency matrix, a typed
+    edge-list (directed/undirected), and a graph plot.
+  preconditions:
+    min_continuous: 3
+    min_rows: 50
+  produces:
+    - "typed edge list: source, target, type=directed/undirected (CSV)"
+    - "CPDAG adjacency matrix (CSV; 1 = edge source->target)"
+    - "causal graph plot (networkx spring layout; adjacency heatmap fallback)"
+    - "estimates: n_variables, n_edges, n_directed_edges, n_undirected_edges, alpha, n"
+  executor_ref: py::dag_structure_learning
+  params:
+    - name: variables
+      type: columns
+      description: 参与因果发现的连续/数值变量
+      default: 全部连续/数值列（上限约 10 列）
+    - name: alpha
+      type: float
+      description: 条件独立检验显著性水平（越小图越稀疏）
+      default: "0.05"
+  biases:
+    - "PC assumes CAUSAL SUFFICIENCY: every common cause is observed — an unobserved confounder fabricates a spurious edge (this CI test cannot detect latent confounding; use FCI for that)"
+    - "PC assumes FAITHFULNESS: statistical independence reflects graphical d-separation, so canceling paths or near-deterministic relations can hide true edges"
+    - "the Gaussian partial-correlation CI test assumes LINEAR relationships and (multivariate) NORMALITY; nonlinear dependence is missed and non-normality biases the test"
+    - "the output is a CPDAG = a Markov-equivalence class — undirected edges mean the direction is NOT identified from observational data alone (needs experiments, time order, or domain knowledge)"
+    - "edges are STATISTICAL associations under these assumptions, not a guarantee of causation; results are sensitive to alpha and to assumption violations — run a sensitivity check"

@@ -1,0 +1,44 @@
+# Capture-recapture closed-population abundance estimation.
+# Auto-discovered (catalog loads every *.yaml here). Maps to the @register handler in
+# executor/branches/capture_recapture.py (family ecology). Input is a capture-history
+# matrix: rows = individuals captured at least once, columns = sampling occasions,
+# entries 0/1. Occasion columns are resolved at runtime (config `occasions`, else all
+# columns whose values are a subset of {0,1}); >= 2 occasions and >= 8 individuals
+# needed (runtime-checked). Pure Python (numpy/scipy), NO R.
+
+- id: capture_recapture
+  method: Capture-recapture closed-population abundance (N̂)
+  domain: ecology
+  family: ecology
+  goal: estimate
+  description: >-
+    Estimate the size N of a CLOSED population (constant over the study: no
+    births/deaths/immigration/emigration, no mark loss, equal catchability) from a
+    capture-history matrix — rows are individuals captured at least once, columns are
+    sampling occasions, entries 0/1. With exactly 2 occasions it reports the Chapman
+    (1951) bias-corrected Lincoln-Petersen estimator N̂ = (n1+1)(n2+1)/(m2+1) − 1 with
+    its variance, SE and 95% CI; with 3 or more occasions it reports the Schnabel (1938)
+    estimator N̂ = Σ(C_t·M_t)/Σ(R_t) with a normal-approximation CI. In both cases it
+    also fits the M0 constant-capture-probability MLE (Otis et al. 1978), solving
+    n = N(1 − (1 − p̂)^K) with p̂ = total_captures/(K·N̂), and reports the capture
+    probability p̂. Produces a per-occasion table (caught, newly-marked, recaptures)
+    and a bar plot of the N̂ estimates with confidence intervals.
+  preconditions:
+    min_rows: 8
+  produces:
+    - "per-occasion counts: caught / newly-marked / recaptures (CSV)"
+    - "Chapman bias-corrected Lincoln-Petersen N̂ + SE + 95% CI (2 occasions)"
+    - "Schnabel N̂ + 95% CI (3+ occasions)"
+    - "M0 constant-p MLE N̂ + SE + capture probability p̂"
+    - "bar plot of N̂ estimates with 95% CIs vs observed count"
+  executor_ref: py::capture_recapture
+  params:
+    - name: occasions
+      type: columns
+      description: 捕获场次列（0/1，行=个体、列=场次、1=该场次被捕）
+      default: 所有取值 ⊆ {0,1} 的列
+  biases:
+    - "闭合种群假定：研究期内种群恒定（无出生/死亡/迁入/迁出）且无标记丢失——违反则 N̂ 有偏（增长种群偏高，标记丢失偏高）"
+    - "等捕获概率假定：个体捕获概率异质（部分个体更易被捕）会使 N̂ 系统性偏低（最难被捕的个体永远观测不到）"
+    - "Chapman 是 Lincoln-Petersen 的小样本偏差校正式（直接用 n1·n2/m2 在低重捕时偏高且方差无定义）；2 场次只能估常数 N、无法分离时间/行为效应"
+    - "M0 假定捕获率恒定（无时间 Mt / 行为 Mb / 个体 Mh 差异），是最简模型；重捕过少（ΣR 小）时所有估计的 CI 都很宽，N̂ 不稳"

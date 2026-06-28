@@ -1,0 +1,44 @@
+# Nonparametric species-richness estimators (Chao1/ACE + Chao2/jackknives).
+# Auto-discovered (catalog loads every *.yaml here). The id maps to the
+# @register("species_richness") handler in executor/branches/species_richness.py.
+# Pure Python (numpy) — NO R, NO network. Complements diversity_indices /
+# rarefaction in the ecology family.
+
+- id: species_richness
+  method: Nonparametric species-richness estimators (Chao1/ACE & Chao2/jackknife)
+  domain: ecology
+  family: ecology
+  goal: estimate
+  description: >-
+    Estimate how many species are really present — including those never detected
+    — from a site x species table (rows = sites/samples, columns = species; cells
+    are abundance counts, or 0/1 presence). Two regimes, chosen automatically.
+    ABUNDANCE regime (cells are counts): pool counts per species, then the
+    bias-corrected Chao1 = S_obs + f1*(f1-1)/(2*(f2+1)) with its log-normal 95% CI
+    (Chao 1984/1987), and ACE (the abundance coverage estimator, Chao & Lee 1992)
+    leaning on rare species (abundance <= 10), where f1/f2 are the numbers of
+    singletons/doubletons. INCIDENCE regime (cells are 0/1): per-species incidence
+    across sites gives uniques q1 and duplicates q2 over m sites, then Chao2 =
+    S_obs + ((m-1)/m)*q1*(q1-1)/(2*(q2+1)), first-order jackknife S_obs+q1*(m-1)/m
+    and second-order jackknife S_obs+q1*(2m-3)/m - q2*(m-2)^2/(m*(m-1)) (Burnham &
+    Overton). Abundance tables also report the incidence estimators after
+    binarizing (both labeled). Reports observed vs estimated richness and sample
+    completeness S_obs/estimator. Complements diversity_indices and rarefaction.
+  preconditions:
+    min_count_cols: 2
+    min_rows: 2
+  produces:
+    - observed vs estimated richness side by side (Chao1/ACE/Chao2/jackknives, CSV)
+    - Chao1 (abundance) or Chao2 (incidence) richness with sample completeness
+    - bar plot of S_observed vs the estimators (with Chao1 95% CI when abundance)
+  executor_ref: py::species_richness
+  params:
+    - name: species
+      type: columns
+      description: 物种列（站点×物种表，单元格为丰度计数或 0/1 出现）
+      default: 全部数值物种列（计数/二值/整数连续，排除单元/时间列）
+  biases:
+    - these estimate richness INCLUDING undetected species and lean heavily on rare species (singletons/doubletons f1/f2 for abundance, uniques/duplicates q1/q2 for incidence), so they are sensitive to sampling effort and to f1/f2 (q1/q2) sampling noise
+    - "Chao1 and Chao2 are LOWER BOUNDS on true richness (they under-estimate when sampling is insufficient); a low completeness means add sampling, not just extrapolate"
+    - the abundance regime (Chao1/ACE, individual counts) and the incidence regime (Chao2/jackknives, site occurrences) use different information and are NOT interchangeable; the right regime depends on how the data were collected
+    - "these estimators are not a substitute for adequate sampling: with very few singletons/doubletons or few sites the estimates and their CI are unstable"

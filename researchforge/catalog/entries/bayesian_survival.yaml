@@ -1,0 +1,75 @@
+# Bayesian parametric survival (Weibull AFT, right-censored) — bayesian_survival.py.
+# Full Bayesian fit via PyMC NUTS (no Stan/JAGS compiler); optional + graceful degrade
+# to lifelines when PyMC/ArviZ are unavailable. A credible interval (HDI) is a direct
+# probability statement, NOT a frequentist confidence interval.
+
+- id: bayesian_survival
+  method: Bayesian parametric survival (Weibull AFT, right-censored, PyMC)
+  domain: statistics
+  family: survival
+  goal: explain
+  description: >-
+    Full Bayesian Weibull accelerated-failure-time (AFT) survival model with
+    right-censoring via PyMC NUTS (no compiler needed). Duration = the positive time
+    column (config duration, else the panel time column or a positive numeric column);
+    event indicator = a binary 0/1 column (config event, 1=event/death, 0=right-censored)
+    — if none is found all rows are treated as observed (no censoring) and this is
+    disclosed. Covariates = the remaining numeric columns (config predictors),
+    standardized for stable sampling. The right-censored Weibull likelihood is built with
+    pm.Censored (events contribute the log density, censored rows the log survival
+    function). Reports the Weibull shape (alpha greater than 1 increasing hazard, less than 1
+    decreasing), per-covariate AFT log-effects on the standardized scale plus
+    back-transformed acceleration factors exp(beta over sd) with 94 percent HDI credible
+    intervals, the median survival time, the event/censored counts, and convergence
+    diagnostics (max R-hat, min ESS). AFT effects are on the time scale (AF greater than 1
+    means longer survival), not hazard ratios.
+  preconditions:
+    min_continuous: 1
+    min_rows: 15
+  produces:
+    - per-covariate acceleration-factor table (AFT log-effect, accel factor, 94% HDI) as CSV
+    - ArviZ forest plot of the standardized AFT log-effects
+    - Weibull shape, median survival time, n_events / n_censored, and convergence diagnostics
+  executor_ref: "py::bayesian_survival"
+  params:
+    - name: duration
+      type: column
+      description: 时长列（正数，如 time/duration/days）
+      default: 面板时间列或名称匹配/正数数值列
+    - name: event
+      type: column
+      description: 事件指示列（1=事件/死亡, 0=右删失）
+      default: 名称匹配的二值 0/1 列；缺则视作无删失并披露
+    - name: predictors
+      type: columns
+      description: 协变量列表
+      default: 其余数值列
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链调参(warmup)步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子(可复现)
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: HDI 可信区间概率(0.5-1)
+      default: "0.94"
+  biases:
+    - this is a Weibull PARAMETRIC AFT assumption — check the distribution shape against a nonparametric Kaplan-Meier curve
+    - AFT effects are on the TIME scale (acceleration factor AF greater than 1 means longer survival), NOT hazard ratios unless explicitly converted
+    - right-censoring is assumed random and non-informative
+    - the priors are weakly informative and stated (alpha HalfNormal(2), AFT coefficients Normal(0,1) on the standardized scale)
+    - covariates are standardized for sampling; aft_name is on the standardized scale and af_name = exp(coef / sd) is back on the raw scale
+    - an HDI is a credible interval (direct probability statement), NOT a frequentist confidence interval
+    - if no event column is found all rows are treated as observed (no censoring) — supply config event to enable censoring
+    - always check convergence (max R-hat near 1.0, adequate ESS) before trusting the posterior

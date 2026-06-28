@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~283 analyses across ~45 method families (causal, regression, survival,
+> spans ~289 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
 > discrete-choice, operations-research, game-theory, marketing, actuarial,
@@ -133,14 +133,15 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~283 analyses, grouped by methodology family. Highlights by
+The catalog holds ~289 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
   Callaway–Sant'Anna-style and DiD robustness), regression discontinuity, event
   study, instrumental variables (2SLS) and Mendelian randomization, interrupted
-  time series, g-computation / standardization, sensitivity analysis (Rosenbaum
-  bounds, E-values), and modern causal ML (double/debiased ML, causal forests).
+  time series, g-computation / standardization, causal discovery (PC algorithm /
+  DAG structure learning), sensitivity analysis (Rosenbaum bounds, E-values), and
+  modern causal ML (double/debiased ML, causal forests).
 - **Regression & GLM** — OLS, logistic, count models (Poisson / negative
   binomial / zero-inflated), regularized regression, regression diagnostics,
   relative importance.
@@ -148,7 +149,8 @@ domain:
   Hausman / first-difference / difference & **system GMM** / **Hausman-Taylor**),
   instrumental variables, limited-dependent models (Tobit censored / truncated
   regression / Heckman sample-selection), agricultural & resource economics methods.
-- **Survival** — Kaplan–Meier, Cox PH, parametric and extended survival models.
+- **Survival** — Kaplan–Meier, Cox PH, parametric, Bayesian (Weibull AFT) and
+  extended survival models.
 - **Spatial / GIS** — spatial autocorrelation, kriging/interpolation, geographically
   weighted regression (GWR), soil/compositional methods.
 - **Time series** — ARIMA/ETS-style forecasting, state-space, GARCH volatility,
@@ -160,10 +162,13 @@ domain:
   (moderated-mediation) analysis.
 - **Nonparametric & classical statistics** — t-tests, ANOVA family, chi-square /
   contingency tables, distribution fitting, rank-based tests.
-- **Machine learning (predictive)** — gradient boosting, SVM, BART, conformal
-  prediction, dimensionality reduction, network science / community detection, model interpretability (PDP/SHAP/ALE).
+- **Machine learning (predictive)** — gradient boosting, SVM, BART, Gaussian-process
+  regression, conformal prediction, dimensionality reduction, network science /
+  community detection, model interpretability (PDP/SHAP/ALE).
 - **Specialized** — MCDA (multi-criteria decision analysis), DEA/SFA efficiency,
-  configurational/QCA, finance, techno-economic analysis (NPV/IRR/LCOE/Monte-Carlo), ecology, microbiology, experimental design / DoE.
+  configurational/QCA, finance, techno-economic analysis (NPV/IRR/LCOE/Monte-Carlo),
+  ecology (capture-recapture abundance, MacKenzie occupancy, species-richness
+  estimators), microbiology, experimental design / DoE.
 
 ### Methodology scorecard
 

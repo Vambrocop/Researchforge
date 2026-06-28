@@ -84,6 +84,10 @@ SLOW_MODULES = {
     "test_panel_iv",
     # bayesian SEM: PyMC NUTS single-factor CFA (latent factor scores + loadings)
     "test_bayesian_sem",
+    # bayesian survival: PyMC NUTS Weibull AFT with right-censoring per test
+    "test_bayesian_survival",
+    # Gaussian-process regression: sklearn GP fit with n_restarts hyperparameter search
+    "test_gaussian_process_regression",
 }
 
 
