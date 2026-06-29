@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~292 analyses across ~45 method families (causal, regression, survival,
+> spans ~294 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
 > discrete-choice, operations-research, game-theory, marketing, actuarial,
@@ -133,7 +133,7 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~292 analyses, grouped by methodology family. Highlights by
+The catalog holds ~294 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
@@ -143,7 +143,8 @@ domain:
   DAG structure learning), sensitivity analysis (Rosenbaum bounds, E-values), and
   modern causal ML (double/debiased ML, causal forests).
 - **Regression & GLM** — OLS, logistic, count models (Poisson / negative
-  binomial / zero-inflated), regularized regression, regression diagnostics,
+  binomial / zero-inflated), regularized regression, generalized additive models
+  (frequentist & Bayesian penalized splines), regression diagnostics,
   relative importance.
 - **Econometrics / panel** — fixed/random effects, panel estimators (Mundlak /
   Hausman / first-difference / difference & **system GMM** / **Hausman-Taylor**),
@@ -153,8 +154,8 @@ domain:
   extended survival models.
 - **Spatial / GIS** — spatial autocorrelation, kriging/interpolation, geographically
   weighted regression (GWR), soil/compositional methods.
-- **Time series** — ARIMA/ETS-style forecasting, state-space, GARCH volatility,
-  changepoint detection.
+- **Time series** — ARIMA/ETS-style forecasting, state-space (incl. Bayesian
+  structural time series), GARCH volatility, changepoint detection.
 - **Multivariate & ordination** — PCA/factor analysis, MANOVA, ordination
   (PCoA/NMDS/CA/MCA).
 - **Psychometrics & measurement** — reliability/agreement (Cronbach's α, ICC,

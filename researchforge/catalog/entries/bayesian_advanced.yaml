@@ -1,0 +1,124 @@
+# Advanced Bayesian (PyMC) methods — Bayesian counterparts of frequentist
+# smoothing / state-space tools. Auto-discovered; each id maps to a @register
+# handler (bayesian_gam.py / bayesian_state_space.py). Optional PyMC + graceful
+# degrade (no pymc -> honest skip pointing at the frequentist equivalent).
+
+- id: bayesian_gam
+  method: Bayesian generalized additive model (penalized splines)
+  domain: statistics
+  family: statistics
+  goal: model
+  description: Fit a Bayesian generalized additive model — a smooth nonlinear regression where each continuous predictor enters through a smooth function f(x) instead of a single slope. Each smooth is a truncated-cubic spline basis with an iid Gaussian (ridge) prior on the knot coefficients (the mixed-model representation of a penalized spline), so the smoothing parameter is the prior SD, estimated from the data with a non-centered parameterization to avoid the variance funnel. Reports each smooth with a 94% credible band, the per-predictor smoothing SD and linear slope, residual sigma, an approximate Bayesian R2, and convergence (R-hat / ESS / divergences). The Bayesian counterpart of gam / gamm; fits at most four smooth terms.
+  preconditions:
+    min_rows: 10
+  produces:
+    - per-predictor smooth f(x) with 94% credible band (CSV + plot)
+    - smoothing SD + linear slope per predictor
+    - residual sigma, approximate Bayesian R2, convergence diagnostics
+  executor_ref: pymc
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列
+    - name: predictors
+      type: columns
+      description: 数值预测变量（各自拟合平滑项，最多 4 个）
+      default: 其余数值列
+    - name: n_knots
+      type: int
+      description: 每个平滑项的样条节点数
+      default: min(15, n//8)
+    - name: target_accept
+      type: float
+      description: NUTS 目标接受率（越高越稳、越慢）
+      default: "0.95"
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链预热（tuning）步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: 可信区间概率
+      default: "0.94"
+  biases:
+    - each smooth is a truncated-cubic penalized spline (ridge prior on knot coefficients = the mixed-model representation); the smoothing parameter is the prior SD, learned from the data and shrunk toward a straight line
+    - the 94% band is a posterior credible band (it also quantifies fit uncertainty; frequentist GAM confidence bands are more approximate)
+    - the Bayesian R2 is a posterior-mean plug-in (approximate)
+    - smooths are centered as partial effects (the overall level is absorbed into the intercept)
+    - at most four smooth terms are fitted (extra numeric columns are dropped); check convergence (R-hat / divergences) before trusting wiggly fits
+
+- id: bayesian_state_space
+  method: Bayesian structural time series (local level / local linear trend)
+  domain: time-series
+  family: time-series
+  goal: forecast
+  description: Fit a Bayesian structural (state-space) time-series model to a single series and forecast it forward. Decomposes the series into a latent level (and, for the default local-linear-trend model, a random-walk slope) plus observation noise, with full posterior uncertainty on every state. States use a non-centered cumulative-sum parameterization (to avoid the variance funnel) and the series is standardized so the innovation-SD priors are scale-appropriate. Reports the smoothed level (and slope) with 94% credible bands, the variance components (observation / level / slope), an h-step forecast with predictive intervals that widen with the horizon, and convergence diagnostics. The Bayesian counterpart of unobserved_components; no seasonal component (use unobserved_components for seasonal decomposition).
+  preconditions:
+    min_rows: 20
+    requires_timeseries: true
+  produces:
+    - smoothed level (+ slope) with 94% credible bands (CSV + plot)
+    - variance components (observation / level / slope)
+    - h-step forecast with predictive intervals + convergence diagnostics
+  executor_ref: pymc
+  params:
+    - name: value
+      type: column
+      description: 时间序列数值列
+      default: 第一个连续列
+    - name: column
+      type: column
+      description: value 的别名
+      default: 同 value
+    - name: model
+      type: choice
+      choices: [local_linear_trend, local_level]
+      description: 结构模型（含趋势 / 仅局部水平）
+      default: local_linear_trend
+    - name: horizon
+      type: int
+      description: 向前预测步数
+      default: min(12, n//5)
+    - name: target_accept
+      type: float
+      description: NUTS 目标接受率（状态空间默认较高以抑制发散）
+      default: "0.99"
+    - name: draws
+      type: int
+      description: 每链后验抽样数
+      default: "1000"
+    - name: tune
+      type: int
+      description: 每链预热（tuning）步数
+      default: "1000"
+    - name: chains
+      type: int
+      description: MCMC 链数
+      default: "2"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "42"
+    - name: hdi_prob
+      type: float
+      description: 可信区间概率
+      default: "0.94"
+  biases:
+    - states use a non-centered cumulative-sum parameterization and y is standardized (states / variances / forecasts are back-transformed to the data scale)
+    - the local-linear-trend model extrapolates the current slope; forecast intervals widen with the horizon and a persistent slope can over-extrapolate
+    - no seasonal component is modelled (use the frequentist unobserved_components for seasonal decomposition)
+    - innovation SDs near zero mean that component is effectively deterministic (e.g. a near-constant slope)
+    - check convergence (R-hat / ESS / divergences); local-linear-trend variance components can be weakly identified on short or smooth series

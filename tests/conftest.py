@@ -88,6 +88,10 @@ SLOW_MODULES = {
     "test_bayesian_survival",
     # Gaussian-process regression: sklearn GP fit with n_restarts hyperparameter search
     "test_gaussian_process_regression",
+    # bayesian GAM: PyMC NUTS penalized-spline additive model (per-predictor smooths)
+    "test_bayesian_gam",
+    # bayesian state space: PyMC NUTS local-linear-trend structural time series
+    "test_bayesian_state_space",
 }
 
 
