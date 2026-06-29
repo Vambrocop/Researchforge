@@ -150,3 +150,154 @@
     - network SIR/SIS depends heavily on the contact structure (degree heterogeneity drives spread; hubs accelerate it)
     - beta / gamma are assumptions (reported, not estimated); results are stochastic (averaged over seeded runs)
     - the R0 proxy is rough; the true epidemic threshold depends on the degree-distribution variance
+
+- id: link_prediction
+  method: Link prediction (neighbourhood scores + held-out AUC)
+  domain: network science
+  family: ml
+  goal: predict
+  description: Predict which missing edges are most likely to exist (or appear next) in a network built from an edge list. Scores node pairs with five neighbourhood-based predictors — common neighbours, Jaccard coefficient, Adamic-Adar, resource allocation, and preferential attachment — and benchmarks each by holding out a random fraction of the real edges and measuring the ROC AUC of recovering them against an equal sample of non-edges. Reports the AUC per predictor, the best predictor, and the top-K predicted new links (best predictor scored over candidate non-edges that share a common neighbour). Single seeded split.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 10
+  produces:
+    - held-out AUC per predictor (CSV + bar chart)
+    - top-K predicted new links (CSV)
+    - best-predictor AUC + candidate count
+  executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列（链路预测的拓扑得分忽略权重）
+      default: 无
+    - name: directed
+      type: bool
+      description: 是否有向图（链路预测在无向化的简单图上进行）
+      default: "false"
+    - name: test_frac
+      type: float
+      description: 留出作正样本评估的边比例
+      default: "0.15"
+    - name: top_k
+      type: int
+      description: 输出的预测新连边数量
+      default: "15"
+    - name: seed
+      type: int
+      description: 随机种子（划分 + 负采样）
+      default: "0"
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - AUC is from a single random train/test split (seed pinned); it fluctuates across splits
+    - treating currently-absent edges as true/future links is the standard link-prediction assumption
+    - negatives are sampled 1:1 (real networks are sparse, so positives are rare) — AUC is not on the true class balance
+    - top-K candidates are restricted to non-edges sharing a common neighbour (the natural support of neighbourhood predictors)
+
+- id: stochastic_block_model
+  method: Stochastic block model (spectral block-count + SBM fit)
+  domain: network science
+  family: ml
+  goal: explore
+  description: Fit a stochastic block model (SBM) to a network built from an edge list — a generative model that groups nodes into latent blocks with a block-to-block connection-probability matrix. Selects the number of blocks K from the adjacency spectrum (the count of eigenvalues whose magnitude exceeds the random-matrix bulk edge 2*sqrt(mean degree), a robust estimator of community number; Lei-Rinaldo / Le-Levina), estimates block membership by adjacency spectral embedding (top-K eigenvectors scaled by the square-root of their absolute eigenvalue) followed by K-means, and computes the maximum-likelihood Bernoulli block-connection matrix B. Reports the block matrix B, node-to-block assignment, the spectral selection evidence, the SBM log-likelihood and ICL (as a diagnostic), and whether structure is assortative (communities) or disassortative (bipartite / core-periphery). Not full variational EM.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 10
+  produces:
+    - spectrally-selected block count + node-to-block assignment (CSV)
+    - block-connection probability matrix B (CSV + heatmap)
+    - within- vs between-block probability (assortative vs disassortative)
+  executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列（SBM 在二值邻接矩阵上估计，忽略权重）
+      default: 无
+    - name: directed
+      type: bool
+      description: 是否有向图（在无向化的简单图上估计）
+      default: "false"
+    - name: n_blocks
+      type: int
+      description: 强制块数 K（设了就不做谱估计）
+      default: 自动（邻接谱估计）
+    - name: max_blocks
+      type: int
+      description: 谱估计块数的上限（clamp 用）
+      default: min(8, n//5)
+    - name: seed
+      type: int
+      description: KMeans 随机种子
+      default: "0"
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - block membership is estimated by spectral embedding + K-means (HARD assignment), not full variational EM (which gives soft assignments and is usually more accurate)
+    - the number of blocks is chosen from the adjacency spectrum (eigenvalues beyond the 2*sqrt(mean-degree) random-matrix bulk edge); the SBM likelihood/ICL is reported only as a diagnostic because the plain (non-degree-corrected) SBM likelihood over-splits dense blocks
+    - very weak community structure may fall inside the spectral bulk and be reported as a single block (no detectable structure)
+    - blocks are model-based latent structure, not externally validated groups
+    - the SBM here is binary and undirected (degree-corrected / weighted variants are not fitted)
+
+- id: ergm
+  method: Exponential random graph model (ERGM)
+  domain: network science
+  family: ml
+  goal: explain
+  description: Fit an exponential random graph model (ERGM) to a network built from an edge list — a generative model of the whole network whose coefficients (log-odds scale) say which local configurations (overall density via edges, transitivity / triadic closure via gwesp, etc.) are more or less common than chance. Delegates to R's gold-standard statnet/ergm package (MCMC-MLE) when available, reporting coefficients, standard errors, p-values and AIC/BIC. When R or the ergm package is absent it degrades to a pure-Python CUG (conditional uniform graph) test that compares the observed transitivity to its null distribution under random graphs with the same node and edge count — the single-term analogue of the gwesp transitivity effect.
+  preconditions:
+    requires_edgelist: true
+    min_rows: 5
+  produces:
+    - ERGM coefficients (log-odds), SE, p-values, AIC/BIC (R statnet/ergm)
+    - degrade — CUG test of transitivity vs random graphs (observed / null / z / p)
+    - network structural-effect interpretation
+  executor_ref: networkx
+  params:
+    - name: source
+      type: column
+      description: 边的源节点列
+      default: 第一个 id/分类列
+    - name: target
+      type: column
+      description: 边的目标节点列
+      default: 第二个 id/分类列
+    - name: weight
+      type: column
+      description: 边权重列（当前 ERGM/CUG 在二值网络上运行，忽略权重）
+      default: 无
+    - name: directed
+      type: bool
+      description: 是否有向图
+      default: "false"
+    - name: terms
+      type: str
+      description: "ergm 公式右端项（受白名单校验，如 edges + gwesp(0.25, fixed=TRUE)）"
+      default: "edges + gwesp(0.25, fixed=TRUE)"
+    - name: n_sim
+      type: int
+      description: 降级 CUG 检验的随机图模拟次数
+      default: "300"
+    - name: seed
+      type: int
+      description: 随机种子
+      default: "0"
+  biases:
+    - first two id/categorical columns are taken as edge source/target — set config source/target/weight if wrong
+    - ERGM is MCMC-MLE — model degeneracy and MCMC convergence must be checked (fixed seed + default control here)
+    - coefficients are on the log-odds scale (edges ~ baseline density / intercept; positive structural terms = configurations more common than chance)
+    - "full ERGM needs R statnet/ergm (install.packages('ergm')); without it the pure-Python CUG degrade tests only transitivity vs random density (no coefficients, no control for other structural terms)"
+    - "user-supplied terms are validated against a curated allowlist of ergm term names (injection-safe); unknown terms fall back to the edges + gwesp default"

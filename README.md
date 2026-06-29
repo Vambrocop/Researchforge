@@ -10,7 +10,7 @@ analyses (🟢🟡🔴 rigor + 6-dim methodology scorecard + ⚠ bias disclosure
 code / figures / tables / report.
 
 > **North star:** more methods + smarter auto-selection. The catalog currently
-> spans ~289 analyses across ~45 method families (causal, regression, survival,
+> spans ~292 analyses across ~45 method families (causal, regression, survival,
 > spatial, panel/econometrics, time-series, multivariate, psychometrics, Bayesian,
 > epidemiology, quality/SPC, reliability, missing-data, resource/nexus, hydrology,
 > discrete-choice, operations-research, game-theory, marketing, actuarial,
@@ -133,7 +133,7 @@ omit it and each analysis still runs on its automatic defaults.
 
 ## What's inside
 
-The catalog holds ~289 analyses, grouped by methodology family. Highlights by
+The catalog holds ~292 analyses, grouped by methodology family. Highlights by
 domain:
 
 - **Causal inference** — difference-in-differences (incl. modern staggered /
@@ -163,8 +163,9 @@ domain:
 - **Nonparametric & classical statistics** — t-tests, ANOVA family, chi-square /
   contingency tables, distribution fitting, rank-based tests.
 - **Machine learning (predictive)** — gradient boosting, SVM, BART, Gaussian-process
-  regression, conformal prediction, dimensionality reduction, network science /
-  community detection, model interpretability (PDP/SHAP/ALE).
+  regression, conformal prediction, dimensionality reduction, network science
+  (community detection, centrality, epidemic diffusion, link prediction, stochastic
+  block models, ERGM), model interpretability (PDP/SHAP/ALE).
 - **Specialized** — MCDA (multi-criteria decision analysis), DEA/SFA efficiency,
   configurational/QCA, finance, techno-economic analysis (NPV/IRR/LCOE/Monte-Carlo),
   ecology (capture-recapture abundance, MacKenzie occupancy, species-richness
