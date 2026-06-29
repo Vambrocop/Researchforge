@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime
 import os
+from functools import lru_cache
 from pathlib import Path
 
 from researchforge.catalog.schema import AnalysisEntry
@@ -134,11 +135,48 @@ _THEME_COLORS = {
 }
 
 
+# CJK font candidates, in preference order: cross-platform Noto/Source Han first,
+# then the fonts each OS ships (Windows: YaHei/SimHei; macOS: PingFang/Hiragino;
+# Linux: WenQuanYi). Detect-first — we do NOT bundle a font (a Noto Sans CJK ttf is
+# ~16 MB); we use whatever CJK font is already installed and degrade to English if none.
+_CJK_CANDIDATES = (
+    "Noto Sans CJK SC", "Noto Sans CJK", "Source Han Sans SC", "Source Han Sans",
+    "Microsoft YaHei", "SimHei", "PingFang SC", "Hiragino Sans GB",
+    "WenQuanYi Zen Hei", "WenQuanYi Micro Hei", "Microsoft JhengHei",
+    "SimSun", "Arial Unicode MS",
+)
+
+
+@lru_cache(maxsize=1)
+def _detect_cjk_font() -> str | None:
+    """First available CJK-capable font name on this machine, or None. Cached — the
+    font-manager scan is not free and the answer is stable per process. Best-effort:
+    never raises (returns None if matplotlib/font-manager is unavailable)."""
+    try:
+        from matplotlib import font_manager as fm
+
+        available = {f.name for f in fm.fontManager.ttflist}
+        for name in _CJK_CANDIDATES:
+            if name in available:
+                return name
+    except Exception:
+        pass
+    return None
+
+
 def _init_mpl_style(theme: str | None = None) -> None:
     """Apply one clean, publication-friendly look to every figure this run
     produces. Theme is chosen by arg or the RF_THEME env var (default | nature |
     aer | dark). Called once per analysis; best-effort so a missing/old
-    matplotlib never breaks an analysis."""
+    matplotlib never breaks an analysis.
+
+    Also enables CJK rendering: if a Chinese/Japanese/Korean font is installed it is
+    prepended to the font fallback chain (with ``axes.unicode_minus=False`` so the
+    minus sign still renders under CJK fonts), so figure labels may be Chinese without
+    becoming tofu boxes. When no CJK font is found it degrades silently to the Latin
+    fonts — labels written in English keep working unchanged. This is the single
+    unified entry every run flows through (run_analysis calls it before any branch
+    plots), so the font policy applies engine-wide without per-branch changes."""
     theme = (theme or os.environ.get("RF_THEME", "default")).strip().lower()
     if theme not in _THEME_COLORS:
         theme = "default"
@@ -197,6 +235,17 @@ def _init_mpl_style(theme: str | None = None) -> None:
                 "ytick.color": "#cccccc",
                 "grid.color": "#444444",
             })
+        # CJK rendering: prepend an installed CJK font to the fallback chain (and turn
+        # off the Unicode minus glyph, which many CJK fonts lack). Latin text still uses
+        # the existing Latin fonts; Chinese labels now render instead of tofu boxes.
+        rc["axes.unicode_minus"] = False
+        cjk = _detect_cjk_font()
+        if cjk:
+            sans = rc.get("font.sans-serif") or ["DejaVu Sans", "Arial", "Helvetica"]
+            serif = rc.get("font.serif") or ["DejaVu Serif", "Times New Roman"]
+            rc["font.sans-serif"] = [cjk] + [f for f in sans if f != cjk]
+            rc["font.serif"] = [cjk] + [f for f in serif if f != cjk]
+            rc.setdefault("font.family", "serif" if theme == "aer" else "sans-serif")
         plt.rcParams.update(rc)
     except Exception:
         pass
