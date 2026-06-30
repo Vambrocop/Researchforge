@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from researchforge.catalog.schema import AnalysisEntry
 from researchforge.profiler.fingerprint import DataFingerprint
+from researchforge.recommender.affinity import data_signals, get_affinity, match_score
 from researchforge.recommender.rigor import RigorVerdict
 
 # base scores by family: (popularity, publishability, aesthetics, difficulty, novelty)
@@ -91,6 +92,51 @@ _ID: dict[str, dict[str, int]] = {
 }
 
 
+# specific (non-generic) precondition flag -> the data signal that satisfies it. A
+# method whose SPECIFIC precondition matches this data's structure is tailored to it,
+# so it earns a fit bonus over generic methods in the same family (this is what lifts
+# logistic on binary data, network methods on an edge list, spatial on geo, … out of
+# the ols/random_forest/descriptive soup).
+_SPECIFIC_PRECOND = {
+    "is_panel": "is_panel",
+    "is_timeseries": "is_timeseries",
+    "requires_geo": "has_geo",
+    "requires_edgelist": "has_edgelist",
+    "requires_binary_outcome": "has_binary",
+    "requires_count_outcome": "has_count",
+    "requires_treatment": "has_treatment",
+}
+
+
+def _precond_bonus(signals: dict, pre) -> float:
+    """Per-method tailoring bonus (0–28): reward a method whose specific precondition
+    matches this data's special structure."""
+    pm = pre.model_dump()
+    bonus = sum(12.0 for flag, sig in _SPECIFIC_PRECOND.items()
+                if pm.get(flag) and signals.get(sig))
+    if pm.get("requires_group") and (signals["has_binary"] or signals["has_categorical"]):
+        bonus += 10.0
+    if pm.get("min_count_cols") and signals["has_count"]:
+        bonus += 8.0
+    if pm.get("min_categorical_cols") and signals["has_categorical"]:
+        bonus += 6.0
+    return min(bonus, 28.0)
+
+
+def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict) -> int:
+    """Real data-fit (0–100): how well this method suits THIS dataset = family
+    structure/outcome affinity (affinity.match_score) + per-method precondition
+    tailoring. Replaces the old fit = rigor.score (which was just bias-count). An
+    infeasible (red) method can't be a good fit no matter its affinity, so it stays
+    capped at its (low) rigor score; feasible methods are ranked by affinity."""
+    signals = data_signals(fp)
+    raw = min(100.0, match_score(signals, get_affinity(entry.family))
+              + _precond_bonus(signals, entry.preconditions))
+    if rigor.light == "red":
+        return max(0, min(int(round(rigor.score)), int(round(raw))))
+    return int(round(raw))
+
+
 class MethodologyScore(BaseModel):
     popularity: int
     publishability: int
@@ -140,7 +186,7 @@ def score_method(
     else:
         trend_note = "流行·新颖为离线编辑先验，趋势引擎接入后将动态更新"
 
-    fit = max(0, min(100, int(rigor.score)))
+    fit = _affinity_fit(fp, entry, rigor)
     # overall display blend — fit and publishability weighted most; difficulty is a
     # cost and deliberately excluded (shown separately).
     overall = round(0.35 * fit + 0.25 * pub + 0.15 * pop + 0.15 * nov + 0.10 * aes)

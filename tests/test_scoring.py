@@ -26,14 +26,31 @@ def _fp(tmp_path: Path):
     return profile_dataset(csv)
 
 
-def test_score_dimensions_in_range_and_fit_tracks_rigor(tmp_path: Path) -> None:
+def test_score_dimensions_in_range(tmp_path: Path) -> None:
     fp = _fp(tmp_path)
     e = _entry("ols_regression", "statistics")
     rigor = assess_rigor(fp, e)
     sc = score_method(fp, e, rigor)
     for v in (sc.popularity, sc.publishability, sc.aesthetics, sc.difficulty, sc.fit, sc.novelty, sc.overall):
         assert 0 <= v <= 100
-    assert sc.fit == max(0, min(100, rigor.score))  # fit == rigor score
+
+
+def test_fit_is_data_affinity_not_rigor(tmp_path: Path) -> None:
+    # Stage 3: fit is now the data↔method affinity score, NOT a copy of the rigor score.
+    # A feasible method on a tiny generic frame should get a sensible (non-extreme) fit
+    # even when rigor is a perfect 100 (few biases declared).
+    fp = _fp(tmp_path)
+    e = _entry("ols_regression", "statistics")
+    rigor = assess_rigor(fp, e)
+    sc = score_method(fp, e, rigor)
+    assert 0 <= sc.fit <= 100
+    # an infeasible (red) method's fit is capped at its (low) rigor score
+    panel_only = AnalysisEntry(id="panel_fixed_effects", method="fe", domain="x",
+                               family="econometrics", goal="explain",
+                               preconditions=Precondition(min_rows=2, is_panel=True))
+    r2 = assess_rigor(fp, panel_only)  # not panel data -> red
+    if r2.light == "red":
+        assert score_method(fp, panel_only, r2).fit <= max(0, min(100, r2.score))
 
 
 def test_id_override_lifts_novelty_and_publishability(tmp_path: Path) -> None:
