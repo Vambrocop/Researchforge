@@ -673,6 +673,10 @@ def _cic_via_r(csv_path, outcome, treat, time, t_post, t_pre, probs, qte_png):
         "suppressMessages(library(qte))\n"
         f'd <- read.csv("{csv_r}", check.names=FALSE)\n'
         'd[[".rid"]] <- seq_len(nrow(d))\n'
+        # seed the empirical-bootstrap SE/CI (iters=100) so the ATT/QTE confidence bounds
+        # are reproducible run-to-run — unseeded they jitter and a tight CI can flip
+        # across runs (a flaky test surfaced exactly this under parallel execution).
+        "set.seed(20240607)\n"
         f'r <- CiC({outcome} ~ {treat}, t={t_post}, tmin1={t_pre}, tname="{time}", '
         'data=d, idname=".rid", panel=FALSE, '
         f"probs=c({probs_r}), se=TRUE, iters=100)\n"
