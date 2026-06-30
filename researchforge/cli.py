@@ -121,7 +121,9 @@ def _cmd_pick(path: str, goal: str | None = None) -> int:
 
     cmd = f"py -3 -m researchforge.cli run {path} {top.entry.id}"
     if any(p.name in ("outcome", "y") for p in top.entry.params) and fp.likely_outcome:
-        cmd += f' --config \'{{"outcome":"{fp.likely_outcome}"}}\''
+        import json
+
+        cmd += " --config '" + json.dumps({"outcome": fp.likely_outcome}, ensure_ascii=False) + "'"
     print(f"   运行：{cmd}")
 
     alts = [f"{r.entry.id}" for r in substantive[1:4]]

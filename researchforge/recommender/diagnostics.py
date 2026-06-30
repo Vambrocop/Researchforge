@@ -312,8 +312,8 @@ def _diag_timeseries(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
     try:
         from statsmodels.stats.diagnostic import acorr_ljungbox
 
-        r2 = (y - y.mean()) ** 2
-        lb_p = float(acorr_ljungbox(r2, lags=[min(10, n // 5)], return_df=True)["lb_pvalue"].iloc[0])
+        sq = (y - y.mean()) ** 2  # squared deviations (avoid shadowing the module _r2 helper)
+        lb_p = float(acorr_ljungbox(sq, lags=[min(10, n // 5)], return_df=True)["lb_pvalue"].iloc[0])
     except Exception:
         pass
     if lb_p == lb_p and lb_p < 0.05:
