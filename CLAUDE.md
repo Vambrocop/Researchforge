@@ -22,7 +22,7 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **结果变量惯例**：回归族取「第一个连续列」为结果(outcome)；其余连续/二值为预测变量（可被 `config["outcome"]`/`["predictors"]` 覆盖）。
 - **R 后端**：经 `executor/rbridge.py`，**可选 + 优雅降级** —— 先 `rbridge.r_available()` + `r_package_available(pkg)`，缺则回退纯 Python 或诚实提示（指向纯 Python 替代）。列名进 R formula 前过标识符守卫 `re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", c)`（防注入/解析）。temp CSV 写输出目录、`finally` 里删。R 代码经审才接，**运行时不联网取**。
 - **产物**：CSV + PNG（matplotlib `Agg`）；填 `estimates` dict；写中文 `summary`（含 ⚠ 偏差/假定披露）。best-effort try/except 包图，缺 matplotlib 不中断。
-  - **图标签字体**：**CJK 已支持**（阶段0）——`_init_mpl_style`（`_helpers/core.py`，每次 run 的统一入口，run_analysis 在分支前调用）检测到系统中文字体即自动接入字体回退链 + `axes.unicode_minus=False`，中文标签可正常渲染、无字体则优雅回退英文。**英文标签仍是最稳妥默认**（可移植到无 CJK 字体的 headless/CI）；要中文须确保目标环境有中文字体。别在分支里各自设字体——统一走 `_init_mpl_style`。
+  - **图标签**：**自动中文化**——分支里照常写**英文**标签（最省事、可移植），`_init_mpl_style`（`_helpers/core.py`，每次 run 统一入口）检测到系统中文字体时：①把中文字体插入回退链 + `axes.unicode_minus=False`；②monkeypatch `Figure.savefig`（单一收口）在保存前用词表 `_FIG_GLOSSARY` 把**标题/轴标签/图例**英文→中文（仅这些角色，绝不动刻度/数据文本；词表覆盖常用词，未覆盖的留英文、可增补）。**无 CJK 字体则不翻译、保英文**（headless/CI 无豆腐块）；`RF_FIG_LANG=en` 可强制英文（论文用）。**别在分支里各自设字体/各自翻译**——统一走 `_init_mpl_style`；新词补进 `_FIG_GLOSSARY`。
 - **profiler "id" 陷阱**：整数值且全不同的列会被判为 `id` 类（非 count/continuous）。按列名锁定的检测（如 sand/silt/clay、duration）应接受 `id` 类。
 - **survival 等**：时长列可能被 profiler 当 `time_col`——这类分支别排除 time_col。
 

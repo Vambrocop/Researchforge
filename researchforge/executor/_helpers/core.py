@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -164,6 +165,110 @@ def _detect_cjk_font() -> str | None:
     return None
 
 
+# ── figure-label localization (English → Chinese) ────────────────────────────
+# A vocabulary glossary applied to figure TITLES / AXIS LABELS / LEGEND entries only
+# (never tick labels or data text), longest phrase first so multi-word terms win over
+# their component words, word-boundary + case-insensitive. Coverage of the common
+# figure vocabulary; unknown terms are left in English (graceful, extensible). Applied
+# only when a CJK font is present (so headless/CI without CJK fonts keeps English and
+# never renders tofu) and RF_FIG_LANG != "en".
+_FIG_GLOSSARY = {
+    # multi-word phrases (matched first)
+    "posterior predictive check": "后验预测检验", "observed vs replicated": "观测 vs 复制",
+    "survival probability": "生存概率", "technical efficiency": "技术效率",
+    "number of nodes": "节点数", "number of customers": "客户数", "number of": "数量：",
+    "time order (rank)": "时间次序（秩）", "time step": "时间步", "time index": "时间索引",
+    "period index": "期数", "period t": "期 t", "posterior density": "后验密度",
+    "fitted values": "拟合值", "partial residuals": "偏残差", "partial effect": "偏效应",
+    "credible band": "可信带", "credible interval": "可信区间",
+    "confidence interval": "置信区间", "standardized value": "标准化值",
+    "control chart": "控制图", "epidemic curve": "流行曲线",
+    "block-connection matrix": "块连接矩阵", "held-out auc": "留出 AUC",
+    "odds ratio": "比值比", "hazard ratio": "风险比", "risk ratio": "风险比",
+    "standard deviation": "标准差", "subgroup mean": "子组均值", "subgroup index": "子组序号",
+    # single words / short terms
+    "counts": "计数", "count": "计数", "frequency": "频数", "density": "密度",
+    "probability": "概率", "values": "值", "value": "值", "observed": "观测",
+    "predicted": "预测", "expected": "期望", "actual": "实际", "residuals": "残差",
+    "residual": "残差", "fitted": "拟合", "coefficients": "系数", "coefficient": "系数",
+    "estimates": "估计", "estimate": "估计", "importance": "重要性", "groups": "组",
+    "group": "组", "lag": "滞后", "median": "中位数", "mean": "均值", "variance": "方差",
+    "distribution": "分布", "samples": "样本", "sample": "样本", "scores": "得分",
+    "score": "得分", "rank": "秩", "threshold": "阈值", "weights": "权重", "weight": "权重",
+    "age": "年龄", "trend": "趋势", "proportion": "比例", "cumulative": "累积",
+    "effects": "效应", "effect": "效应", "survival": "生存", "hazard": "风险率",
+    "nodes": "节点", "node": "节点", "edges": "边", "edge": "边",
+    "communities": "社团", "community": "社团", "clusters": "簇", "cluster": "簇",
+    "components": "成分", "component": "成分", "factors": "因子", "factor": "因子",
+    "loadings": "载荷", "loading": "载荷", "quantiles": "分位数", "quantile": "分位数",
+    "percentile": "百分位", "iterations": "迭代", "iteration": "迭代", "levels": "水平",
+    "level": "水平", "categories": "类别", "category": "类别", "classes": "类",
+    "outcome": "结果", "treatment": "处理", "control": "对照", "exposure": "暴露",
+    "correlation": "相关", "covariance": "协方差", "regression": "回归",
+    "predictions": "预测", "prediction": "预测", "errors": "误差", "error": "误差",
+    "accuracy": "准确率", "loss": "损失", "income": "收入", "wealth": "财富",
+    "price": "价格", "cost": "成本", "revenue": "营收", "demand": "需求",
+    "duration": "时长", "survivors": "存活数", "infected": "感染", "susceptible": "易感",
+    "recovered": "康复", "time": "时间", "period": "期", "index": "索引",
+    "frequency (hz)": "频率(Hz)", "risk": "风险", "units sold": "销量", "target": "目标",
+}
+_FIG_GLOSSARY_ORDERED = sorted(_FIG_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
+
+
+def _translate_label(text: str) -> str:
+    """Translate an English figure label to Chinese via the glossary (word-boundary,
+    case-insensitive, longest phrase first). Unknown terms are left untouched."""
+    if not text or not text.strip():
+        return text
+    out = text
+    for en, zh in _FIG_GLOSSARY_ORDERED:
+        out = re.sub(rf"(?<![A-Za-z]){re.escape(en)}(?![A-Za-z])", zh, out, flags=re.IGNORECASE)
+    return out
+
+
+def _localize_figure(fig) -> None:
+    """Translate a figure's title / axis labels / legend entries in place (best-effort;
+    never raises). Tick labels and data text are deliberately left alone."""
+    try:
+        for ax in fig.axes:
+            for art in (ax.title, ax.xaxis.label, ax.yaxis.label):
+                t = art.get_text()
+                if t:
+                    art.set_text(_translate_label(t))
+            leg = ax.get_legend()
+            if leg is not None:
+                for txt in leg.get_texts():
+                    s = txt.get_text()
+                    if s:
+                        txt.set_text(_translate_label(s))
+        sup = getattr(fig, "_suptitle", None)
+        if sup is not None and sup.get_text():
+            sup.set_text(_translate_label(sup.get_text()))
+    except Exception:
+        pass
+
+
+def _install_savefig_localizer() -> None:
+    """Monkeypatch Figure.savefig (once, in-process) to localize labels to Chinese just
+    before saving — the single chokepoint every branch's figure flows through, so no
+    per-branch edits are needed. Idempotent; guarded by a sentinel attribute."""
+    try:
+        import matplotlib.figure as _mfig
+
+        if getattr(_mfig.Figure.savefig, "_rf_localized", False):
+            return
+        _orig = _mfig.Figure.savefig
+
+        def savefig(self, *args, **kwargs):
+            _localize_figure(self)
+            return _orig(self, *args, **kwargs)
+
+        savefig._rf_localized = True
+        _mfig.Figure.savefig = savefig
+    except Exception:
+        pass
+
+
 def _init_mpl_style(theme: str | None = None) -> None:
     """Apply one clean, publication-friendly look to every figure this run
     produces. Theme is chosen by arg or the RF_THEME env var (default | nature |
@@ -247,6 +352,10 @@ def _init_mpl_style(theme: str | None = None) -> None:
             rc["font.serif"] = [cjk] + [f for f in serif if f != cjk]
             rc.setdefault("font.family", "serif" if theme == "aer" else "sans-serif")
         plt.rcParams.update(rc)
+        # Localize figure labels to Chinese (only when a CJK font is present, so we never
+        # render tofu, and unless RF_FIG_LANG=en forces English for publication/CI).
+        if cjk and os.environ.get("RF_FIG_LANG", "zh").strip().lower() != "en":
+            _install_savefig_localizer()
     except Exception:
         pass
 
