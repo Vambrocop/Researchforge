@@ -44,6 +44,32 @@ def test_no_outcome_when_too_few_numeric():
     assert roles["likely_outcome"] is None
 
 
+def test_binary_outcome_beats_name_matched_predictor():
+    # 'approved' (binary target) must win over 'score' (a continuous predictor that
+    # merely name-matches the outcome pattern) — binary-outcome detection runs first.
+    cols = [_col("approved", "binary"), _col("income", "continuous"),
+            _col("age", "continuous"), _col("score", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "approved"
+    assert "binary" in roles["reason"]
+    # the binary target is not also flagged as the treatment
+    assert roles["likely_treatment"] != "approved"
+
+
+def test_demographic_binary_not_mistaken_for_outcome():
+    # a plain demographic binary (gender) is NOT an outcome name -> no false positive
+    cols = [_col("gender", "binary"), _col("income", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] is None
+
+
+def test_group_binary_not_outcome_continuous_is():
+    # group(binary) + outcome(continuous): the continuous outcome wins, group stays a group
+    cols = [_col("group", "binary"), _col("outcome", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "outcome"
+
+
 def test_treatment_and_time_hints():
     cols = [_col("treated", "binary"), _col("year", "count"), _col("y", "continuous")]
     roles = detect_roles(cols)

@@ -134,6 +134,15 @@ def data_signals(fp: DataFingerprint) -> dict:
     has_survival = (
         n_bin >= 1 and (n_cont + n_count) >= 1 and _hint(_SURV_DUR) and _hint(_SURV_EVT)
     )
+    # a genuine GROUP/arm = a binary/categorical column that is NOT the (role-detected)
+    # outcome, and not an edge endpoint. Lets grouping methods (group_comparison, A/B)
+    # fire when there's a real grouping variable, but NOT when the only binary is the
+    # outcome itself (then a regression like logistic is the right call, not a 2-arm test).
+    lo = getattr(fp, "likely_outcome", None)
+    has_group = any(
+        c.kind in {"binary", "categorical"} and c.name != lo and c.name not in excl and c.name not in edge_cols
+        for c in fp.columns
+    )
     return {
         "n_rows": fp.n_rows,
         "is_panel": bool(fp.is_panel),
@@ -149,6 +158,7 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_categorical": n_cat >= 1,
         "has_count": n_count >= 1,
         "has_survival": has_survival,
+        "has_group": has_group,
         "has_treatment": bool(getattr(fp, "treatment_candidates", None)),
     }
 

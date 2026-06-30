@@ -35,6 +35,20 @@ _TIME_RE = re.compile(
     re.I,
 )
 
+# Binary outcome / event names — a binary column with one of these is a classification
+# TARGET (not a grouping/arm variable). High precision: only clear event words, so a
+# demographic binary (gender, region) is NOT mistaken for an outcome. Checked before the
+# continuous name match so a true binary target beats a continuous predictor that merely
+# name-matches (e.g. a 'score' feature alongside an 'approved' target).
+_BIN_OUTCOME_RE = re.compile(
+    r"(?:^|_|\b)(approv\w*|default\w*|churn\w*|success\w*|succeed\w*|fail\w*|died|death|dead|"
+    r"surviv\w*|deceased|alive|cured|recover\w*|infected|relapse|recur\w*|readmit\w*|"
+    r"positive|convert\w*|conversion|fraud\w*|won|win|lost|pass|passed|retain\w*|retention|"
+    r"click\w*|purchas\w*|bought|subscrib\w*|respond\w*|response|event|accept\w*|reject\w*|"
+    r"enroll\w*|qualif\w*|eligible|attrition|complete\w*|label|target|outcome|y)(?:$|_|\b)",
+    re.I,
+)
+
 _NUMERIC_KINDS = {"continuous", "count"}
 
 
@@ -47,11 +61,19 @@ def detect_roles(columns) -> dict:
     }
     names = [c.name for c in columns]
     numeric = [c for c in columns if c.kind in _NUMERIC_KINDS]
+    binary = [c for c in columns if c.kind == "binary"]
 
     # --- likely_outcome -----------------------------------------------------
-    # 1. name signal among numeric columns (highest precision)
+    # 0. a binary column named like an outcome/event = a classification TARGET. Highest
+    #    precision, checked first so a true binary target beats a continuous predictor
+    #    that merely name-matches (e.g. an 'approved' target alongside a 'score' feature).
+    b_named = [c for c in binary if _BIN_OUTCOME_RE.search(str(c.name))]
     named = [c for c in numeric if _OUTCOME_RE.search(str(c.name))]
-    if named:
+    if b_named:
+        out["likely_outcome"] = b_named[0].name
+        out["reason"] = f"binary column '{b_named[0].name}' matches an outcome/event pattern (classification target)"
+    # 1. name signal among numeric columns (highest precision)
+    elif named:
         out["likely_outcome"] = named[0].name
         out["reason"] = f"name '{named[0].name}' matches an outcome pattern"
     # 2. position fallback: the LAST numeric column, when there are >=2 numeric
@@ -64,12 +86,13 @@ def detect_roles(columns) -> dict:
             out["reason"] = f"'{last.name}' is the last numeric column (common target position)"
 
     # --- likely_treatment ---------------------------------------------------
-    binary = [c for c in columns if c.kind == "binary"]
-    t_named = [c for c in binary if _TREATMENT_RE.search(str(c.name))]
+    # a binary already taken as the outcome can't also be the treatment/arm
+    treat_cands = [c for c in binary if c.name != out["likely_outcome"]]
+    t_named = [c for c in treat_cands if _TREATMENT_RE.search(str(c.name))]
     if t_named:
         out["likely_treatment"] = t_named[0].name
-    elif binary:
-        out["likely_treatment"] = binary[0].name
+    elif treat_cands:
+        out["likely_treatment"] = treat_cands[0].name
 
     # --- likely_time --------------------------------------------------------
     for c in columns:
