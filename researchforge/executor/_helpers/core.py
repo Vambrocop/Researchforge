@@ -212,6 +212,14 @@ _FIG_GLOSSARY = {
     "recovered": "康复", "time": "时间", "period": "期", "index": "索引",
     "frequency (hz)": "频率(Hz)", "risk": "风险", "units sold": "销量", "target": "目标",
 }
+# merge the auto-generated long-tail glossary (387 figure labels translated in one
+# batch via Gemini + spot-reviewed); hand-curated entries above win on any key clash.
+try:
+    from researchforge.executor._helpers.fig_glossary import EXTRA as _FIG_EXTRA
+
+    _FIG_GLOSSARY = {**_FIG_EXTRA, **_FIG_GLOSSARY}
+except Exception:
+    pass
 _FIG_GLOSSARY_ORDERED = sorted(_FIG_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
 
 
