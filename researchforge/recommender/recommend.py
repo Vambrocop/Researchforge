@@ -41,8 +41,11 @@ def recommend(
                     score=score_method(fp, entry, rigor),
                 )
             )
-    # rank by feasibility/rigor first (unchanged); the score card is informational
-    recs.sort(key=lambda r: (_ORDER[r.rigor.light], -r.rigor.score))
+    # Rank by rigor tier first (green→yellow→red is the primary key, never crossed),
+    # then WITHIN a tier by the real data↔method fit (Stage 4) — so the method that
+    # actually suits this data's structure rises, instead of whichever has the fewest
+    # listed biases. rigor.score is the final tiebreaker (cleaner method wins ties).
+    recs.sort(key=lambda r: (_ORDER[r.rigor.light], -r.score.fit, -r.rigor.score))
     return recs
 
 
@@ -76,7 +79,7 @@ def apply_diagnostic_ranking(recs: list[Recommendation], plan) -> list[Recommend
             notes.append("📋 诊断不利（" + "、".join(dict.fromkeys(over[r.entry.id])) + "）↓")
         r.diagnostic_fit = fit
         r.diagnostic_note = "；".join(notes)
-    recs.sort(key=lambda r: (_ORDER[r.rigor.light], -(r.rigor.score + r.diagnostic_fit)))
+    recs.sort(key=lambda r: (_ORDER[r.rigor.light], -(r.score.fit + r.diagnostic_fit), -r.rigor.score))
     return recs
 
 

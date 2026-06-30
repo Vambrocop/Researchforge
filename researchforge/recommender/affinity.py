@@ -52,7 +52,11 @@ FAMILY_AFFINITY: dict[str, FamilyAffinity] = {
     "ml": _a("any", ("continuous", "binary", "multi_numeric"), needs_predictors=True, min_rows=50),
     "causal": _a("cross_section", ("continuous", "binary"), needs_predictors=True, min_rows=30),
     "time-series": _a("timeseries", ("continuous",), min_rows=20),
-    "econometrics": _a("panel", ("continuous",), needs_predictors=True, min_rows=30),
+    # "any" not "panel": this family also holds ols_regression (a cross-section method),
+    # so a panel penalty would wrongly demote ols on ordinary data. The panel-specific
+    # members (FE/RE/GMM/Mundlak) carry an is_panel precondition, so they still get the
+    # precondition-specificity bonus on panel data and stay red/capped off-panel.
+    "econometrics": _a("any", ("continuous",), needs_predictors=True, min_rows=30),
     "spatial": _a("geo", ("continuous",), min_rows=20),
     "ecology": _a("any", ("count", "multi_numeric", "none"), min_rows=10),
     "bayesian": _a("any", ("continuous", "binary", "count"), needs_predictors=True, min_rows=20),
@@ -62,16 +66,16 @@ FAMILY_AFFINITY: dict[str, FamilyAffinity] = {
     "mcda": _a("cross_section", ("multi_numeric", "none"), min_rows=2),
     "resource": _a("any", ("continuous", "none"), min_rows=1),
     "techno_economic": _a("any", ("continuous", "none"), min_rows=1),
-    "nonparametric": _a("cross_section", ("continuous", "binary", "none"), min_rows=6),
-    "configurational": _a("cross_section", ("binary", "none"), min_rows=8),
+    "nonparametric": _a("cross_section", ("continuous", "binary"), min_rows=6),
+    "configurational": _a("cross_section", ("binary",), min_rows=8),
     "conditional_process": _a("cross_section", ("continuous",), needs_predictors=True, min_rows=30),
     "irt": _a("cross_section", ("multi_numeric", "binary"), min_rows=50),
     "actuarial": _a("any", ("count", "continuous", "none"), min_rows=1),
     "agreement": _a("cross_section", ("continuous", "categorical", "count"), min_rows=10),
-    "categorical": _a("cross_section", ("categorical", "binary", "none"), min_rows=10),
-    "categorical_tests": _a("cross_section", ("categorical", "binary", "none"), min_rows=10),
-    "distribution": _a("cross_section", ("continuous", "none"), min_rows=20),
-    "distribution_extra": _a("cross_section", ("continuous", "none"), min_rows=20),
+    "categorical": _a("cross_section", ("categorical", "binary"), min_rows=10),
+    "categorical_tests": _a("cross_section", ("categorical", "binary"), min_rows=10),
+    "distribution": _a("cross_section", ("continuous",), min_rows=20),
+    "distribution_extra": _a("cross_section", ("continuous",), min_rows=20),
     "effect_sizes": _a("cross_section", ("continuous",), min_rows=6),
     "efficiency": _a("cross_section", ("multi_numeric",), needs_predictors=True, min_rows=5),
     "epidemiology": _a("cross_section", ("binary", "continuous"), min_rows=20),
@@ -112,11 +116,16 @@ def data_signals(fp: DataFingerprint) -> dict:
     the family affinity profiles. Deterministic; never raises."""
     excl = {fp.unit_col, fp.time_col}
     cols = [c for c in fp.columns if c.name not in excl]
+    # an edge list's two node-identifier columns are STRUCTURE, not analysis variables —
+    # exclude them from the categorical count so they don't masquerade as a categorical
+    # outcome (which would wrongly favour agreement/contingency methods over network ones).
+    id_cols = [c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col]
+    edge_cols = set(id_cols[:2]) if len(id_cols) >= 2 else set()
     n_cont = sum(1 for c in cols if c.kind == "continuous")
     n_count = sum(1 for c in cols if c.kind == "count")
     n_bin = sum(1 for c in cols if c.kind == "binary")
-    n_cat = sum(1 for c in cols if c.kind == "categorical")
-    n_id = sum(1 for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col)
+    n_cat = sum(1 for c in cols if c.kind == "categorical" and c.name not in edge_cols)
+    n_id = len(id_cols)
     names = [str(c.name).lower() for c in fp.columns]
 
     def _hint(words):

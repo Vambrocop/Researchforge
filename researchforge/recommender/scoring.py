@@ -92,27 +92,41 @@ _ID: dict[str, dict[str, int]] = {
 }
 
 
-# specific (non-generic) precondition flag -> the data signal that satisfies it. A
-# method whose SPECIFIC precondition matches this data's structure is tailored to it,
-# so it earns a fit bonus over generic methods in the same family (this is what lifts
-# logistic on binary data, network methods on an edge list, spatial on geo, … out of
-# the ols/random_forest/descriptive soup).
+# specific (non-generic) precondition flag -> (data signal that satisfies it, weight). A
+# method whose SPECIFIC precondition matches this data's structure is tailored to it, so
+# it earns a fit bonus over generic methods in the same family (this is what lifts logistic
+# on binary data, network methods on an edge list, spatial on geo, … out of the
+# ols/random_forest/descriptive soup). requires_edgelist is weighted highest because there
+# is no "network" family to grant a structure bonus, so this stands in for it.
 _SPECIFIC_PRECOND = {
+    "requires_edgelist": ("has_edgelist", 14.0),
+    "is_panel": ("is_panel", 16.0),
+    "is_timeseries": ("is_timeseries", 16.0),
+    "requires_count_outcome": ("has_count", 14.0),
+    "requires_geo": ("has_geo", 12.0),
+    "requires_binary_outcome": ("has_binary", 12.0),
+    "requires_treatment": ("has_treatment", 12.0),
+}
+
+# Structure-defining preconditions: when the data has this structure, a method that
+# requires it is clearly appropriate REGARDLESS of its (possibly heterogeneous) family —
+# e.g. network methods live in family "ml" alongside random forests but don't need ml's
+# outcome/predictors, so they must not eat the ml family penalty on an edge list. When
+# one of these is met we floor the family base at a structure-match level.
+_STRUCTURE_PRECOND = {
+    "requires_edgelist": "has_edgelist",
+    "requires_geo": "has_geo",
     "is_panel": "is_panel",
     "is_timeseries": "is_timeseries",
-    "requires_geo": "has_geo",
-    "requires_edgelist": "has_edgelist",
-    "requires_binary_outcome": "has_binary",
-    "requires_count_outcome": "has_count",
-    "requires_treatment": "has_treatment",
 }
+_STRUCTURE_FLOOR = 72.0
 
 
 def _precond_bonus(signals: dict, pre) -> float:
-    """Per-method tailoring bonus (0–28): reward a method whose specific precondition
+    """Per-method tailoring bonus (0–30): reward a method whose specific precondition
     matches this data's special structure."""
     pm = pre.model_dump()
-    bonus = sum(12.0 for flag, sig in _SPECIFIC_PRECOND.items()
+    bonus = sum(w for flag, (sig, w) in _SPECIFIC_PRECOND.items()
                 if pm.get(flag) and signals.get(sig))
     if pm.get("requires_group") and (signals["has_binary"] or signals["has_categorical"]):
         bonus += 10.0
@@ -120,7 +134,7 @@ def _precond_bonus(signals: dict, pre) -> float:
         bonus += 8.0
     if pm.get("min_categorical_cols") and signals["has_categorical"]:
         bonus += 6.0
-    return min(bonus, 28.0)
+    return min(bonus, 30.0)
 
 
 def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict) -> int:
@@ -130,8 +144,11 @@ def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict
     infeasible (red) method can't be a good fit no matter its affinity, so it stays
     capped at its (low) rigor score; feasible methods are ranked by affinity."""
     signals = data_signals(fp)
-    raw = min(100.0, match_score(signals, get_affinity(entry.family))
-              + _precond_bonus(signals, entry.preconditions))
+    base = match_score(signals, get_affinity(entry.family))
+    pm = entry.preconditions.model_dump()
+    if any(pm.get(flag) and signals.get(sig) for flag, sig in _STRUCTURE_PRECOND.items()):
+        base = max(base, _STRUCTURE_FLOOR)
+    raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))

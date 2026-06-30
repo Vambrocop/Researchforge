@@ -97,6 +97,16 @@ def _geo() -> pd.DataFrame:
                          "temp": rng.normal(15, 5, n).round(3)})
 
 
+def _linear_regression() -> pd.DataFrame:
+    # plain cross-section regression: a guard that the smarter ranking doesn't over-rotate
+    # toward specialised methods and drop ordinary regressors off the top.
+    rng = np.random.default_rng(20)
+    n = 150
+    x1 = rng.normal(0, 1, n); x2 = rng.normal(0, 1, n); x3 = rng.normal(0, 1, n)
+    y = 2 + 1.5 * x1 - 0.8 * x2 + rng.normal(0, 1, n)
+    return pd.DataFrame({"y": y.round(3), "x1": x1.round(3), "x2": x2.round(3), "x3": x3.round(3)})
+
+
 def _case(name, build, accept, currently_ok, why):
     payload = {"name": name, "build": build, "accept": set(accept)}
     marks = () if currently_ok else (pytest.mark.xfail(reason=why, strict=True),)
@@ -117,22 +127,26 @@ GOLDEN = [
           currently_ok=True, why=""),
     _case("binary_outcome", _binary_outcome,
           {"logistic_regression"},
-          currently_ok=False, why="logistic_regression is feasible but buried (~#8); needs fit-driven ranking (Stage 4)"),
+          currently_ok=True, why=""),  # Stage 4: fit-driven ranking surfaces logistic
     _case("survival", _survival,
           {"survival_analysis", "parametric_survival", "cox_ph_diagnostics", "stratified_cox",
            "time_varying_cox", "competing_risks", "rmst", "bayesian_survival"},
-          currently_ok=False, why="survival models feasible but ranked ~#32; needs affinity-aware fit (Stages 3–4)"),
+          currently_ok=True, why=""),  # Stage 4: survival family affinity surfaces these
     _case("two_group", _two_group,
           {"group_comparison", "anova_oneway", "mann_whitney", "kruskal_wallis"},
-          currently_ok=False, why="group_comparison feasible but just past top-K (~#6/7); needs fit-driven ranking (Stage 4)"),
+          currently_ok=True, why=""),  # Stage 4: requires_group precondition bonus
     _case("edgelist", _edgelist,
           {"community_detection", "centrality_suite", "network_analysis", "link_prediction",
            "stochastic_block_model", "ergm", "epidemic_model"},
-          currently_ok=False, why="network methods feasible but ranked ~#8/#24; needs affinity-aware fit (Stages 3–4)"),
+          currently_ok=True, why=""),  # Stage 4: structure-floor for requires_edgelist methods
     _case("geo", _geo,
           {"moran_i", "local_moran", "kriging", "idw_interpolation", "gwr", "spatial_regression",
            "getis_ord", "getis_ord_gi"},
-          currently_ok=False, why="kriging/moran_i feasible but ranked ~#8/#9; needs affinity-aware fit (Stages 3–4)"),
+          currently_ok=True, why=""),  # Stage 4: spatial family + requires_geo bonus
+    _case("linear_regression", _linear_regression,
+          {"ols_regression", "robust_regression", "regularized_regression", "random_forest",
+           "gradient_boosting", "gam", "gamm", "quantile_regression", "bayesian_regression"},
+          currently_ok=True, why=""),  # guard: a valid regressor stays on top of plain data
 ]
 
 
