@@ -220,24 +220,38 @@ try:
     _FIG_GLOSSARY = {**_FIG_EXTRA, **_FIG_GLOSSARY}
 except Exception:
     pass
-_FIG_GLOSSARY_ORDERED = sorted(_FIG_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
+# Pre-compiled longest-first. The word boundary EXCLUDES digits and underscore too, so
+# we never translate a fragment of an identifier (e.g. "level" inside "level_k", "age"
+# inside "age2", "score" inside "x_score") — only standalone English words. Pre-compiling
+# also avoids re's 512-pattern cache thrashing with this many entries.
+_FIG_GLOSSARY_ORDERED = [
+    (re.compile(rf"(?<![A-Za-z0-9_]){re.escape(_en)}(?![A-Za-z0-9_])", re.IGNORECASE), _zh)
+    for _en, _zh in sorted(_FIG_GLOSSARY.items(), key=lambda kv: -len(kv[0]))
+]
 
 
 def _translate_label(text: str) -> str:
     """Translate an English figure label to Chinese via the glossary (word-boundary,
-    case-insensitive, longest phrase first). Unknown terms are left untouched."""
+    case-insensitive, longest phrase first). Unknown terms are left untouched. A column
+    name that exactly equals an English glossary word can still be translated — an
+    inherent limit of label-layer translation (the savefig hook can't know a token was
+    a column name); see CLAUDE.md."""
     if not text or not text.strip():
         return text
     out = text
-    for en, zh in _FIG_GLOSSARY_ORDERED:
-        out = re.sub(rf"(?<![A-Za-z]){re.escape(en)}(?![A-Za-z])", zh, out, flags=re.IGNORECASE)
+    for pat, zh in _FIG_GLOSSARY_ORDERED:
+        out = pat.sub(lambda m, _zh=zh: _zh, out)  # callable repl: zh treated literally
     return out
 
 
 def _localize_figure(fig) -> None:
     """Translate a figure's title / axis labels / legend entries in place (best-effort;
-    never raises). Tick labels and data text are deliberately left alone."""
+    never raises). Tick labels and data text are deliberately left alone. Idempotent
+    per-figure (a sentinel) so a re-saved figure is never double-translated (which could
+    corrupt a label whose Chinese still contained an English glossary token)."""
     try:
+        if getattr(fig, "_rf_localized", False):
+            return
         for ax in fig.axes:
             for art in (ax.title, ax.xaxis.label, ax.yaxis.label):
                 t = art.get_text()
@@ -252,6 +266,7 @@ def _localize_figure(fig) -> None:
         sup = getattr(fig, "_suptitle", None)
         if sup is not None and sup.get_text():
             sup.set_text(_translate_label(sup.get_text()))
+        fig._rf_localized = True
     except Exception:
         pass
 

@@ -39,6 +39,31 @@ def test_translate_label_substring_in_phrase() -> None:
     assert "频数" in out2 and "x_var" in out2  # the column token is preserved
 
 
+def test_translate_label_does_not_break_identifiers() -> None:
+    # word boundary excludes digits/underscore: never translate a fragment of an identifier
+    assert _translate_label("level") == "水平"                 # standalone -> translated
+    assert _translate_label("1[y > level_k]") == "1[y > level_k]"  # 'level' inside id -> kept
+    assert _translate_label("age2") == "age2"                  # 'age' + digit -> kept
+    assert _translate_label("x_score") == "x_score"            # 'score' inside id -> kept
+
+
+def test_localize_figure_idempotent_on_resave() -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    ax.set_title("count by group")
+    ax.set_xlabel("count")
+    _localize_figure(fig)
+    once_title, once_xlabel = ax.get_title(), ax.get_xlabel()
+    _localize_figure(fig)  # re-save would call it again; must be a no-op (sentinel)
+    assert ax.get_title() == once_title
+    assert ax.get_xlabel() == once_xlabel == "计数"
+    plt.close(fig)
+
+
 def test_localize_figure_translates_labels() -> None:
     import matplotlib
 

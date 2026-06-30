@@ -70,6 +70,14 @@ def test_group_binary_not_outcome_continuous_is():
     assert roles["likely_outcome"] == "outcome"
 
 
+def test_survival_event_not_mistaken_for_classification_outcome():
+    # in time-to-event data 'event' is a censoring indicator, NOT a classification target,
+    # so it must not be auto-picked as the likely outcome
+    cols = [_col("duration", "continuous"), _col("event", "binary"), _col("age", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] != "event"
+
+
 def test_treatment_and_time_hints():
     cols = [_col("treated", "binary"), _col("year", "count"), _col("y", "continuous")]
     roles = detect_roles(cols)

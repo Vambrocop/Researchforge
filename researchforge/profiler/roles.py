@@ -44,7 +44,7 @@ _BIN_OUTCOME_RE = re.compile(
     r"(?:^|_|\b)(approv\w*|default\w*|churn\w*|success\w*|succeed\w*|fail\w*|died|death|dead|"
     r"surviv\w*|deceased|alive|cured|recover\w*|infected|relapse|recur\w*|readmit\w*|"
     r"positive|convert\w*|conversion|fraud\w*|won|win|lost|pass|passed|retain\w*|retention|"
-    r"click\w*|purchas\w*|bought|subscrib\w*|respond\w*|response|event|accept\w*|reject\w*|"
+    r"click\w*|purchas\w*|bought|subscrib\w*|respond\w*|response|accept\w*|reject\w*|"
     r"enroll\w*|qualif\w*|eligible|attrition|complete\w*|label|target|outcome|y)(?:$|_|\b)",
     re.I,
 )
