@@ -128,8 +128,12 @@ def _precond_bonus(signals: dict, pre) -> float:
     pm = pre.model_dump()
     bonus = sum(w for flag, (sig, w) in _SPECIFIC_PRECOND.items()
                 if pm.get(flag) and signals.get(sig))
+    # requires_group is a LOOSE signal (a binary/categorical column may be the outcome
+    # itself, not a genuine grouping/arm variable — distinguishing them needs binary-
+    # outcome role detection, a backlog item), so it gets a small weight that can't
+    # leap a grouping method over a regression method tailored to the same binary data.
     if pm.get("requires_group") and (signals["has_binary"] or signals["has_categorical"]):
-        bonus += 10.0
+        bonus += 5.0
     if pm.get("min_count_cols") and signals["has_count"]:
         bonus += 8.0
     if pm.get("min_categorical_cols") and signals["has_categorical"]:

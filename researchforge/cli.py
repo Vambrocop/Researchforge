@@ -80,6 +80,57 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     return 0
 
 
+# always-applicable methods that shouldn't be THE answer to "what should I run?"
+_PICK_SKIP = {"descriptive_stats", "correlation", "correlation_matrix", "summary_statistics"}
+
+
+def _cmd_pick(path: str, goal: str | None = None) -> int:
+    """Fast one-shot selection: profile the data and print THE method to run (the
+    top-fit substantive method, skipping always-on descriptive helpers) with the
+    reason and the exact run command. Layered on the same smart selector as recommend."""
+    from researchforge.catalog.registry import Catalog
+    from researchforge.profiler import profile_dataset
+    from researchforge.recommender import GOALS, build_plan, select_top
+    from researchforge.recommender.goals import resolve_goal
+
+    fp = profile_dataset(path)
+    catalog = Catalog.load()
+    plan = build_plan(fp, catalog=catalog)
+    gk = resolve_goal(goal)
+    if goal and not gk:
+        print(f"未知目标 '{goal}'。可选：" + " / ".join(GOALS))
+    picks = select_top(fp, goal=gk, top=12, catalog=catalog, plan=plan)
+    if not picks:
+        print("没有可行的推荐（数据不满足任何方法的前提）。先跑 recommend 看详情。")
+        return 0
+    substantive = [r for r in picks if r.entry.id not in _PICK_SKIP] or picks
+    top = substantive[0]
+    mark = _markers()
+
+    struct = []
+    if fp.is_panel:
+        struct.append("面板")
+    if fp.is_timeseries:
+        struct.append("时序")
+    print(f"数据：{fp.n_rows} 行 × {fp.n_cols} 列" + (f" | {'/'.join(struct)}" if struct else ""))
+    print(f"\n🎯 快速推荐：{mark[top.rigor.light]} {top.entry.method}  (id: {top.entry.id})")
+    print(f"   严谨度：{top.rigor.note}（数据契合 {top.score.fit}/100）")
+    why = next((d.finding for d in plan.diagnostics if top.entry.id in d.prefer), None)
+    if why:
+        print(f"   依据：{why}")
+
+    cmd = f"py -3 -m researchforge.cli run {path} {top.entry.id}"
+    if any(p.name in ("outcome", "y") for p in top.entry.params) and fp.likely_outcome:
+        cmd += f' --config \'{{"outcome":"{fp.likely_outcome}"}}\''
+    print(f"   运行：{cmd}")
+
+    alts = [f"{r.entry.id}" for r in substantive[1:4]]
+    if alts:
+        print(f"   其他候选：{'、'.join(alts)}")
+    print("\n（完整菜单 + 方法学评分：recommend；按目标聚焦：pick <data> --goal " + "/".join(GOALS) + "）")
+    return 0
+
+
 def _cmd_params(analysis_id: str) -> int:
     """Print an analysis's machine-readable config parameters (the spec the Web
     form / recommend / run validation all consume)."""
@@ -379,6 +430,9 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--goal", default=None,
                      help="research goal to focus on (compare/relate/causal/predict/design/spatial/…)")
     rec.add_argument("--top", type=int, default=6, help="how many to show (default 6)")
+    pick = sub.add_parser("pick", help="fast one-shot: the single best method to run + the command")
+    pick.add_argument("path", help="path to a CSV/Excel file")
+    pick.add_argument("--goal", default=None, help="research goal to focus on (optional)")
     run_p = sub.add_parser("run", help="run a chosen analysis and save outputs")
     run_p.add_argument("path", help="path to a CSV/Excel file")
     run_p.add_argument("analysis", help="analysis id from the catalog (e.g. did)")
@@ -419,6 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "recommend":
         return _cmd_recommend(args.path, args.goal, args.top)
+    if args.command == "pick":
+        return _cmd_pick(args.path, args.goal)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis, args.config)
     if args.command == "params":
