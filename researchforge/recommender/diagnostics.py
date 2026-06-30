@@ -274,6 +274,97 @@ def _diag_small_sample(fp: DataFingerprint) -> list[Diagnostic]:
     )]
 
 
+# ── non-GLM diagnostics (Stage 5: time-series / survival / missingness) ───────
+def _diag_timeseries(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
+    """Time-series structure → the right temporal model. Non-stationarity (ADF unit
+    root) argues for differencing/ARIMA over methods that treat the series as iid;
+    volatility clustering (ARCH effect = autocorrelated squared series) argues for GARCH."""
+    if not getattr(fp, "is_timeseries", False):
+        return []
+    col = next((c.name for c in _analysis_cols(fp)
+                if c.kind in {"continuous", "count"} and c.name in df.columns and c.name != fp.time_col),
+               None)
+    if col is None:
+        return []
+    y = _num(df[col]).to_numpy()
+    n = len(y)
+    if n < 20 or np.allclose(y, y[0]):
+        return []
+    out: list[Diagnostic] = []
+
+    adf_p = float("nan")
+    try:
+        from statsmodels.tsa.stattools import adfuller
+
+        adf_p = float(adfuller(y, autolag="AIC")[1])
+    except Exception:
+        pass
+    if adf_p == adf_p and adf_p > 0.05:
+        out.append(Diagnostic(
+            code="nonstationary",
+            finding=f"时间序列「{col}」可能非平稳（趋势/单位根）",
+            detail=f"ADF p={adf_p:.3g}（>0.05 未拒绝单位根）；需差分/去趋势后建模",
+            prefer=["arima", "exponential_smoothing", "theta_method", "unobserved_components"],
+            over=["correlation", "ols_regression"],
+        ))
+
+    lb_p = float("nan")
+    try:
+        from statsmodels.stats.diagnostic import acorr_ljungbox
+
+        r2 = (y - y.mean()) ** 2
+        lb_p = float(acorr_ljungbox(r2, lags=[min(10, n // 5)], return_df=True)["lb_pvalue"].iloc[0])
+    except Exception:
+        pass
+    if lb_p == lb_p and lb_p < 0.05:
+        out.append(Diagnostic(
+            code="volatility_clustering",
+            finding=f"时间序列「{col}」存在波动聚集（ARCH 效应）",
+            detail=f"平方序列 Ljung-Box p={lb_p:.3g}（<0.05 表条件异方差/波动随时间成簇）",
+            prefer=["garch"],
+            over=[],
+        ))
+    return out
+
+
+def _diag_survival(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
+    """Time-to-event data (a duration column + an event/censoring indicator) → survival
+    models. Ordinary regression on a censored outcome is biased (it can't tell a short
+    follow-up from a short survival)."""
+    from researchforge.recommender.affinity import data_signals
+
+    if not data_signals(fp)["has_survival"]:
+        return []
+    return [Diagnostic(
+        code="survival_data",
+        finding="检测到生存/时间-事件数据（时长列 + 事件/删失指示）",
+        detail="对删失数据用普通回归会有偏（无法区分随访短与生存短）；应同时建模时长与删失",
+        prefer=["survival_analysis", "cox_ph_diagnostics", "parametric_survival",
+                "stratified_cox", "competing_risks", "rmst"],
+        over=["ols_regression", "logistic_regression"],
+    )]
+
+
+def _diag_missingness(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
+    """Non-trivial missingness → multiple imputation. Listwise deletion drops cases and
+    can bias estimates when data are not missing completely at random."""
+    miss_cols = [iss.column for iss in fp.issues if iss.kind == "missing" and iss.column]
+    total = int(df.size)
+    if not miss_cols or total == 0:
+        return []
+    miss_rate = float(df.isna().sum().sum()) / total
+    if miss_rate < 0.05:
+        return []
+    shown = "、".join(dict.fromkeys(miss_cols))
+    return [Diagnostic(
+        code="missing_data",
+        finding=f"存在缺失数据（列：{shown}；整体缺失率 {miss_rate:.0%}）",
+        detail="列表删除（listwise）丢样本且在非 MCAR 下有偏；多重插补按 Rubin 规则合并插补不确定性",
+        prefer=["mice_imputation", "missingness_diagnosis"],
+        over=[],
+    )]
+
+
 # ── orchestration ────────────────────────────────────────────────────────────
 def diagnose_data(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
     """Run every cheap diagnostic and collect the findings (order = severity-ish).
@@ -294,6 +385,9 @@ def diagnose_data(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
         lambda: _diag_multicollinearity(df, fp, outcome),
         lambda: _diag_outliers(fp),
         lambda: _diag_small_sample(fp),
+        lambda: _diag_timeseries(df, fp),
+        lambda: _diag_survival(df, fp),
+        lambda: _diag_missingness(df, fp),
     ):
         try:
             out.extend(fn())
