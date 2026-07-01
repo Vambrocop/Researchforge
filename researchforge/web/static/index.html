@@ -96,6 +96,22 @@
     cursor:pointer;color:var(--muted);font-weight:500;transition:.15s}
   .goal:hover{border-color:#bcd0c4;color:var(--ink)}
   .goal.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  /* recommendation filters (search + family + rigor light) */
+  .rec-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
+  .rec-search{flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);
+    font-size:13.5px;background:#fff;color:var(--ink)}
+  .rec-search:focus{outline:none;border-color:var(--accent)}
+  .rec-fam{padding:8px 10px;border:1px solid var(--line);border-radius:var(--radius-sm,10px);font-size:13px;background:#fff;color:var(--ink)}
+  .light-filter{display:inline-flex;gap:4px}
+  .lchip{cursor:pointer;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:20px;background:#fff;color:var(--muted);user-select:none}
+  .lchip.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  /* folder batch table */
+  .folder-tbl{width:100%;border-collapse:collapse;font-size:13px}
+  .folder-tbl th,.folder-tbl td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .folder-tbl th{color:var(--muted);font-weight:600;font-size:12px}
+  .folder-tbl .fbad{color:#b23}
+  .folder-open{cursor:pointer;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);
+    border-radius:8px;padding:4px 10px;font-size:12.5px;font-weight:600}
 
   /* rec cards */
   .rec{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px;
@@ -253,11 +269,20 @@
   <h2 data-i18n="sec_upload"></h2>
   <div class="card">
     <div class="drop">
-      <input type="file" id="csv-input" accept=".csv,.xlsx,.xls">
+      <input type="file" id="csv-input" accept=".csv,.tsv,.xlsx,.xls">
       <button class="btn-primary" id="btn-analyze" onclick="doAnalyze()" data-i18n="btn_analyze"></button>
+      <button class="btn-soft" id="btn-folder" onclick="document.getElementById('folder-input').click()" data-i18n="btn_folder"></button>
+      <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none" onchange="doAnalyzeFolder()">
       <span class="spinner" id="analyze-spinner" data-i18n="working"></span>
+      <span class="spinner" id="folder-spinner" data-i18n="working"></span>
     </div>
     <div class="meta" style="margin-top:10px" data-i18n="upload_hint"></div>
+  </div>
+
+  <!-- FOLDER BATCH -->
+  <div id="folder-section" style="display:none">
+    <h2 data-i18n="sec_folder"></h2>
+    <div class="card"><div id="folder-list"></div></div>
   </div>
 
   <!-- PROFILE + RECS -->
@@ -297,6 +322,11 @@
     <div class="goals" id="goal-chips"></div>
 
     <h2 data-i18n="sec_recs"></h2>
+    <div class="rec-filters" id="rec-filters">
+      <input type="text" id="rec-search" class="rec-search" oninput="onFilterChange()">
+      <select id="rec-family" class="rec-fam" onchange="onFilterChange()"></select>
+      <span id="light-filter" class="light-filter"></span>
+    </div>
     <div id="rec-list"></div>
   </div>
 
@@ -377,6 +407,16 @@ const I18N = {
     plan_sep: '、',
     // goals
     goal_all: '全部',
+    // filters + folder
+    rec_search_ph: '🔍 搜索方法（名称 / 族 / 关键词）',
+    filter_fam_all: '全部族',
+    filter_light_all: '全部灯',
+    btn_folder: '📁 批量分析文件夹',
+    sec_folder: '📂 文件夹批量分析',
+    folder_col_file: '文件', folder_col_shape: '规模', folder_col_top: '首选方法',
+    folder_analyze: '打开 →',
+    folder_none: '该文件夹没有可读的数据表（CSV / Excel）。',
+    folder_working: '批量分析中…',
     // recs
     rec_empty: '该目标下暂无可行推荐。',
     fit_label: '契合 {0}',
@@ -469,6 +509,16 @@ const I18N = {
     plan_sep: ', ',
     // goals
     goal_all: 'All',
+    // filters + folder
+    rec_search_ph: '🔍 Search methods (name / family / keyword)',
+    filter_fam_all: 'All families',
+    filter_light_all: 'All lights',
+    btn_folder: '📁 Analyze a folder',
+    sec_folder: '📂 Folder batch analysis',
+    folder_col_file: 'File', folder_col_shape: 'Shape', folder_col_top: 'Top method',
+    folder_analyze: 'Open →',
+    folder_none: 'No readable tables (CSV / Excel) in that folder.',
+    folder_working: 'Analyzing folder…',
     // recs
     rec_empty: 'No feasible recommendations for this goal.',
     fit_label: 'Fit {0}',
@@ -551,7 +601,7 @@ function rerenderDynamic(){
   if(document.getElementById('profile-section').style.display!=='none' && lastRecs!==null){
     if(lastFingerprint){ renderProfile(lastFingerprint); renderIssues(lastFingerprint.issues||[]); }
     renderPlan(lastPlan);
-    renderGoals(); renderRecs();
+    renderGoals(); renderFilters(); renderRecs();
   }
   if(lastResult) renderResult(lastResult);
   if(historyLoaded) renderHistory();
@@ -575,6 +625,9 @@ let lastPlan = null;         // cached diagnostic_plan for language switch
 let lastResult = null;       // cached run result for language switch
 let goalList = [];            // [{key,label}] supplied by the backend (mirrors goals.py, no drift)
 let activeGoal = 'all';
+let searchText = '';          // method search-box query (name / family / keyword)
+let activeFamily = 'all';     // family filter
+let activeLight = 'all';      // rigor-light filter (green / yellow / red)
 let openCfgId = null;         // id of the rec whose inline config form is currently expanded
 
 const DOTS = { green: 'green', yellow: 'yellow', red: 'red' };
@@ -633,8 +686,71 @@ async function doAnalyze(){
   lastRecs=data.recommendations||[];
   goalList=data.goals||[];
   activeGoal='all';openCfgId=null;
-  renderGoals();renderRecs();
+  searchText='';activeFamily='all';activeLight='all';
+  const sb=document.getElementById('rec-search');if(sb)sb.value='';
+  renderGoals();renderFilters();renderRecs();
   document.getElementById('profile-section').style.display='';
+}
+
+// --------------------------------------------------------------------------
+// Folder batch: upload every table in a folder -> summary table; open any row.
+async function doAnalyzeFolder(){
+  clearError();
+  const input=document.getElementById('folder-input');
+  if(!input.files.length)return;
+  setBusy('btn-folder',t('folder_working'));spin('folder-spinner',true);
+  const fd=new FormData();
+  for(const f of input.files) fd.append('files',f);
+  let data;
+  try{
+    const res=await fetch('/api/analyze_folder',{method:'POST',body:fd});
+    data=await res.json();
+    if(!res.ok){showError(data.detail||t('err_analyze'));setIdle('btn-folder');spin('folder-spinner',false);return;}
+  }catch(e){showError(t('err_network')+e.message);setIdle('btn-folder');spin('folder-spinner',false);return;}
+  setIdle('btn-folder');spin('folder-spinner',false);
+  input.value='';                       // allow re-picking the same folder
+  renderFolder(data.files||[]);
+}
+
+function renderFolder(rows){
+  const sec=document.getElementById('folder-section');
+  const box=document.getElementById('folder-list');
+  if(!rows.length){box.innerHTML=`<div class="meta">${escHtml(t('folder_none'))}</div>`;sec.style.display='';return;}
+  const head=`<tr><th>${escHtml(t('folder_col_file'))}</th><th>${escHtml(t('folder_col_shape'))}</th><th>${escHtml(t('folder_col_top'))}</th><th></th></tr>`;
+  const body=rows.map(r=>{
+    if(!r.ok){return `<tr><td>${escHtml(r.filename)}</td><td colspan="2" class="fbad">${escHtml(r.error||'read error')}</td><td></td></tr>`;}
+    const top=(r.top||[])[0];
+    const topCell=top?`<span class="light ${DOTS[top.light]||'red'}"></span> ${escHtml(top.method)} <span class="meta">(${escHtml(top.family)})</span>`:'<span class="meta">—</span>';
+    return `<tr>
+      <td>${escHtml(r.filename)}</td>
+      <td>${t('rows_cols',r.n_rows,r.n_cols)}</td>
+      <td>${topCell}</td>
+      <td><button class="folder-open" onclick="openFolderFile('${escHtml(r.file_id)}')">${escHtml(t('folder_analyze'))}</button></td>
+    </tr>`;
+  }).join('');
+  box.innerHTML=`<table class="folder-tbl"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  sec.style.display='';
+}
+
+async function openFolderFile(fileId){
+  clearError();setBusy('btn-folder',t('folder_working'));
+  let data;
+  try{
+    const res=await fetch('/api/reanalyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file_id:fileId})});
+    data=await res.json();
+    if(!res.ok){showError(data.detail||t('err_analyze'));setIdle('btn-folder');return;}
+  }catch(e){showError(t('err_network')+e.message);setIdle('btn-folder');return;}
+  setIdle('btn-folder');
+  currentFileId=fileId;cleanedFileId=null;lastResult=null;
+  ['result-section','issues-section','plan-section','clean-section'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  lastFingerprint=data.fingerprint;lastPlan=data.diagnostic_plan;
+  renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);renderPlan(data.diagnostic_plan);
+  lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
+  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;
+  searchText='';activeFamily='all';activeLight='all';const sb4=document.getElementById('rec-search');if(sb4)sb4.value='';
+  renderGoals();renderFilters();renderRecs();
+  document.getElementById('profile-section').style.display='';
+  document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});
 }
 
 function renderProfile(fp){
@@ -688,10 +804,35 @@ function renderGoals(){
 }
 function pickGoal(k){activeGoal=k;renderGoals();renderRecs();}
 
+// search box + family select + rigor-light chips (all combine with the goal filter)
+function renderFilters(){
+  const ph=document.getElementById('rec-search');if(ph)ph.placeholder=t('rec_search_ph');
+  const sel=document.getElementById('rec-family');
+  if(sel){
+    const fams=Array.from(new Set(lastRecs.map(r=>r.family).filter(Boolean))).sort();
+    sel.innerHTML=`<option value="all">${escHtml(t('filter_fam_all'))}</option>`+
+      fams.map(f=>`<option value="${escHtml(f)}"${f===activeFamily?' selected':''}>${escHtml(f)}</option>`).join('');
+  }
+  const lf=document.getElementById('light-filter');
+  if(lf){
+    const lights=[['all',t('filter_light_all')],['green','🟢'],['yellow','🟡'],['red','🔴']];
+    lf.innerHTML=lights.map(([k,lab])=>`<span class="lchip${k===activeLight?' on':''}" onclick="pickLight('${k}')">${escHtml(lab)}</span>`).join('');
+  }
+}
+function pickLight(k){activeLight=k;renderFilters();renderRecs();}
+function onFilterChange(){
+  const sb=document.getElementById('rec-search');searchText=(sb?sb.value:'').trim().toLowerCase();
+  const fs=document.getElementById('rec-family');activeFamily=fs?fs.value:'all';
+  renderRecs();
+}
+
 function renderRecs(){
   const el=document.getElementById('rec-list');
   let recs=lastRecs;
-  if(activeGoal!=='all'){recs=lastRecs.filter(r=>(r.goals||[]).includes(activeGoal));}
+  if(activeGoal!=='all'){recs=recs.filter(r=>(r.goals||[]).includes(activeGoal));}
+  if(activeFamily!=='all'){recs=recs.filter(r=>r.family===activeFamily);}
+  if(activeLight!=='all'){recs=recs.filter(r=>r.light===activeLight);}
+  if(searchText){recs=recs.filter(r=>((r.method||'')+' '+(r.id||'')+' '+(r.family||'')+' '+(r.note||'')).toLowerCase().includes(searchText));}
   if(!recs.length){el.innerHTML=`<div class="card meta">${escHtml(t('rec_empty'))}</div>`;return;}
   el.innerHTML=recs.map(r=>{
     const ms=r.methodology_score||{};
@@ -872,7 +1013,9 @@ async function doReanalyze(){
   lastFingerprint=data.fingerprint;lastPlan=data.diagnostic_plan;
   renderProfile(data.fingerprint);renderIssues(data.fingerprint.issues||[]);renderPlan(data.diagnostic_plan);
   lastColumns=(data.fingerprint&&data.fingerprint.columns)||[];
-  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;renderGoals();renderRecs();
+  lastRecs=data.recommendations||[];goalList=data.goals||[];activeGoal='all';openCfgId=null;
+  searchText='';activeFamily='all';activeLight='all';const sb2=document.getElementById('rec-search');if(sb2)sb2.value='';
+  renderGoals();renderFilters();renderRecs();
   document.getElementById('profile-section').scrollIntoView({behavior:'smooth'});
 }
 
