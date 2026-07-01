@@ -26,6 +26,18 @@ def _fp(tmp_path: Path):
     return profile_dataset(csv)
 
 
+def test_family_table_covers_all_catalog_families() -> None:
+    # every catalog family must have editorial priors in scoring._FAMILY, else 6-dim
+    # scores silently fall back to _DEFAULT (the stale-family-name bug: "timeseries" vs
+    # "time-series", "panel" vs "econometrics" left 165/294 methods on generic scores).
+    from researchforge.catalog import Catalog
+    from researchforge.recommender.scoring import _FAMILY
+
+    fams = {e.family for e in Catalog.load().entries}
+    missing = fams - set(_FAMILY)
+    assert not missing, f"scoring._FAMILY missing editorial priors for: {sorted(missing)}"
+
+
 def test_score_dimensions_in_range(tmp_path: Path) -> None:
     fp = _fp(tmp_path)
     e = _entry("ols_regression", "statistics")

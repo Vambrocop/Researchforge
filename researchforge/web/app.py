@@ -24,6 +24,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -46,11 +47,14 @@ _files: dict[str, Path] = {}
 # saving an .xlsx as .csv, as the old code did, silently broke Excel uploads).
 _ALLOWED_SUFFIX = {".csv", ".tsv", ".txt", ".xlsx", ".xls"}
 _ID_RE = re.compile(r"[A-Za-z0-9_]+")
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB cap per file — reject oversized uploads
 
 
 def _save_upload(file_id: str, filename: str | None, data: bytes) -> Path:
     """Persist an upload under its file_id, KEEPING the original extension (falls back
-    to .csv for unknown/empty suffixes). Registers it in `_files`."""
+    to .csv for unknown/empty suffixes). Rejects oversized files. Registers it in `_files`."""
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="file too large (max 100 MB)")
     suffix = Path(filename or "").suffix.lower()
     if suffix not in _ALLOWED_SUFFIX:
         suffix = ".csv"
@@ -132,7 +136,10 @@ async def api_analyze_folder(files: list[UploadFile] = File(...)) -> JSONRespons
         if Path(f.filename or "").suffix.lower() not in _ALLOWED_SUFFIX:
             continue
         fid = uuid.uuid4().hex
-        dest = _save_upload(fid, f.filename, await f.read())
+        try:
+            dest = _save_upload(fid, f.filename, await f.read())
+        except HTTPException:
+            continue  # skip an oversized file rather than aborting the whole batch
         saved.append((fid, f.filename or dest.name, dest))
 
     from researchforge.web.service import analyze_folder_files
@@ -319,8 +326,11 @@ def _zip_run_dir(run_name: str) -> Path:
 def api_download(run_name: str) -> FileResponse:
     """Zip outputs/<run_name>/ and return as an attachment."""
     zip_path = _zip_run_dir(run_name)
+    # delete the temp zip after it has been streamed to the client (else each download
+    # leaks a file in the OS temp dir).
     return FileResponse(
         str(zip_path),
         media_type="application/zip",
         filename=f"{run_name}.zip",
+        background=BackgroundTask(zip_path.unlink, missing_ok=True),
     )

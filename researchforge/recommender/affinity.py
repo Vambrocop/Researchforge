@@ -27,6 +27,10 @@ from researchforge.profiler.fingerprint import DataFingerprint
 # outcome-kind vocabulary a family may target
 _OUTCOMES = {"continuous", "count", "binary", "categorical", "survival", "multi_numeric", "none"}
 
+# a categorical column needs at least this many distinct values to be read as an edge-list
+# node column (vs a low-cardinality demographic categorical like region/sector).
+_NODE_MIN_UNIQUE = 12
+
 
 @dataclass(frozen=True)
 class FamilyAffinity:
@@ -119,7 +123,15 @@ def data_signals(fp: DataFingerprint) -> dict:
     # an edge list's two node-identifier columns are STRUCTURE, not analysis variables —
     # exclude them from the categorical count so they don't masquerade as a categorical
     # outcome (which would wrongly favour agreement/contingency methods over network ones).
-    id_cols = [c.name for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col]
+    # A node column has MANY distinct values (many nodes); a plain demographic categorical
+    # (region/sector, few levels) is NOT an edge endpoint — requiring high cardinality
+    # stops ordinary 2-categorical data from being read as an edge list (which would
+    # otherwise float network methods up via the structure floor).
+    id_cols = [
+        c.name for c in fp.columns
+        if c.name != fp.time_col
+        and (c.kind == "id" or (c.kind == "categorical" and getattr(c, "n_unique", 0) >= _NODE_MIN_UNIQUE))
+    ]
     edge_cols = set(id_cols[:2]) if len(id_cols) >= 2 else set()
     n_cont = sum(1 for c in cols if c.kind == "continuous")
     n_count = sum(1 for c in cols if c.kind == "count")

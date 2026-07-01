@@ -27,22 +27,57 @@ from researchforge.profiler.fingerprint import DataFingerprint
 from researchforge.recommender.affinity import data_signals, get_affinity, match_score
 from researchforge.recommender.rigor import RigorVerdict
 
-# base scores by family: (popularity, publishability, aesthetics, difficulty, novelty)
+# base scores by family: (popularity, publishability, aesthetics, difficulty, novelty).
+# Editorial priors (subjective, disclosed as such) — keys MUST match catalog family
+# strings exactly (test_scoring guards full coverage, so a family never silently falls
+# back to _DEFAULT). Populated for all 45 catalog families.
 _FAMILY: dict[str, tuple[int, int, int, int, int]] = {
     "statistics": (85, 55, 45, 35, 25),
     "causal": (70, 88, 68, 70, 70),
     "sem": (65, 82, 80, 75, 55),
     "meta": (60, 80, 76, 50, 50),
     "ml": (80, 65, 70, 60, 65),
-    "timeseries": (70, 62, 66, 62, 42),
+    "time-series": (70, 62, 66, 62, 42),
     "spatial": (55, 74, 88, 66, 62),
     "ecology": (60, 66, 80, 55, 46),
-    "microbiology": (55, 72, 76, 56, 62),
     "mcda": (60, 46, 60, 40, 46),
     "efficiency": (52, 72, 60, 72, 56),
-    "panel": (66, 82, 55, 78, 56),
-    "qualitative": (42, 70, 62, 70, 76),
+    "econometrics": (66, 82, 55, 78, 56),
+    "configurational": (42, 70, 62, 70, 76),
     "soil": (46, 42, 70, 32, 36),
+    # — filled in so the scorecard is meaningful for every family (was _DEFAULT before) —
+    "bayesian": (62, 80, 72, 78, 66),
+    "survival": (72, 80, 80, 62, 48),
+    "regression": (60, 45, 42, 32, 22),
+    "conditional_process": (66, 74, 66, 68, 58),
+    "irt": (55, 76, 66, 74, 52),
+    "psychometrics": (58, 66, 60, 55, 40),
+    "latent_class": (52, 74, 70, 76, 62),
+    "mixture": (55, 66, 72, 68, 56),
+    "nonparametric": (72, 48, 44, 32, 28),
+    "categorical": (70, 50, 48, 36, 26),
+    "categorical_tests": (72, 48, 45, 32, 24),
+    "distribution": (58, 46, 56, 42, 32),
+    "distribution_extra": (52, 48, 58, 46, 42),
+    "effect_sizes": (66, 62, 50, 36, 34),
+    "epidemiology": (64, 78, 68, 55, 50),
+    "finance": (60, 60, 66, 62, 52),
+    "hydrology": (44, 60, 66, 58, 46),
+    "marketing": (58, 50, 62, 45, 50),
+    "actuarial": (46, 58, 55, 66, 44),
+    "operations_research": (56, 52, 56, 55, 40),
+    "game_theory": (48, 62, 58, 70, 58),
+    "reliability": (50, 62, 60, 62, 46),
+    "spc": (58, 55, 66, 48, 36),
+    "survey_methods": (60, 66, 50, 60, 44),
+    "nlp": (74, 68, 66, 62, 68),
+    "choice": (58, 74, 60, 72, 52),
+    "missing_data": (58, 66, 52, 64, 54),
+    "resource": (50, 60, 66, 52, 56),
+    "techno_economic": (52, 58, 62, 50, 50),
+    "experimental_design": (60, 66, 58, 48, 40),
+    "experimental_stats": (64, 62, 55, 50, 38),
+    "agreement": (58, 60, 55, 42, 34),
 }
 _DEFAULT = (50, 56, 56, 55, 50)
 

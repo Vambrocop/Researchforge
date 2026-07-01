@@ -107,8 +107,20 @@ def _linear_regression() -> pd.DataFrame:
     return pd.DataFrame({"y": y.round(3), "x1": x1.round(3), "x2": x2.round(3), "x3": x3.round(3)})
 
 
-def _case(name, build, accept, currently_ok, why):
-    payload = {"name": name, "build": build, "accept": set(accept)}
+def _two_categorical() -> pd.DataFrame:
+    # ordinary cross-section with two LOW-cardinality categoricals + a continuous outcome.
+    # Guard: this must NOT be read as an edge list (few distinct values ≠ node ids), so
+    # network methods must not float to the top via the structure floor.
+    rng = np.random.default_rng(21)
+    n = 160
+    region = rng.choice(["N", "S", "E", "W"], n)
+    sector = rng.choice(["a", "b", "c"], n)
+    y = rng.normal(0, 1, n) + (region == "N") * 0.5
+    return pd.DataFrame({"region": region, "sector": sector, "y": y.round(3)})
+
+
+def _case(name, build, accept, currently_ok, why, reject=None):
+    payload = {"name": name, "build": build, "accept": set(accept), "reject": set(reject or ())}
     marks = () if currently_ok else (pytest.mark.xfail(reason=why, strict=True),)
     return pytest.param(payload, id=name, marks=marks)
 
@@ -147,6 +159,12 @@ GOLDEN = [
           {"ols_regression", "robust_regression", "regularized_regression", "random_forest",
            "gradient_boosting", "gam", "gamm", "quantile_regression", "bayesian_regression"},
           currently_ok=True, why=""),  # guard: a valid regressor stays on top of plain data
+    _case("two_categorical", _two_categorical,
+          {"group_comparison", "anova_oneway", "kruskal_wallis", "ols_regression",
+           "chi_square_test", "loglinear", "manova"},
+          currently_ok=True, why="",  # a real group/association method belongs on top
+          reject={"community_detection", "centrality_suite", "network_analysis",
+                  "link_prediction", "stochastic_block_model", "ergm", "epidemic_model"}),
 ]
 
 
@@ -164,6 +182,10 @@ def test_golden_selection(case, tmp_path: Path) -> None:
     assert hit, (
         f"{case['name']}: expected an appropriate method "
         f"{sorted(case['accept'])} in top-{_TOP_K} feasible, got {ids}"
+    )
+    bad = case["reject"] & set(ids)
+    assert not bad, (
+        f"{case['name']}: inappropriate method(s) {sorted(bad)} in top-{_TOP_K} feasible, got {ids}"
     )
 
 
