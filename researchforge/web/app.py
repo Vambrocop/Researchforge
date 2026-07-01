@@ -14,6 +14,7 @@ Static mounts:
 
 from __future__ import annotations
 
+import re
 import tempfile
 import uuid
 import zipfile
@@ -36,9 +37,43 @@ _OUTPUTS_DIR.mkdir(exist_ok=True)
 _STATIC_DIR = Path(__file__).parent / "static"
 
 # ---------------------------------------------------------------------------
-# In-memory file-id registry (also persisted to disk as <id>.csv)
+# In-memory file-id registry (also persisted to disk as <id>.<ext>)
 # ---------------------------------------------------------------------------
 _files: dict[str, Path] = {}
+
+# tabular formats we accept for upload. The original extension is PRESERVED on save
+# so the robust reader can dispatch by suffix (Excel is read via pandas.read_excel —
+# saving an .xlsx as .csv, as the old code did, silently broke Excel uploads).
+_ALLOWED_SUFFIX = {".csv", ".tsv", ".txt", ".xlsx", ".xls"}
+_ID_RE = re.compile(r"[A-Za-z0-9_]+")
+
+
+def _save_upload(file_id: str, filename: str | None, data: bytes) -> Path:
+    """Persist an upload under its file_id, KEEPING the original extension (falls back
+    to .csv for unknown/empty suffixes). Registers it in `_files`."""
+    suffix = Path(filename or "").suffix.lower()
+    if suffix not in _ALLOWED_SUFFIX:
+        suffix = ".csv"
+    dest = _WEB_UPLOADS / f"{file_id}{suffix}"
+    dest.write_bytes(data)
+    _files[file_id] = dest
+    return dest
+
+
+def _resolve_upload(file_id: str) -> Path:
+    """Path for a previously uploaded file_id — the in-memory registry first, else a
+    glob by id (survives a server restart, and finds whatever extension was saved).
+    404 if missing, 400 if the id isn't a safe token (glob-injection guard)."""
+    p = _files.get(file_id)
+    if p and p.exists():
+        return p
+    if not _ID_RE.fullmatch(file_id or ""):
+        raise HTTPException(status_code=400, detail="invalid file_id")
+    matches = sorted(_WEB_UPLOADS.glob(f"{file_id}.*"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="file_id not found")
+    _files[file_id] = matches[0]
+    return matches[0]
 
 
 # ---------------------------------------------------------------------------
@@ -76,11 +111,10 @@ def index() -> FileResponse:
 
 @app.post("/api/analyze")
 async def api_analyze(file: UploadFile = File(...)) -> JSONResponse:
-    """Save uploaded CSV and return fingerprint + recommendations."""
+    """Save an uploaded table (CSV / Excel / TSV, extension preserved) and return the
+    fingerprint + recommendations."""
     file_id = uuid.uuid4().hex
-    dest = _WEB_UPLOADS / f"{file_id}.csv"
-    dest.write_bytes(await file.read())
-    _files[file_id] = dest
+    dest = _save_upload(file_id, file.filename, await file.read())
 
     from researchforge.web.service import analyze_path
 
@@ -88,12 +122,29 @@ async def api_analyze(file: UploadFile = File(...)) -> JSONResponse:
     return JSONResponse({"file_id": file_id, **result})
 
 
+@app.post("/api/analyze_folder")
+async def api_analyze_folder(files: list[UploadFile] = File(...)) -> JSONResponse:
+    """Batch: profile + top recommendations for EVERY table in an uploaded folder.
+    Non-tabular files in the folder are skipped. Each accepted file gets its own
+    file_id so a row can be opened in the full single-file flow (via /api/reanalyze)."""
+    saved: list[tuple[str, str, Path]] = []
+    for f in files:
+        if Path(f.filename or "").suffix.lower() not in _ALLOWED_SUFFIX:
+            continue
+        fid = uuid.uuid4().hex
+        dest = _save_upload(fid, f.filename, await f.read())
+        saved.append((fid, f.filename or dest.name, dest))
+
+    from researchforge.web.service import analyze_folder_files
+
+    summaries = analyze_folder_files(saved)
+    return JSONResponse({"n_files": len(summaries), "files": summaries})
+
+
 @app.post("/api/clean")
 def api_clean(body: FileRequest) -> JSONResponse:
     """Run data cleaning on a previously uploaded file and save the cleaned version."""
-    path = _WEB_UPLOADS / f"{body.file_id}.csv"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="file_id not found")
+    path = _resolve_upload(body.file_id)
 
     new_id = uuid.uuid4().hex
     cleaned_out = _WEB_UPLOADS / f"{new_id}.csv"
@@ -108,9 +159,7 @@ def api_clean(body: FileRequest) -> JSONResponse:
 @app.post("/api/reanalyze")
 def api_reanalyze(body: FileRequest) -> JSONResponse:
     """Re-run profiling and recommendations on a previously uploaded/cleaned file."""
-    path = _WEB_UPLOADS / f"{body.file_id}.csv"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="file_id not found")
+    path = _resolve_upload(body.file_id)
 
     from researchforge.web.service import analyze_path
 
@@ -121,9 +170,7 @@ def api_reanalyze(body: FileRequest) -> JSONResponse:
 @app.post("/api/run")
 def api_run(body: RunRequest) -> JSONResponse:
     """Run the requested analysis on a previously uploaded file."""
-    dest = _WEB_UPLOADS / f"{body.file_id}.csv"
-    if not dest.exists():
-        raise HTTPException(status_code=404, detail="file_id not found")
+    dest = _resolve_upload(body.file_id)
 
     from researchforge.web.service import run_for_path
 

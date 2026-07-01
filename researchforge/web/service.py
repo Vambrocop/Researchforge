@@ -92,6 +92,40 @@ def analyze_path(path: str | Path) -> dict:
     }
 
 
+def analyze_folder_files(items) -> list[dict]:
+    """Batch-profile a folder of tables. `items` is an iterable of (file_id, filename,
+    path). For each table returns a compact summary — shape, structure flags, and the
+    top-3 feasible recommendations — so the UI can show a folder overview and let the
+    user open any file in the full single-file flow. Never raises: a per-file failure
+    is captured as {ok: False, error: ...} so one bad table doesn't sink the batch."""
+    from researchforge.profiler import profile_dataset
+    from researchforge.recommender import select_top
+
+    out: list[dict] = []
+    for file_id, filename, path in items:
+        rec: dict = {"file_id": file_id, "filename": filename}
+        try:
+            fp = profile_dataset(Path(path))
+            tops = select_top(fp, top=3)
+            rec.update({
+                "ok": True,
+                "n_rows": fp.n_rows,
+                "n_cols": fp.n_cols,
+                "is_panel": fp.is_panel,
+                "is_timeseries": fp.is_timeseries,
+                "n_issues": len(fp.issues),
+                "top": [
+                    {"id": r.entry.id, "method": r.entry.method,
+                     "family": r.entry.family, "light": r.rigor.light}
+                    for r in tops
+                ],
+            })
+        except Exception as e:  # a single unreadable table must not sink the batch
+            rec.update({"ok": False, "error": str(e)[:200]})
+        out.append(rec)
+    return out
+
+
 def clean_path(path: str | Path, cleaned_out: str | Path) -> dict:
     """Run a cleaning plan on a CSV and save the cleaned file.
 

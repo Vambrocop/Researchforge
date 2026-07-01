@@ -589,3 +589,54 @@ def test_run_with_bad_choice_value_surfaces_warning():
     summary = resp.json()["summary"]
     assert "配置参数提示" in summary
     assert "method" in summary
+
+
+def test_excel_upload_round_trip(tmp_path):
+    """Excel uploads must parse (regression: uploads were saved as .csv regardless of
+    extension, so pandas.read_excel never ran and .xlsx silently failed)."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    df = pd.DataFrame({"y": [float(i) for i in range(12)],
+                       "x": [float(i % 4) for i in range(12)]})
+    xlsx = tmp_path / "d.xlsx"
+    df.to_excel(xlsx, index=False)  # needs openpyxl
+    client = TestClient(web_app.app)
+    resp = client.post(
+        "/api/analyze",
+        files={"file": ("d.xlsx", xlsx.read_bytes(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    fp = resp.json()["fingerprint"]
+    assert fp["n_rows"] == 12 and fp["n_cols"] == 2  # parsed as Excel, not garbage
+    # the saved upload keeps its .xlsx extension and is resolvable by run/reanalyze
+    fid = resp.json()["file_id"]
+    assert web_app._resolve_upload(fid).suffix == ".xlsx"
+
+
+def test_analyze_folder_batch(tmp_path):
+    """POST a folder of tables -> per-file summary with top recs; non-tables skipped."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    a = pd.DataFrame({"y": [float(i) for i in range(15)], "x": [float(i % 3) for i in range(15)]})
+    b = pd.DataFrame({"g": [i % 2 for i in range(20)], "v": [float(i) * 0.5 for i in range(20)]})
+    client = TestClient(web_app.app)
+    files = [
+        ("files", ("a.csv", a.to_csv(index=False).encode(), "text/csv")),
+        ("files", ("b.csv", b.to_csv(index=False).encode(), "text/csv")),
+        ("files", ("cover.png", b"\x89PNG not a table", "image/png")),  # skipped
+    ]
+    resp = client.post("/api/analyze_folder", files=files)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["n_files"] == 2  # the .png is skipped
+    for f in data["files"]:
+        assert f["ok"] is True
+        assert f["top"] and len(f["top"]) >= 1
+        assert {"id", "method", "family", "light"} <= set(f["top"][0])
+        # each batch file is openable in the full flow
+        assert web_app._resolve_upload(f["file_id"]).exists()
