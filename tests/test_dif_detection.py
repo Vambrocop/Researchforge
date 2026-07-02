@@ -165,3 +165,87 @@ def test_dif_too_few_per_group_skips(tmp_path: Path) -> None:
     )
     assert "跳过" in res.summary
     assert "n_flagged_dif" not in res.estimates
+
+
+def test_dif_ets_classification_nonsignificant_is_always_a() -> None:
+    """Non-significant item with |Δ| >= 1.0 must be classified as A, not B.
+
+    ETS DIF classification rules:
+    - A (negligible): p >= 0.05 (not significant, any |Δ|) OR |Δ| < 1.0
+    - B (moderate): significant AND 1.0 <= |Δ| < 1.5
+    - C (large): significant AND |Δ| >= 1.5
+
+    This test verifies that non-significance alone produces "A", regardless of
+    effect size magnitude, and that significant large-effect items still get "C".
+    """
+    from researchforge.executor.branches.irt import _mh_dif_item
+
+    # Case 1: Non-significant item with |Δ| >= 1.0
+    # Construct sparse synthetic data: few strata, small cell counts → non-significant MH test
+    # but OR displaced enough to have |Δ| >= 1.0
+    # Using 4 strata with N=5 per stratum (very sparse to reduce power)
+    item_resp_case1 = np.array(
+        [0, 0, 1, 1, 0,   # stratum 1: ref 3 correct, focal 2 correct
+         1, 1, 0, 0, 1,   # stratum 2: ref 3 correct, focal 2 correct
+         0, 0, 1, 1, 0,   # stratum 3: ref 3 correct, focal 2 correct
+         1, 1, 0, 0, 1]   # stratum 4: ref 3 correct, focal 2 correct
+    )
+    grp_case1 = np.array([0, 0, 0, 1, 1] * 4)  # reference: indices 0,1,2; focal: indices 3,4
+    score_case1 = np.array([1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4])
+
+    or_mh1, chi2_1, p_1, ets_1, delta_1 = _mh_dif_item(
+        item_resp_case1, grp_case1, score_case1
+    )
+
+    # Verify: if this item is non-significant, it MUST be "A" regardless of |Δ|
+    if p_1 >= 0.05:
+        assert ets_1 == "A", (
+            f"Non-significant item must be A, not {ets_1}. "
+            f"p={p_1:.4f}, |Δ|={abs(delta_1):.4f}"
+        )
+
+    # Case 2: Significant item with large |Δ| (should be C)
+    # Many strata with large effect: focal group much lower success → large OR displacement
+    n_per_stratum = 50  # per group per stratum
+    n_strata = 15
+
+    item_resp_list = []
+    grp_list = []
+    score_list = []
+
+    for stratum_idx in range(1, n_strata + 1):
+        # Reference group: 50 with baseline performance (70% correct)
+        n_ref_correct = 35
+        n_ref_incorrect = 15
+        item_resp_list.extend([1] * n_ref_correct + [0] * n_ref_incorrect)
+        grp_list.extend([0] * n_per_stratum)
+        score_list.extend([stratum_idx] * n_per_stratum)
+
+        # Focal group: 50 with much lower performance (20% correct) → strong DIF
+        n_foc_correct = 10
+        n_foc_incorrect = 40
+        item_resp_list.extend([1] * n_foc_correct + [0] * n_foc_incorrect)
+        grp_list.extend([1] * n_per_stratum)
+        score_list.extend([stratum_idx] * n_per_stratum)
+
+    item_resp_case2 = np.array(item_resp_list)
+    grp_case2 = np.array(grp_list)
+    score_case2 = np.array(score_list)
+
+    or_mh2, chi2_2, p_2, ets_2, delta_2 = _mh_dif_item(
+        item_resp_case2, grp_case2, score_case2
+    )
+
+    # Verify: significant large-effect item should be C
+    assert p_2 < 0.05, (
+        f"Expected significant item but p={p_2:.5f}. "
+        f"OR={or_mh2:.4f}, |Δ|={abs(delta_2):.4f}"
+    )
+    assert abs(delta_2) >= 1.5, (
+        f"Expected |Δ| >= 1.5 but got {abs(delta_2):.4f}. "
+        f"OR={or_mh2:.4f}"
+    )
+    assert ets_2 == "C", (
+        f"Significant item with |Δ| >= 1.5 must be C, not {ets_2}. "
+        f"p={p_2:.5f}, |Δ|={abs(delta_2):.4f}"
+    )

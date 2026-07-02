@@ -900,8 +900,10 @@ def _mh_dif_item(item_resp, grp, score):
     Returns (mh_or, mh_chi2, p_value, ets_class) with the ETS A/B/C delta-MH
     classification. The MH common odds ratio pools 2x2 (group x correct) tables
     across score strata; the MH chi-square (with continuity correction) tests
-    OR=1 (no uniform DIF). ETS delta = -2.35*ln(OR_MH): |Δ|<1 -> A (negligible),
-    1<=|Δ|<1.5 (or not significant) -> B (moderate), |Δ|>=1.5 & significant -> C.
+    OR=1 (no uniform DIF). ETS delta = -2.35*ln(OR_MH). Classification:
+    - A (negligible): p >= 0.05 (not significant, any |Δ|) OR |Δ|<1.0 (significant but small)
+    - B (moderate): significant AND 1.0 <= |Δ| < 1.5
+    - C (large): significant AND |Δ| >= 1.5
     """
     import numpy as np
     from scipy import stats
@@ -953,12 +955,14 @@ def _mh_dif_item(item_resp, grp, score):
     sig = (p == p) and (p < 0.05)
     if delta != delta:
         ets = "NA"
-    elif abs(delta) < 1.0 or not sig:
-        ets = "A" if abs(delta) < 1.0 else "B"
+    elif not sig:
+        ets = "A"  # non-significant → negligible, regardless of |Δ|
+    elif abs(delta) < 1.0:
+        ets = "A"  # significant but |Δ| < 1.0
     elif abs(delta) < 1.5:
-        ets = "B"
+        ets = "B"  # significant and 1.0 <= |Δ| < 1.5
     else:
-        ets = "C"
+        ets = "C"  # significant and |Δ| >= 1.5
     return mh_or, chi2, p, ets, (delta if delta == delta else float("nan"))
 
 
