@@ -102,7 +102,8 @@ def _branch_arima(ctx: Ctx) -> None:
             estimates["aic"] = float(model.aic)
             summary.append(
                 f"{entry.method} 完成：对 {value_col} 拟合 ARIMA(1,1,1)，"
-                f"AIC={model.aic:.2f}，预测未来 {steps} 期"
+                f"AIC={model.aic:.2f}，预测未来 {steps} 期。"
+                "⚠ 阶数固定为 (1,1,1)（未做自动定阶/单位根检验，AIC 仅供参考）。"
             )
             code += [
                 "from statsmodels.tsa.arima.model import ARIMA",
@@ -139,8 +140,10 @@ def _branch_var_granger(ctx: Ctx) -> None:
             else:
                 maxlags = max(1, min(8, n // (len(series) + 1) - 1))
                 res = VAR(data).fit(maxlags=maxlags, ic="aic")
+                forced_lag1 = False
                 if res.k_ar < 1:
                     res = VAR(data).fit(1)  # AIC picked 0 lags -> force lag 1 for Granger
+                    forced_lag1 = True
                 pmat = pd.DataFrame(np.nan, index=series, columns=series)  # rows=causing -> cols=caused
                 for causing in series:
                     for caused in series:
@@ -213,8 +216,9 @@ def _branch_var_granger(ctx: Ctx) -> None:
                     else ""
                 )
                 time_warn = "" if fp.time_col else "；⚠ 无时间列，按行序当作时间序列处理（请确认行序即时序）"
+                lag_note = "（AIC 选 0，已强制为 1 阶）" if forced_lag1 else "（AIC 选）"
                 summary.append(
-                    f"{entry.method} 完成：{len(series)} 个序列 × {n} 期，VAR 阶数={res.k_ar}（AIC 选）；"
+                    f"{entry.method} 完成：{len(series)} 个序列 × {n} 期，VAR 阶数={res.k_ar}{lag_note}；"
                     f"Granger 因果 p 值矩阵见 granger_pvalues.csv；显著(p<0.05)有向因果："
                     f"{('、'.join(links) if links else '无')}{stat_warn}{time_warn}。"
                     f"按{'时间列 ' + str(fp.time_col) if fp.time_col else '行序'}排序；"
@@ -277,25 +281,34 @@ def _branch_cointegration_vecm(ctx: Ctx) -> None:
             "levels_nonstationary": float(lvl_nonstat), "diffs_stationary": float(diff_stat),
             "k_ar_diff": float(k), "n_obs": float(n),
         })
+        # NOTE: reject_pointwise is an element-wise trace>cv95 flag per row; it is NOT the
+        # authoritative rank (sequential re-crossing can make it disagree with select_coint_rank).
+        # The authoritative rank is `r` above (from the sequential select_coint_rank routine).
         pd.DataFrame({"r_le": list(range(len(trace))), "trace_stat": np.round(trace, 3),
-                      "crit_95": np.round(cv95, 3), "reject_(coint>r)": trace > cv95}
+                      "crit_95": np.round(cv95, 3), "reject_pointwise_(coint>r)_not_authoritative": trace > cv95}
                      ).to_csv(d / "johansen_trace.csv", index=False, encoding="utf-8")
         files.append("johansen_trace.csv")
 
         longrun = ""
         full_rank = r >= len(series)  # r == #vars -> levels stationary (I(0)), not a cointegrated I(1) system
         if 1 <= r < len(series):
-            vecm = VECM(data, k_ar_diff=k, coint_rank=r, deterministic="ci").fit()
+            # deterministic="co": matches the det_order=0 Johansen rank test above. statsmodels'
+            # coint_johansen only tabulates nc/co/lo critical values (no "ci" table exists), so fitting
+            # the VECM with the restricted-constant "ci" would test and fit under DIFFERENT deterministic
+            # assumptions (co's lenient 95% critical values vs ci's stricter ones) -> spurious cointegration
+            # in the gap between them. "co" keeps the constant unrestricted and OUTSIDE the cointegrating
+            # relation, consistent with the rank test that was actually used to pick r.
+            vecm = VECM(data, k_ar_diff=k, coint_rank=r, deterministic="co").fit()
             beta = np.asarray(vecm.beta)[:, 0].astype(float)
             alpha = np.asarray(vecm.alpha)[:, 0].astype(float)
             beta_n = beta / beta[0] if abs(beta[0]) > 1e-12 else beta
             terms = " ".join(f"{'+' if b >= 0 else '-'}{abs(b):.3f}·{s}" for b, s in zip(beta_n, series))
             longrun = f"长期均衡关系（标准化 {series[0]}=1）：{terms} ≈ 0；"
             estimates["adjustment_speed_eq1"] = round(float(alpha[0]), 4)
-            # deterministic="ci": a restricted constant lives INSIDE the cointegration -> include it in
-            # the ECT so the equilibrium error is centered correctly (matters for the plot).
-            const = np.ravel(getattr(vecm, "det_coef_coint", np.zeros(1)))
-            ect = data.to_numpy() @ beta + (float(const[0]) if const.size else 0.0)
+            # deterministic="co": the constant is unrestricted and lives OUTSIDE the cointegrating
+            # relation (each equation's own intercept), so no constant term is added into the ECT here
+            # (a nonzero mean of the equilibrium error shows up via the axhline in the plot instead).
+            ect = data.to_numpy() @ beta
             try:
                 ect_p = float(adfuller(ect, autolag="AIC")[1])
                 estimates["ect_adf_pvalue"] = round(ect_p, 4)
@@ -338,12 +351,15 @@ def _branch_cointegration_vecm(ctx: Ctx) -> None:
             f"{entry.method} 完成：{len(series)} 个序列 × {n} 期（diff 阶数 k={k}）。{verdict}。"
             f" ⚠ 协整要求各序列 I(1)（已查：{lvl_nonstat}/{len(series)} levels 非平稳、"
             f"{diff_stat}/{len(series)} 差分平稳{i1_note}）；Johansen 对滞后阶/确定性项设定敏感；"
-            "长期关系是统计均衡、非结构因果。"
+            "秩检验与 VECM 均采用『无约束常数(co)』设定（statsmodels 的 Johansen 秩检验仅提供 "
+            "nc/co/lo 临界值表，无约束常数外置，允许水平序列有非零均值）；"
+            "johansen_trace.csv 的逐行 reject 列为逐点比较，非权威结果——权威协整秩以序贯 "
+            "select_coint_rank（即上文 r）为准；长期关系是统计均衡、非结构因果。"
         )
         code += [
             "from statsmodels.tsa.vector_ar.vecm import select_coint_rank, VECM  # 协整 + VECM",
             f"# r=select_coint_rank(data, det_order=0, k_ar_diff={k}, signif=0.05).rank (序贯); "
-            f"VECM(data, k_ar_diff={k}, coint_rank=r, deterministic='ci').fit()",
+            f"VECM(data, k_ar_diff={k}, coint_rank=r, deterministic='co').fit()",
         ]
     except Exception as err:
         summary.append(f"协整/VECM 失败：{err}")
@@ -448,7 +464,7 @@ def _branch_garch(ctx: Ctx) -> None:
 @register("structural_breaks")
 def _branch_structural_breaks(ctx: Ctx) -> None:
     # Multiple structural-break (change-point) detection in a series' MEAN level via ruptures PELT
-    # (Bai-Perron-style), with a BIC penalty auto-selecting the number of breaks.
+    # (Bai-Perron-style), with a ~2xBIC penalty (penalty_mult, default 2.0) auto-selecting the breaks.
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import importlib.util
@@ -489,7 +505,7 @@ def _branch_structural_breaks(ctx: Ctx) -> None:
             sel = f"固定 {nb} 个断点 (Dynp)"
         else:
             bkps = rpt.Pelt(model="l2", min_size=min_size).fit(sig).predict(pen=pen)
-            sel = f"PELT 自动选 (BIC 罚 pen={pen:.3g})"
+            sel = f"PELT 自动选 (~2×BIC 惩罚 pen={pen:.3g}，penalty_mult 默认 2.0，越大越少断点)"
         breaks = [int(b) for b in bkps if b < n]  # segment boundaries (drop the trailing n)
         bounds = [0] + breaks + [n]
         seg = [{"start": bounds[i], "end": bounds[i + 1], "n": bounds[i + 1] - bounds[i],

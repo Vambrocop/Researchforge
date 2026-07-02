@@ -46,6 +46,22 @@ def test_var_granger_direction(tmp_path: Path) -> None:
     assert pmat.loc["y", "x"] > 0.05
 
 
+def test_var_granger_forced_lag_note_when_aic_picks_zero(tmp_path: Path) -> None:
+    # two independent white-noise series -> AIC selects 0 lags; the code force-refits at lag 1
+    # so Granger causality can still be tested. The disclosure must say so (not just "AIC 选").
+    rng = np.random.default_rng(7)
+    n = 200
+    df = pd.DataFrame({"x": rng.normal(0, 1, n), "y": rng.normal(0, 1, n)})
+    csv = tmp_path / "noise.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+
+    assert res.estimates["selected_lag"] >= 1
+    assert "已强制为 1 阶" in res.summary
+
+
 def test_var_granger_precondition_unmet(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"x": rng.normal(0, 1, 40), "g": ["a", "b"] * 20})  # only 1 continuous

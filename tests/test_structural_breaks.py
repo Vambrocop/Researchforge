@@ -38,6 +38,8 @@ def test_structural_breaks_finds_mean_shift(tmp_path: Path) -> None:
     seg = pd.read_csv(Path(res.output_dir) / "segments.csv")
     # the single detected break should sit close to the true location (120)
     assert abs(int(seg.iloc[0]["end"]) - 120) <= 10
+    # honesty label: the PELT penalty is ~2xBIC (mult=2.0 default), not plain BIC.
+    assert "2×BIC" in res.summary
 
 
 def test_structural_breaks_none_on_noise(tmp_path: Path) -> None:

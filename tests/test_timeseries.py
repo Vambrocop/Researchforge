@@ -125,6 +125,8 @@ def test_executor_arima(tmp_path):
     fc = pd.read_csv(out / "forecast.csv")
     assert list(fc.columns) == ["step", "forecast"]
     assert len(fc) == 10  # forecasts the contracted 10 periods
+    # honesty disclosure: order (1,1,1) is hardcoded, not auto-selected -- AIC is informational only.
+    assert "阶数固定为 (1,1,1)" in res.summary
 
 
 def test_arima_degenerate_series_fails_gracefully(tmp_path):
