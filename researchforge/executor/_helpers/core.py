@@ -271,10 +271,27 @@ def _localize_figure(fig) -> None:
         pass
 
 
+def _figure_language_is_zh() -> bool:
+    """Re-read the localization policy fresh every call (never cached), so a long-lived
+    process — e.g. the FastAPI server, where `_init_mpl_style` only *installs* the
+    savefig patch once — still honors a later ``RF_FIG_LANG=en`` or a machine with no
+    CJK font: True only when RF_FIG_LANG isn't "en" AND a CJK font is available
+    (``_detect_cjk_font`` is itself lru_cached, so this check is effectively free)."""
+    if os.environ.get("RF_FIG_LANG", "").strip().lower() == "en":
+        return False
+    return bool(_detect_cjk_font())
+
+
 def _install_savefig_localizer() -> None:
     """Monkeypatch Figure.savefig (once, in-process) to localize labels to Chinese just
     before saving — the single chokepoint every branch's figure flows through, so no
-    per-branch edits are needed. Idempotent; guarded by a sentinel attribute."""
+    per-branch edits are needed. Idempotent; guarded by a sentinel attribute.
+
+    The patch itself is installed once (this function is a no-op on repeat calls), but
+    the *decision* of whether to translate is deferred to each call of the wrapped
+    ``savefig`` (see ``_figure_language_is_zh``) rather than frozen at install time —
+    otherwise the first analysis run in a long-lived process would lock in the
+    language/font state for every run after it."""
     try:
         import matplotlib.figure as _mfig
 
@@ -283,7 +300,8 @@ def _install_savefig_localizer() -> None:
         _orig = _mfig.Figure.savefig
 
         def savefig(self, *args, **kwargs):
-            _localize_figure(self)
+            if _figure_language_is_zh():
+                _localize_figure(self)
             return _orig(self, *args, **kwargs)
 
         savefig._rf_localized = True
@@ -375,10 +393,13 @@ def _init_mpl_style(theme: str | None = None) -> None:
             rc["font.serif"] = [cjk] + [f for f in serif if f != cjk]
             rc.setdefault("font.family", "serif" if theme == "aer" else "sans-serif")
         plt.rcParams.update(rc)
-        # Localize figure labels to Chinese (only when a CJK font is present, so we never
-        # render tofu, and unless RF_FIG_LANG=en forces English for publication/CI).
-        if cjk and os.environ.get("RF_FIG_LANG", "zh").strip().lower() != "en":
-            _install_savefig_localizer()
+        # Install the savefig localization chokepoint unconditionally (idempotent — a
+        # no-op after the first call). Whether a given save actually translates is
+        # decided per-call inside the patched savefig (via _figure_language_is_zh), not
+        # here: gating the *install* on the current cjk/RF_FIG_LANG state would freeze
+        # that state for the rest of the process (e.g. a long-lived FastAPI server),
+        # ignoring a later RF_FIG_LANG=en. See CLAUDE.md P2-4.
+        _install_savefig_localizer()
     except Exception:
         pass
 

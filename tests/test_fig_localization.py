@@ -98,3 +98,44 @@ def test_savefig_chokepoint_localizes(tmp_path: Path) -> None:
     assert ax.get_ylabel() == "计数"
     assert (tmp_path / "f.png").exists()
     plt.close(fig)
+
+
+@pytest.mark.skipif(_detect_cjk_font() is None, reason="no CJK font -> nothing to prove per-call re-reads")
+def test_savefig_language_policy_is_read_per_call_not_frozen_at_install(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P2-4: in a long-lived process (e.g. the FastAPI server), _init_mpl_style only
+    *installs* the savefig patch once — the language decision must be re-read on every
+    save, not frozen from the first call. Simulates: zh-style init (patch installed,
+    translating) -> RF_FIG_LANG=en set later -> a newly-saved figure must stay English."""
+    import matplotlib.pyplot as plt
+
+    monkeypatch.delenv("RF_FIG_LANG", raising=False)
+    _init_mpl_style()  # first "request": default zh policy, installs the savefig patch
+
+    fig_zh, ax_zh = plt.subplots()
+    ax_zh.set_xlabel("time")
+    fig_zh.savefig(tmp_path / "zh.png")
+    assert ax_zh.get_xlabel() == "时间"  # sanity: translation is indeed active
+    plt.close(fig_zh)
+
+    # a later "request" flips the policy to English without re-installing the patch
+    monkeypatch.setenv("RF_FIG_LANG", "en")
+    fig_en, ax_en = plt.subplots()
+    ax_en.set_xlabel("time")
+    ax_en.set_ylabel("count")
+    fig_en.savefig(tmp_path / "en.png")
+    assert ax_en.get_xlabel() == "time"  # NOT translated -> policy was re-read at call time
+    assert ax_en.get_ylabel() == "count"
+    plt.close(fig_en)
+
+
+def test_install_savefig_localizer_is_idempotent() -> None:
+    import matplotlib.figure as _mfig
+
+    from researchforge.executor._helpers.core import _install_savefig_localizer
+
+    _install_savefig_localizer()
+    patched_once = _mfig.Figure.savefig
+    _install_savefig_localizer()  # calling again must not re-wrap (no double translation)
+    assert _mfig.Figure.savefig is patched_once
