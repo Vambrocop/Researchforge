@@ -163,6 +163,66 @@ def test_growth_inter_arrival_input(tmp_path: Path) -> None:
     assert "间隔" in res.summary  # disclosed inter-arrival cumulation
 
 
+def test_growth_default_failure_truncated_disclosure_and_code(tmp_path: Path) -> None:
+    """Default run (no termination_time) is FAILURE-truncated (Rigdon & Basu): the
+    ⚠ note must say it used 失效截尾 (not 时间截尾, which was the pre-fix bug — the
+    note used to unconditionally claim 时间截尾 regardless of what was computed), and
+    the emitted analysis_code.py must use the (n-1)-numerator formula and reproduce
+    the reported beta (previously the code echo used the n-numerator time-truncated
+    form even for the failure-truncated default, so copying it gave a different beta)."""
+    beta_true, lam = 0.6, 0.5
+    n = 30
+    i = np.arange(1, n + 1, dtype=float)
+    t = (i / lam) ** (1.0 / beta_true)
+    csv = _csv(tmp_path, "g3.csv", pd.DataFrame({"failure_time": t}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("reliability_growth", "Crow-AMSAA"),
+                       output_root=str(tmp_path / "o"),
+                       config={"life": "failure_time"})
+    e = res.estimates
+    assert "本次采用失效截尾 MLE" in res.summary
+    assert "本次采用时间截尾 MLE" not in res.summary
+    out = Path(res.output_dir)
+    code_txt = (out / "analysis_code.py").read_text(encoding="utf-8")
+    assert "(n - 1)" in code_txt
+    # reproduce the reported beta using the emitted (n-1)-numerator formula against the
+    # cumulative failure times actually written to the CSV product
+    tbl = pd.read_csv(out / "reliability_growth.csv")
+    t_arr = tbl["cumulative_time"].to_numpy()
+    T = e["total_time"]
+    beta_reproduced = (t_arr.size - 1) / np.sum(np.log(T / t_arr))
+    assert math.isclose(beta_reproduced, e["camsaa_beta"], rel_tol=1e-3)
+
+
+def test_growth_termination_time_is_time_truncated_disclosure_and_code(tmp_path: Path) -> None:
+    """Explicit config['termination_time'] switches to TIME-truncated MLE: the ⚠ note
+    must say 时间截尾 and the emitted code must use the n-numerator formula (no
+    (n-1)), reproducing the reported beta."""
+    beta_true, lam = 0.6, 0.5
+    n = 30
+    i = np.arange(1, n + 1, dtype=float)
+    t = (i / lam) ** (1.0 / beta_true)
+    term = float(t[-1]) * 1.1  # test continued a bit past the last observed failure
+    csv = _csv(tmp_path, "g4.csv", pd.DataFrame({"failure_time": t}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("reliability_growth", "Crow-AMSAA"),
+                       output_root=str(tmp_path / "o"),
+                       config={"life": "failure_time", "termination_time": term})
+    e = res.estimates
+    assert "本次采用时间截尾 MLE" in res.summary
+    assert "本次采用失效截尾 MLE" not in res.summary
+    out = Path(res.output_dir)
+    code_txt = (out / "analysis_code.py").read_text(encoding="utf-8")
+    assert "(n - 1)" not in code_txt
+    assert "beta = n / np.sum(np.log(T / t))" in code_txt
+    tbl = pd.read_csv(out / "reliability_growth.csv")
+    t_arr = tbl["cumulative_time"].to_numpy()
+    T = e["total_time"]
+    assert math.isclose(T, term, rel_tol=1e-6)
+    beta_reproduced = t_arr.size / np.sum(np.log(T / t_arr))
+    assert math.isclose(beta_reproduced, e["camsaa_beta"], rel_tol=1e-3)
+
+
 def test_growth_degrade_too_few(tmp_path: Path) -> None:
     """Fewer than 3 failure times -> honest 跳过, no crash."""
     csv = _csv(tmp_path, "g2.csv", pd.DataFrame({"failure_time": [10.0, 25.0]}))
@@ -210,11 +270,17 @@ def test_alt_arrhenius_recovers_ea(tmp_path: Path) -> None:
     assert math.isclose(e["activation_energy"], Ea, rel_tol=0.15)
     # acceleration factor toward the mildest (lowest) stress > 1 (longer life there)
     assert e["acceleration_factor"] > 1.0
-    assert e["mttf_use"] > 0
+    assert e["median_life_use"] > 0
+    # lognormal mean >= median (mean = median * exp(sigma_log^2/2))
+    assert e["mean_life_use"] >= e["median_life_use"]
     assert e["n_stress_levels"] == 4.0
     out = Path(res.output_dir)
     assert (out / "accelerated_life_test.csv").exists()
     assert "外推" in res.summary  # extrapolation risk disclosure
+    # median-vs-mean label must be present; no bare "MTTF≈" claiming the mean
+    # (life_use = exp(a+b*x) is the lognormal MEDIAN, not the mean)
+    assert "中位" in res.summary and "均值" in res.summary
+    assert "MTTF≈" not in res.summary
 
 
 def test_alt_inverse_power_explicit(tmp_path: Path) -> None:
@@ -280,3 +346,55 @@ def test_alt_degrade_single_stress(tmp_path: Path) -> None:
                        config={"life": "life_hours", "stress": "temperature"})
     assert "跳过" in res.summary
     assert "acceleration_factor" not in res.estimates
+
+
+def test_alt_celsius_ambiguity_disclosed_for_unlabeled_high_temp(tmp_path: Path) -> None:
+    """A stress column just called 'temperature' (no unit token) with values in
+    200-300 is a real-world HTOL/HAST high-temperature Celsius test range, but the
+    engine's Kelvin heuristic (`S >= 200`) treats it as already-Kelvin and skips the
+    +273.15 conversion since the data alone is genuinely ambiguous. The fix does NOT
+    change that default (data can't disambiguate), but must surface an explicit ⚠
+    note telling the user to confirm units / override config, since silently getting
+    this wrong would badly distort Ea and the extrapolated use-stress life."""
+    rng = np.random.default_rng(21)
+    a_true, b_true = 5.0, 500.0
+    temps = np.array([200.0, 250.0, 300.0])
+    rows = []
+    for tv in temps:
+        mean_lnL = a_true + b_true * (1.0 / tv)
+        for _ in range(10):
+            rows.append({"temperature": tv,
+                         "life_hours": float(np.exp(mean_lnL + rng.normal(0, 0.03)))})
+    csv = _csv(tmp_path, "altc.csv", pd.DataFrame(rows))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("accelerated_life_test", "Accelerated Life Test", "predict"),
+                       output_root=str(tmp_path / "o"),
+                       config={"life": "life_hours", "stress": "temperature", "model": "arrhenius"})
+    e = res.estimates
+    assert e["n_stress_levels"] == 3.0
+    # Kelvin default preserved (no silent conversion) ...
+    assert "（应力按开尔文使用）" in res.summary
+    # ... but the genuine Celsius-vs-Kelvin ambiguity must be explicitly flagged
+    assert "仅泛称『温度』" in res.summary
+    assert "未标明单位" in res.summary
+
+
+def test_alt_celsius_ambiguity_not_flagged_when_name_says_kelvin(tmp_path: Path) -> None:
+    """Same ambiguous 200-300 numeric range, but the column name explicitly says
+    Kelvin -- data and name agree, so there is nothing ambiguous to disclose."""
+    rng = np.random.default_rng(22)
+    a_true, b_true = 5.0, 500.0
+    temps = np.array([200.0, 250.0, 300.0])
+    rows = []
+    for tv in temps:
+        mean_lnL = a_true + b_true * (1.0 / tv)
+        for _ in range(10):
+            rows.append({"temperature_kelvin": tv,
+                         "life_hours": float(np.exp(mean_lnL + rng.normal(0, 0.03)))})
+    csv = _csv(tmp_path, "altk.csv", pd.DataFrame(rows))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("accelerated_life_test", "Accelerated Life Test", "predict"),
+                       output_root=str(tmp_path / "o"),
+                       config={"life": "life_hours", "stress": "temperature_kelvin",
+                               "model": "arrhenius"})
+    assert "仅泛称『温度』" not in res.summary

@@ -592,6 +592,15 @@ def _branch_reliability_growth(ctx: Ctx) -> None:
                     else "输入按到达间隔时间处理，已累加为累积失效时间")
         trunc_txt = "时间截尾" if time_truncated else "失效截尾"
         inst_cmp = "改善时(β<1)高于、退化时(β>1)低于累积"
+        # ⚠ note must describe what was ACTUALLY computed (not a hard-coded default
+        # description) — the truncation type (and hence the β numerator, n vs n-1)
+        # switches on whether config['termination_time'] was supplied.
+        _mle_txt = (
+            "时间截尾 MLE（β̂=n/Σln(T/t_i)，λ̂=n/T^β̂，T=给定的 termination_time）"
+            if time_truncated else
+            "失效截尾 MLE（β̂=(n-1)/Σln(t_n/t_i)，λ̂=n/t_n^β̂，T=末次失效时间；"
+            "未给 termination_time 时的默认）"
+        )
         summary.append(
             f"{ctx.entry.method} 完成（Crow-AMSAA / NHPP 幂律，{trunc_txt} MLE）：失效时间列={life}"
             f"（{n} 个失效，{kind_txt}，总试验时间 T={T:.4g}）。增长斜率 β={beta:.4g}（{trend_txt}）、"
@@ -600,18 +609,30 @@ def _branch_reliability_growth(ctx: Ctx) -> None:
             "明细见 reliability_growth.csv 与 Duane 图。"
             " ⚠ 本模型假定单一可修系统在 test-fix 增长计划下（NHPP 幂律强度 u(t)=λβt^(β-1)）；"
             "β 是『增长斜率』，与方法 1(weibull_life_analysis) 的威布尔形状参数含义不同（勿混用）。"
-            " ⚠ 默认采用时间截尾 MLE（β̂=n/Σln(T/t_i)，λ̂=n/T^β̂，T=末次失效时间，除非给 termination_time）；"
-            "失效截尾会用 n-1（差异在小样本时明显）。 ⚠ 投影 MTBF 假定相同增长律持续，外推有风险。"
+            f" ⚠ 本次采用{_mle_txt}；两种截尾的 β 分子不同（时间截尾=n，失效截尾=n-1），"
+            "给/不给 termination_time 会切换截尾类型，差异在小样本时明显。"
+            " ⚠ 投影 MTBF 假定相同增长律持续，外推有风险。"
         )
-        code += [
-            "import numpy as np",
-            "t = np.sort(failure_times)            # 累积失效时间（若为间隔则先 cumsum）",
-            "n = t.size; T = t[-1]                 # 时间截尾：T=末次失效时间",
-            "beta = n / np.sum(np.log(T / t))      # Crow-AMSAA 增长斜率 (β<1=改善)",
-            "lam  = n / T**beta                    # N(t)=λ t^β",
-            "mtbf_cum  = T / (lam * T**beta)       # 累积 MTBF",
-            "mtbf_inst = 1.0 / (lam*beta*T**(beta-1))  # 瞬时 MTBF",
-        ]
+        if time_truncated:
+            code += [
+                "import numpy as np",
+                "t = np.sort(failure_times)            # 累积失效时间（若为间隔则先 cumsum）",
+                "n = t.size; T = termination_time       # 时间截尾：给定的终止时间 T（>=末次失效时间）",
+                "beta = n / np.sum(np.log(T / t))      # Crow-AMSAA 增长斜率 (β<1=改善)；时间截尾分子=n",
+                "lam  = n / T**beta                    # N(t)=λ t^β",
+                "mtbf_cum  = T / (lam * T**beta)       # 累积 MTBF",
+                "mtbf_inst = 1.0 / (lam*beta*T**(beta-1))  # 瞬时 MTBF",
+            ]
+        else:
+            code += [
+                "import numpy as np",
+                "t = np.sort(failure_times)            # 累积失效时间（若为间隔则先 cumsum）",
+                "n = t.size; T = t[-1]                 # 失效截尾（默认）：T=末次失效时间",
+                "beta = (n - 1) / np.sum(np.log(T / t))  # Crow-AMSAA 增长斜率 (β<1=改善)；失效截尾分子=n-1",
+                "lam  = n / T**beta                    # N(t)=λ t^β",
+                "mtbf_cum  = T / (lam * T**beta)       # 累积 MTBF",
+                "mtbf_inst = 1.0 / (lam*beta*T**(beta-1))  # 瞬时 MTBF",
+            ]
     except Exception as exc:
         summary.append(f"可靠性增长(Crow-AMSAA) 计算失败：{exc}")
 
@@ -684,6 +705,7 @@ def _branch_accelerated_life_test(ctx: Ctx) -> None:
             model = "arrhenius" if looks_temp else "inverse_power"
 
         celsius_converted = False
+        celsius_ambiguity_note = ""
         if model == "arrhenius":
             # Arrhenius uses absolute temperature (Kelvin). STOP-AND-REPORT:
             # if values look like Celsius (0–300 and not an obvious Kelvin band) add
@@ -702,6 +724,21 @@ def _branch_accelerated_life_test(ctx: Ctx) -> None:
             else:
                 S_used = S.copy()
                 Sf_used = Sf.copy()
+            # ⚠ genuine ambiguity, disclosure only (do NOT change the Kelvin default):
+            # a column that only generically hints "temperature" (no explicit unit) with
+            # values that fall in a range a real high-temp Celsius test (HTOL/HAST, e.g.
+            # 200/250/300 °C) would ALSO produce gets silently treated as Kelvin above via
+            # the `S >= 200` fallback. Flag it so the user can confirm/override.
+            if not celsius_converted and not name_says_kelvin:
+                _temp_hint = any(k in sname for k in ("temp", "°c", "celsius", "degc", "℃"))
+                if _temp_hint and bool(np.all(S <= 400)):
+                    celsius_ambiguity_note = (
+                        f" ⚠ 应力列『{stress}』名称仅泛称『温度』、未标明单位，且数值范围（≤400，本次 "
+                        f"{float(np.min(S)):.4g}–{float(np.max(S)):.4g}）与摄氏度高温加速试验"
+                        "（如 HTOL/HAST 的 200/250/300°C）同样吻合——本次按开尔文原样使用（未 +273.15）。"
+                        "若实际是摄氏度，请把 config['stress'] 对应列改名含'celsius'/'°C'或换算后重跑，"
+                        "否则活化能 Ea 与外推寿命会系统性偏差。"
+                    )
             # ln(L) = a + b*(1/T)
             x_fit = 1.0 / Sf_used
         else:
@@ -754,7 +791,13 @@ def _branch_accelerated_life_test(ctx: Ctx) -> None:
         sigma_log = float(np.std(resid, ddof=1)) if n_fail > 2 else float(np.std(resid))
         from scipy.stats import norm
 
-        mttf_use = life_use  # scale of the fitted life at use stress
+        # life_use = exp(a + b*x) = exp(E[ln L]) is the MEDIAN (characteristic) life of
+        # the fitted lognormal-of-life, NOT the mean. Report both explicitly: the true
+        # mean of a lognormal is median * exp(sigma_log^2 / 2) (>= median), so labelling
+        # life_use as "MTTF" (a mean) would be systematically too low.
+        median_life_use = life_use  # median/characteristic life at use stress
+        mean_life_use = (float(median_life_use * np.exp(0.5 * sigma_log ** 2))
+                          if np.isfinite(sigma_log) else float("nan"))
         b10_use = float(life_use * np.exp(norm.ppf(0.10) * sigma_log)) if np.isfinite(sigma_log) else float("nan")
 
         activation_energy = float("nan")
@@ -777,7 +820,8 @@ def _branch_accelerated_life_test(ctx: Ctx) -> None:
             "model_intercept": round(a, 6),
             "model_slope": round(b, 6),
             "acceleration_factor": round(float(accel_factor), 4),
-            "mttf_use": round(float(mttf_use), 4),
+            "median_life_use": round(float(median_life_use), 4),
+            "mean_life_use": round(float(mean_life_use), 4) if np.isfinite(mean_life_use) else float("nan"),
             "b10_use": round(float(b10_use), 4) if np.isfinite(b10_use) else float("nan"),
             "use_stress": round(float(use_stress), 6),
             "sigma_log": round(float(sigma_log), 6) if np.isfinite(sigma_log) else float("nan"),
@@ -819,26 +863,32 @@ def _branch_accelerated_life_test(ctx: Ctx) -> None:
                   if model == "arrhenius" and np.isfinite(activation_energy) else "")
         cens_txt = (f"，{n_cens} 个删失点仅在拟合中按失效外处理（未做 Tobit 加权，已披露）"
                     if n_cens else "")
+        mean_txt = (f"、均值≈{mean_life_use:.4g}" if np.isfinite(mean_life_use) else "")
         summary.append(
             f"{ctx.entry.method} 完成（{model_txt}{unit_txt}）：寿命列={life}、应力列={stress}"
             f"（{distinct_stress} 个应力水平、{n_fail} 个失效{cens_txt}）。"
             f"系数 a={a:.4g}、b={b:.4g}；{ea_txt}"
             f"使用应力={use_stress:.4g}{use_txt}，相对最严酷实测应力({high_stress:.4g})的加速因子 AF={accel_factor:.4g}；"
-            f"使用应力下外推寿命 MTTF≈{mttf_use:.4g}、B10≈{b10_use:.4g}（用残差对数散度 σ={sigma_log:.4g} 估 B10）。"
+            f"使用应力下外推寿命：中位/特征寿命≈{median_life_use:.4g}{mean_txt}、B10≈{b10_use:.4g}"
+            f"（用残差对数散度 σ={sigma_log:.4g} 估 B10）。"
             "明细见 accelerated_life_test.csv 与寿命-应力图。"
             " ⚠ **外推到实测应力范围之外是模型相关且有风险的**——AF 与使用应力寿命强烈依赖所选寿命-应力模型"
             "（Arrhenius vs 逆幂律）是否正确，错选模型会系统性高估/低估使用寿命。"
             " ⚠ 拟合在失效点上做对数线性回归（删失点未做删失感知 Tobit 加权）；B10 假定寿命服从对数正态、"
             "散度在各应力水平相同（常数 σ 假定）。 ⚠ 至少应有 ≥2 个应力水平、每水平有足够失效，估计才稳。"
+            " ⚠ 报告的『中位/特征寿命』=exp(a+b·x)，是对数正态假定下的中位数而非均值；"
+            "均值=中位·exp(σ_log²/2)（对数正态下均值恒 ≥ 中位）。"
+            f"{celsius_ambiguity_note}"
         )
         code += [
             "import numpy as np",
             "# Arrhenius: ln(L)=a+b*(1/T)（T 用开尔文）；逆幂律: ln(L)=a+b*ln(stress)",
             "x = 1.0/T_kelvin    # 或 np.log(stress) 对逆幂律",
             "b, a = np.polyfit(x, np.log(life_fail), 1)",
-            "life = lambda s: np.exp(a + b*(1.0/s))        # 在应力 s 处的寿命尺度",
+            "life = lambda s: np.exp(a + b*(1.0/s))        # 在应力 s 处的寿命尺度 = 中位数（非均值）",
             "AF = life(use_stress) / life(high_stress)     # 加速因子",
             "Ea = b * 8.617e-5                             # Arrhenius 活化能 (eV)",
+            "mean_life = life(use_stress) * np.exp(0.5*sigma_log**2)  # 对数正态均值（>=中位）",
         ]
     except Exception as exc:
         summary.append(f"加速寿命试验(ALT) 计算失败：{exc}")
