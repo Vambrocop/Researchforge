@@ -117,6 +117,94 @@ def test_pcm_recovers_step_difficulties(tmp_path: Path) -> None:
     assert (Path(res.output_dir) / "irt_pcm_steps.png").exists()
 
 
+def test_gpcm_scorer_matches_model_and_differs_from_grm(tmp_path: Path) -> None:
+    # PCM/GPCM θ must be scored with the ADJACENT-CATEGORY (divide-by-total)
+    # likelihood, NOT the GRM cumulative one. On ≥3-category data the two scorers
+    # give materially different θ; the GPCM scorer (matching _simulate_pcm's
+    # data-generating model) recovers the true θ at least as well as the mismatched
+    # GRM scorer. This is the regression guard for the model-family fix.
+    import importlib.util
+
+    import pytest
+
+    if importlib.util.find_spec("girth") is None:
+        pytest.skip("girth not installed")
+    import girth
+
+    from researchforge.executor.branches.irt import (
+        _gpcm_abilities,
+        _poly_abilities,
+        _poly_thresholds,
+    )
+
+    steps = np.array(
+        [
+            [-1.5, -0.2, 1.2],
+            [-1.0, 0.0, 1.0],
+            [-2.0, -0.5, 0.5],
+            [-1.2, 0.3, 1.4],
+            [-0.8, 0.1, 1.1],
+            [-1.6, -0.3, 0.8],
+        ]
+    )
+    df, theta = _simulate_pcm(1500, steps, seed=11)
+    X_ip = df.to_numpy(int).T  # items x persons
+    disc, thr = _poly_thresholds(girth.pcm_mml(X_ip))
+    n_cats = 4
+
+    theta_gpcm = _gpcm_abilities(X_ip, disc, thr, n_cats)
+    theta_grm = _poly_abilities(X_ip, disc, thr, n_cats)  # the old (wrong) scorer
+
+    r_gpcm = np.corrcoef(theta_gpcm, theta)[0, 1]
+    r_grm = np.corrcoef(theta_grm, theta)[0, 1]
+    # matched scorer recovers the true abilities strongly
+    assert r_gpcm > 0.85, f"GPCM θ recovery weak (r={r_gpcm:.3f})"
+    # the two are genuinely different models — θ estimates diverge on 4-category data
+    assert not np.allclose(theta_gpcm, theta_grm, atol=1e-3)
+    mean_abs_diff = float(np.abs(theta_gpcm - theta_grm).mean())
+    assert mean_abs_diff > 0.01, f"GPCM/GRM scorers indistinguishable (mean|Δ|={mean_abs_diff:.4f})"
+    # the correct model should fit the data at least as well as the mismatched one
+    assert r_gpcm >= r_grm - 0.02, f"GPCM ({r_gpcm:.3f}) worse than GRM ({r_grm:.3f})"
+
+    # --- where the model-family difference BITES: disordered (non-monotone) steps ---
+    # PCM/GPCM steps may be non-monotone; the GRM cumulative scorer assumes ordered
+    # boundaries, so it is most wrong here. The GPCM scorer must recover θ with
+    # strictly lower error — a strong, falsifiable proof the fix matters (a silent
+    # revert to the GRM scorer would fail this).
+    steps_dis = np.array(
+        [
+            [1.2, -0.5, 0.3],
+            [0.8, -1.0, 0.5],
+            [1.5, -0.8, 0.2],
+            [0.9, -1.2, 0.6],
+            [1.1, -0.6, 0.4],
+            [1.3, -0.9, 0.1],
+        ]
+    )
+    df2, theta2 = _simulate_pcm(1500, steps_dis, seed=23)
+    X_ip2 = df2.to_numpy(int).T
+    disc2, thr2 = _poly_thresholds(girth.pcm_mml(X_ip2))
+    rmse_gpcm = float(np.sqrt(np.mean((_gpcm_abilities(X_ip2, disc2, thr2, 4) - theta2) ** 2)))
+    rmse_grm = float(np.sqrt(np.mean((_poly_abilities(X_ip2, disc2, thr2, 4) - theta2) ** 2)))
+    assert rmse_gpcm < rmse_grm, f"on disordered steps GPCM RMSE {rmse_gpcm:.3f} not < GRM {rmse_grm:.3f}"
+
+
+def test_gpcm_abilities_survives_nan_step_without_poisoning_all_thetas() -> None:
+    # girth returns a NaN top-step for an item that never reaches its top category.
+    # The divide-by-total normalizer must NOT let that one NaN poison every person's
+    # θ (the regression the inference reviewer caught: 400/400 NaN). Masked → finite.
+    import numpy as np
+
+    from researchforge.executor.branches.irt import _gpcm_abilities
+
+    disc = np.array([1.0, 1.0])
+    thr = np.array([[-1.0, 0.0, 1.0], [-1.1, -2.5, np.nan]])  # item 1 tops out early
+    # persons only ever use categories the items actually reach (0..2 for item 1)
+    X_ip = np.array([[0, 1, 2, 3, 2, 1], [0, 1, 2, 2, 1, 0]])
+    theta = _gpcm_abilities(X_ip, disc, thr, n_cats=4)
+    assert np.isfinite(theta).all(), f"NaN step poisoned θ: {theta}"
+
+
 def test_pcm_config_items_override(tmp_path: Path) -> None:
     steps = np.array(
         [[-1.0, 0.0, 1.0], [-1.2, -0.2, 0.9], [-0.8, 0.3, 1.1], [-1.4, -0.3, 0.7]]

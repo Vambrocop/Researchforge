@@ -202,9 +202,11 @@ def _poly_abilities(X_ip, disc, thr, n_cats):
 
     girth has no public closed-form polytomous EAP scorer that matches every
     build, so we score abilities by EAP on a fixed N(0,1) quadrature grid using
-    the fitted GRM/PCM category-response likelihood (same model family girth
-    fitted). This keeps theta on the standard-normal metric the item params were
-    estimated against. Returns a 1-D array of length n_persons.
+    the fitted GRM (Samejima graded-response) CUMULATIVE-boundary likelihood.
+    This is the correct scorer for irt_grm ONLY — the PCM/GPCM family is an
+    adjacent-category (divide-by-total) model with a different likelihood, so it
+    uses `_gpcm_abilities`. Keeps theta on the standard-normal metric the item
+    params were estimated against. Returns a 1-D array of length n_persons.
     """
     import numpy as np
 
@@ -214,7 +216,7 @@ def _poly_abilities(X_ip, disc, thr, n_cats):
     n_items, n_persons = X_ip.shape
     # P(category=k | theta) per item: GRM cumulative-logit boundaries.
     # P(X>=k) = 1/(1+exp(-a*(theta - thr_k))); category prob = adjacent difference.
-    # PCM's equal-a special case is a sub-model, so the same scorer applies.
+    # (GRM/graded ONLY — the GPCM divide-by-total form lives in _gpcm_abilities.)
     # cum[item][k] over the grid: shape n_items x (n_cats-1) x n_nodes
     log_post = np.tile(np.log(prior)[None, :], (n_persons, 1))  # persons x nodes
     for j in range(n_items):
@@ -227,6 +229,54 @@ def _poly_abilities(X_ip, disc, thr, n_cats):
         cat_p = np.clip(upper - lower, 1e-9, 1.0)                     # n_cats x nodes
         resp = X_ip[j]                                                # length n_persons
         log_post += np.log(cat_p[resp, :])                           # persons x nodes
+    log_post -= log_post.max(axis=1, keepdims=True)
+    post = np.exp(log_post)
+    post /= post.sum(axis=1, keepdims=True)
+    theta = post @ nodes
+    return np.asarray(theta, dtype=float)
+
+
+def _gpcm_abilities(X_ip, disc, thr, n_cats):
+    """Person abilities for a (Generalized) Partial Credit Model fit — the model
+    girth's `pcm_mml` actually estimates (free per-item slope ⇒ GPCM). X_ip is
+    items x persons.
+
+    Unlike the GRM (`_poly_abilities`, cumulative-boundary / graded), the PCM/GPCM
+    is an ADJACENT-CATEGORY model: the category-response function is the
+    divide-by-total form
+        P(X=k | θ) = exp(Σ_{s≤k} a·(θ − δ_s)) / Σ_c exp(Σ_{s≤c} a·(θ − δ_s)),
+    where δ_s = thr[j] are the item's step difficulties and a = disc[j] its slope
+    (the empty sum for k=0 gives a numerator of 1). Feeding GPCM step difficulties
+    into the GRM cumulative formula is a model-family mismatch that biases θ for
+    ≥3 categories, so PCM must use this scorer. Scored by EAP on a fixed N(0,1)
+    quadrature grid, log-sum-exp stabilized. Returns a 1-D array (n_persons).
+    """
+    import numpy as np
+
+    nodes = np.linspace(-4.0, 4.0, 61)  # quadrature grid for theta
+    prior = np.exp(-0.5 * nodes ** 2)
+    prior /= prior.sum()
+    n_items, n_persons = X_ip.shape
+    ks = np.arange(n_cats)  # category codes 0..n_cats-1
+    log_post = np.tile(np.log(prior)[None, :], (n_persons, 1))  # persons x nodes
+    for j in range(n_items):
+        a = disc[j]
+        steps = np.asarray(thr[j], dtype=float)[: n_cats - 1]   # step difficulties δ_s
+        cum = np.concatenate([[0.0], np.cumsum(steps)])         # Σ_{s≤k} δ_s (k=0 → 0)
+        # log numerator of P(X=k|θ): a·(k·θ − Σδ), shape n_cats x nodes
+        log_num = a * (ks[:, None] * nodes[None, :] - cum[:, None])
+        # girth returns a NaN step for an item that never reaches its top category
+        # (the pooled 0..K-1 recoding). Mask those categories to ~0 probability so a
+        # single NaN does not poison the divide-by-total normalizer — and hence every
+        # person's θ. Without this the whole θ column NaNs on a reachable input.
+        bad = ~np.isfinite(cum)
+        if bad.any():
+            log_num[bad, :] = -np.inf
+        # divide-by-total normalization over categories, via log-sum-exp
+        m = np.where(np.isfinite(log_num), log_num, -np.inf).max(axis=0, keepdims=True)
+        log_cat_p = log_num - (m + np.log(np.exp(log_num - m).sum(axis=0, keepdims=True)))
+        resp = X_ip[j]                                          # length n_persons, ints 0..n_cats-1
+        log_post += log_cat_p[resp, :]                          # persons x nodes
     log_post -= log_post.max(axis=1, keepdims=True)
     post = np.exp(log_post)
     post /= post.sum(axis=1, keepdims=True)
@@ -743,7 +793,10 @@ def _branch_irt_pcm(ctx: Ctx) -> None:
         disc_mean = float(np.mean(disc))
         disc_sd = float(np.std(disc, ddof=1)) if k > 1 else 0.0
 
-        theta = _poly_abilities(X_ip, disc, thr, n_cats)
+        # PCM/GPCM is adjacent-category (divide-by-total), NOT GRM cumulative —
+        # score θ with the matching likelihood or it is biased for ≥3 categories.
+        theta = _gpcm_abilities(X_ip, disc, thr, n_cats)
+        _nan_steps = bool(np.isnan(np.asarray(thr, dtype=float)).any())
 
         # --- step-difficulty table (one column per step boundary) ---
         n_thr = thr.shape[1]
@@ -785,12 +838,19 @@ def _branch_irt_pcm(ctx: Ctx) -> None:
         )
         if stability:
             msg += " " + stability
+        if _nan_steps:
+            msg += (
+                " ⚠ 部分题项存在未识别的步难度(某类别无人作答)，其 θ 贡献已按可识别类别归一；"
+                "极少数跨越中间缺失类别的作答，其 θ 可能受影响。"
+            )
         msg += (
             " ⚠ 注意：girth 的 pcm_mml 实为**广义部分计分模型(GPCM)**——每题区分度【自由估计】"
             "（非经典 Masters PCM 的等区分度约束）；上表 discrimination_a 即各题估计斜率(SD 反映其离散)。"
             "步难度=相邻类别等概率处的能力水平(可非单调，与 GRM 的有序累积阈值含义不同)；"
             "若需严格等区分度的部分计分模型，需另行约束(girth 此函数不提供)；"
-            "假设单维 + 局部独立 + 有序多分作答；θ 以 N(0,1) 先验为尺度锚定、事后 EAP 评分(SD 因 EAP 向先验收缩而偏小)。"
+            "假设单维 + 局部独立 + 有序多分作答；θ 采用 **GPCM 相邻类别(除总)似然**做 EAP 评分"
+            "（P(X=k|θ)∝exp(Σ_{s≤k}a(θ-δ_s))，与 GRM 累积阈值评分本质不同）、以 N(0,1) 先验为尺度锚定"
+            "(SD 因 EAP 向先验收缩而偏小)。"
         )
         summary.append(msg)
         code += [
