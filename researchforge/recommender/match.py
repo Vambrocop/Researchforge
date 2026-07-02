@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from researchforge.catalog.schema import Precondition
 from researchforge.profiler.fingerprint import DataFingerprint
+from researchforge.recommender.affinity import _NODE_MIN_UNIQUE
 
 
 def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, list[str]]:
@@ -94,7 +95,14 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
                 "需要研究层效应量数据（yi+vi/sei，或两组 m/sd/n，或 2×2 ai/bi/ci/di）"
             )
     if pre.requires_edgelist:
-        n_id = sum(1 for c in fp.columns if c.kind in {"id", "categorical"} and c.name != fp.time_col)
+        # mirror affinity.data_signals's node-column definition: `id` columns, or
+        # HIGH-cardinality categoricals (>= _NODE_MIN_UNIQUE distinct values) — a plain
+        # low-cardinality demographic categorical (gender/region) is not an edge endpoint.
+        n_id = sum(
+            1 for c in fp.columns
+            if c.name != fp.time_col
+            and (c.kind == "id" or (c.kind == "categorical" and getattr(c, "n_unique", 0) >= _NODE_MIN_UNIQUE))
+        )
         if n_id < 2:
             unmet.append("需要 ≥2 个节点标识列（边的 source / target）")
 
