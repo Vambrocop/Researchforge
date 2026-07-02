@@ -64,6 +64,20 @@ def _as_binary01(s) -> "tuple":
     return (s.to_numpy() == pos).astype(float), pos, neg
 
 
+def _fmt_level(v) -> str:
+    """Human-readable rendering of a resolved 0/1 level for disclosure text (e.g. a
+    numpy scalar 1.0 -> '1'; a string label is passed through unchanged). Guards
+    against a silent positive/negative inversion on string-labeled columns being
+    invisible to the user — see _as_binary01."""
+    try:
+        fv = float(v)
+        if fv == int(fv):
+            return str(int(fv))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    return str(v)
+
+
 def _wilson_ci(k: float, n: float, z: float = 1.959963984540054) -> "tuple":
     """Wilson score 95% CI for a binomial proportion k/n (better than Wald for small n
     / extreme proportions). Returns (phat, lo, hi); NaNs if n == 0."""
@@ -285,9 +299,16 @@ def _branch_diagnostic_test_eval(ctx: Ctx) -> None:
     cell_warn = ""
     if (sens[1] != sens[1] or (sens[2] - sens[1]) > 0.4 or (spec[2] - spec[1]) > 0.4):
         cell_warn = "；⚠ 部分小格 CI 很宽（样本/某类过少，估计不稳）"
+    # disclose the RESOLVED positive/disease level so a string-labeled column
+    # (e.g. "case"/"control") can't silently invert sens<->spec on the reader —
+    # _as_binary01 maps the lexicographically-LAST label to positive=1.
+    pos_note = f"（金标准阳性/病例取 {truth}={_fmt_level(pos_y)} 一档"
+    if not test_is_cont:
+        pos_note += f"；检验阳性取 {test}={_fmt_level(pos_t)} 一档"
+    pos_note += "；如反了请用 config 指定）"
     summary.append(
         f"{entry.method} 完成：金标准 {truth}（病例 {n_pos}/非病例 {n_neg}，患病率 {prevalence:.1%}），"
-        f"检验 {test}（{'连续评分' if test_is_cont else '二值'}）。{auc_txt}"
+        f"检验 {test}（{'连续评分' if test_is_cont else '二值'}）{pos_note}。{auc_txt}"
         f"敏感度={sens[0]:.1%}，特异度={spec[0]:.1%}，PPV={ppv[0]:.1%}，NPV={npv[0]:.1%}，"
         f"LR+={estimates['lr_plus']:.2f}，LR−={estimates['lr_minus']:.2f}，准确率={acc[0]:.1%}。{flip_note}"
         "⚠ PPV/NPV 随患病率变化（此处按样本患病率，非人群真实患病率）；LR+/LR− 与患病率无关，"
@@ -526,8 +547,15 @@ def _branch_epi_risk_measures(ctx: Ctx) -> None:
                if any_zero else "")
     rare_note = ("（结局罕见，OR≈RR）" if (r1 < 0.1 and r0 < 0.1 and r1 == r1 and r0 == r0) else "")
     lvl = int(ci_level * 100)
+    # disclose the RESOLVED positive levels so a string-labeled column (e.g.
+    # "case"/"control") can't silently invert RR/OR/RD — _as_binary01 maps the
+    # lexicographically-LAST label to positive=1 (correct for 0/1 numeric coding,
+    # but not self-evident for string labels).
+    pos_note = (f"（阳性/病例取 {outcome}={_fmt_level(pos_o)} 一档、"
+                f"暴露取 {exposure}={_fmt_level(pos_e)} 一档；如反了请用 config 指定）")
     summary.append(
-        f"{entry.method} 完成：暴露 {exposure}、结局 {outcome}，2×2 = [a={int(a)}, b={int(b)}, c={int(c)}, d={int(dd)}]。"
+        f"{entry.method} 完成：暴露 {exposure}、结局 {outcome}{pos_note}，"
+        f"2×2 = [a={int(a)}, b={int(b)}, c={int(c)}, d={int(dd)}]。"
         f"RR={rr:.3f}（{lvl}% CI {rr_lo:.3f}–{rr_hi:.3f}）；OR={orr:.3f}{rare_note}（{lvl}% CI {or_lo:.3f}–{or_hi:.3f}）；"
         f"RD={rd:+.3f}（{lvl}% CI {rd_lo:+.3f}–{rd_hi:+.3f}）；{nnt_label} ≈ {nnt:.1f}；"
         f"暴露人群归因比 AR%={ar_pct:.1f}%"
@@ -699,8 +727,12 @@ def _branch_calibration_assessment(ctx: Ctx) -> None:
     hl_txt = (f"Hosmer-Lemeshow χ²={hl_stat:.2f}（df={hl_df}，p={hl_p:.3g}"
               f"，{'未见显著失准' if (hl_p == hl_p and hl_p > 0.05) else '提示失准'}）"
               if hl_stat == hl_stat else "Hosmer-Lemeshow 不可用（分组退化）")
+    # disclose the RESOLVED event/positive level — _as_binary01 maps the
+    # lexicographically-LAST label to positive=1, which is not self-evident for a
+    # string-labeled outcome and would otherwise silently invert what "预测概率" means.
+    pos_note = f"（事件/阳性取 {outcome}={_fmt_level(pos_y)} 一档；如反了请用 config 指定）"
     summary.append(
-        f"{entry.method} 完成：预测概率 {prob}、结局 {outcome}（n={N}，事件率 {base_rate:.1%}）。"
+        f"{entry.method} 完成：预测概率 {prob}、结局 {outcome}{pos_note}（n={N}，事件率 {base_rate:.1%}）。"
         f"Brier={brier:.4f}（可靠性 {reliability:.4f} − 分辨度 {resolution:.4f} + 不确定度 {uncertainty:.4f}，越小越好）；"
         f"{hl_txt}；校准截距={cal_intercept:.3f}{slope_txt}。"
         "⚠ HL 检验对分组方式/样本量敏感（大样本易显著、小样本检验力低）；斜率<1 表示过拟合/过自信，"

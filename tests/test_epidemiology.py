@@ -114,6 +114,35 @@ def test_diagnostic_degrade_one_class(tmp_path: Path) -> None:
     assert "auc" not in res.estimates
 
 
+def test_diagnostic_string_labels_disclose_positive_level(tmp_path: Path) -> None:
+    """String-labeled truth ("case"/"control") is exactly the silent-inversion trap
+    the disclosure fix targets: lexicographic sort ["case", "control"] puts "control"
+    LAST, so _as_binary01 resolves "control" (not "case") as positive/disease=1 —
+    the OPPOSITE of clinical intent. This flips sens<->spec relative to the intended
+    reading (real TP/FN/FP/TN of 40/10/5/45 -> sens=0.80/spec=0.90 as in
+    test_diagnostic_binary_test_2x2_known, but with the algorithm's resolved positive
+    = "control" the computed sens/spec come out as 0.10/0.20 instead). The point of
+    this fix is that the summary must SURFACE which level was resolved as positive so
+    a user can catch exactly this kind of silent inversion."""
+    truth = ["control"] * 50 + ["case"] * 50
+    test = ["negative"] * 45 + ["positive"] * 5 + ["negative"] * 10 + ["positive"] * 40
+    csv = _csv(tmp_path, "str.csv", pd.DataFrame({"truth": truth, "testres": test}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("diagnostic_test_eval", "Diagnostic"),
+                       output_root=str(tmp_path / "o"),
+                       config={"truth": "truth", "test": "testres"})
+    e = res.estimates
+    # "control" (lexicographically last) is resolved as positive=1 -> demonstrates
+    # the inversion: sens/spec computed relative to "control" as disease, not "case"
+    assert math.isclose(e["sens"], 0.10, abs_tol=1e-4)
+    assert math.isclose(e["spec"], 0.20, abs_tol=1e-4)
+    # disclosure: the summary states which level was taken as positive/disease, so
+    # the inversion above is visible/catchable rather than silent
+    assert "阳性" in res.summary
+    assert "truth=control" in res.summary
+    assert "testres=positive" in res.summary
+
+
 def test_diagnostic_degrade_no_truth(tmp_path: Path) -> None:
     """No binary column at all -> honest 跳过."""
     csv = _csv(tmp_path, "d.csv", pd.DataFrame({"label": ["a", "b", "c", "d"]}))
@@ -188,6 +217,32 @@ def test_risk_measures_zero_cell_correction(tmp_path: Path) -> None:
                        config={"exposure": "exposure", "outcome": "disease"})
     assert "Haldane" in res.summary or "校正" in res.summary
     assert math.isfinite(res.estimates["or"]) and res.estimates["or"] > 0
+
+
+def test_risk_measures_string_labels_disclose_positive_level(tmp_path: Path) -> None:
+    """String-labeled exposure/outcome columns are the silent-inversion trap the
+    disclosure fix targets: _as_binary01 resolves the lexicographically-LAST label as
+    positive=1, which for "exposed"/"unexposed" picks "unexposed" (not "exposed"!) and
+    for "case"/"control" picks "control" (not "case"!) — both the OPPOSITE of what a
+    reader would assume. The summary must name the RESOLVED positive level for both
+    columns so this kind of inversion is visible rather than silent. The numeric 0/1
+    path (test_risk_measures_known_2x2 etc.) is unaffected by this change."""
+    exposure = ["exposed"] * 100 + ["unexposed"] * 100
+    outcome = (["case"] * 20 + ["control"] * 80) + (["case"] * 10 + ["control"] * 90)
+    csv = _csv(tmp_path, "str_rr.csv", pd.DataFrame({"exposure": exposure, "disease": outcome}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("epi_risk_measures", "Risk measures"),
+                       output_root=str(tmp_path / "o"),
+                       config={"exposure": "exposure", "outcome": "disease"})
+    e = res.estimates
+    assert "跳过" not in res.summary
+    assert math.isfinite(e["rr"]) and math.isfinite(e["or"])
+    # disclosure: the summary names the RESOLVED positive levels, which are the
+    # lexicographically-last labels ("control" for disease, "unexposed" for exposure)
+    # — NOT the intuitively-expected "case"/"exposed" — so the inversion is catchable
+    assert "阳性" in res.summary
+    assert "disease=control" in res.summary
+    assert "exposure=unexposed" in res.summary
 
 
 def test_risk_measures_degrade(tmp_path: Path) -> None:
