@@ -259,9 +259,14 @@ def _branch_tobit_regression(ctx: Ctx) -> None:
         # SE of σ via delta method (σ = exp(logσ) -> se_σ = σ * se_logσ)
         se_sigma = float(sigma * se_full[k]) if np.isfinite(se_full[k]) else float("nan")
 
-        # scale factor for the marginal effect on observed E[y]: Φ(x̄β/σ)
+        # marginal effect on observed E[y] scale: Φ((x̄β−c)/σ) left-censored, Φ((c−x̄β)/σ) right.
+        # (dropping the censor point c — only valid at c=0 — understated/overstated this factor.)
         mu_bar = float(np.mean(X @ beta))
-        scale = float(norm.cdf(mu_bar / sigma)) if sigma > 0 else float("nan")
+        if sigma > 0:
+            z_scale = (mu_bar - censor) / sigma if side == "left" else (censor - mu_bar) / sigma
+            scale = float(norm.cdf(z_scale))
+        else:
+            scale = float("nan")
 
         # naive OLS on the (censored) y — biased toward 0; for the contrast
         ols_beta, _ = _ols_fit(y, X)
@@ -332,7 +337,7 @@ def _branch_tobit_regression(ctx: Ctx) -> None:
             f"σ̂={sigma:.4f}，对数似然={loglik:.2f}。系数（潜变量指数 β + SE + 95%CI + z/p，"
             f"并列 naive OLS 与对 E[y] 的边际近似）见 tobit_coefficients.csv。"
             "\n⚠ 披露：(1) Tobit 的 β 是对**潜变量指数 y\\* 的效应，不是**对观测 E[y] 的边际效应"
-            f"——后者需乘以尺度因子 Φ(x̄β/σ)≈{scale:.3f}（已在 CSV 的 marginal_on_Ey 列给出近似）。"
+            f"——后者需乘以尺度因子 Φ((x̄β−c)/σ)≈{scale:.3f}（c=删失点，已在 CSV 的 marginal_on_Ey 列给出近似）。"
             "(2) 在删失数据上直接做 OLS 会把系数**向 0 偏**（CSV 的 naive_ols_coef 列可对照）。"
             "(3) Tobit 假定潜变量误差**正态且同方差**——异方差/非正态会使 MLE 不一致。"
             "(4) SE 来自数值 Hessian（观测信息阵）的逆；若 Hessian 近奇异则相应 SE 标 NaN。"
@@ -341,7 +346,7 @@ def _branch_tobit_regression(ctx: Ctx) -> None:
             "import numpy as np; from scipy.optimize import minimize; from scipy.stats import norm",
             "# Tobit MLE (logσ param): uncensored -> norm.logpdf(z)-log σ; censored -> norm.logcdf(z)",
             "#   left:  z=(censor-Xβ)/σ ;  right: z=(Xβ-censor)/σ ;  maximise over (β, logσ)",
-            "# β is the LATENT-index effect; marginal on E[y] = β * Φ(x̄β/σ)",
+            "# β is the LATENT-index effect; marginal on E[y] = β * Φ((x̄β-c)/σ) [left; right: Φ((c-x̄β)/σ)]",
         ]
     except Exception as err:
         summary.append(f"Tobit 回归跳过：{err}")

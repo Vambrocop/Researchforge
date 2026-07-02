@@ -73,6 +73,101 @@ def test_tobit_recovers_beta_and_beats_naive_ols(tmp_path: Path) -> None:
     assert abs(e["x1"] - 2.0) < abs(naive_x1 - 2.0)  # Tobit closer to truth
 
 
+def _tobit_data_shifted(seed: int, mu: float, b1: float, sigma: float,
+                        censor: float, n: int, side: str) -> pd.DataFrame:
+    """y* = mu + b1*x1 + N(0,sigma), censored at a NON-zero threshold `censor`.
+    Small b1 keeps X*beta tightly concentrated around its mean so the plug-in
+    scale factor Phi((mean(Xb)-c)/sigma) tracks the population/empirical
+    uncensored fraction closely (used to sanity-check the fix numerically)."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.normal(0, 1, n)
+    ystar = mu + b1 * x1 + rng.normal(0, sigma, n)
+    y = np.maximum(ystar, censor) if side == "left" else np.minimum(ystar, censor)
+    return pd.DataFrame({"y": np.round(y, 6), "x1": np.round(x1, 6)})
+
+
+def test_tobit_scale_factor_uses_censor_point_left(tmp_path: Path) -> None:
+    """Regression test for the marginal-on-E[y] scale factor bug: the correct
+    formula for LEFT-censoring is Phi((x̄β − c)/σ), not the old Phi(x̄β/σ) which
+    silently assumed c=0. Threshold here is c=3 (far from 0) so the two
+    formulas diverge sharply."""
+    from scipy.stats import norm
+
+    censor = 3.0
+    df = _tobit_data_shifted(seed=7, mu=4.0, b1=0.4, sigma=1.0, censor=censor,
+                             n=800, side="left")
+    csv = tmp_path / "tobit_shift.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+
+    res = run_analysis(
+        fp, _entry("tobit_regression", "Tobit (Type-I censored normal regression)"),
+        output_root=str(tmp_path / "o"),
+        config={"outcome": "y", "predictors": ["x1"],
+                "censoring": "left", "censor_value": censor},
+    )
+    e = res.estimates
+    out = Path(res.output_dir)
+    tab = pd.read_csv(out / "tobit_coefficients.csv").set_index("term")
+
+    # Empirical uncensored fraction of the sample (proxy for the true scale).
+    emp_frac = e["n_uncensored"] / e["n_obs"]
+    scale = e["scale_factor_Ey"]
+    assert abs(scale - emp_frac) < 0.05, (
+        f"scale_factor_Ey={scale} should track the empirical uncensored "
+        f"fraction {emp_frac} (within 0.05)"
+    )
+
+    # The OLD (buggy) formula dropped the censor point: Phi(x̄β/σ). At c=3
+    # (far from 0) this is a very different number — make sure we're NOT it.
+    mu_bar_est = float(tab.loc["const", "tobit_coef"] + tab.loc["x1", "tobit_coef"] * df["x1"].mean())
+    sigma_est = e["sigma"]
+    old_wrong = float(norm.cdf(mu_bar_est / sigma_est))
+    assert abs(scale - old_wrong) > 0.05, (
+        "scale_factor_Ey matches the old Phi(x̄β/σ) formula that ignores the "
+        "censor point — the fix did not take effect"
+    )
+
+    # Sanity: scale_factor_Ey exactly reproduces the corrected closed form.
+    correct = float(norm.cdf((mu_bar_est - censor) / sigma_est))
+    assert abs(scale - correct) < 1e-3
+
+
+def test_tobit_scale_factor_uses_censor_point_right(tmp_path: Path) -> None:
+    """Same regression test for RIGHT-censoring: correct formula is
+    Phi((c − x̄β)/σ)."""
+    from scipy.stats import norm
+
+    censor = -3.0
+    df = _tobit_data_shifted(seed=7, mu=-4.0, b1=0.4, sigma=1.0, censor=censor,
+                             n=800, side="right")
+    csv = tmp_path / "tobit_shift_right.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+
+    res = run_analysis(
+        fp, _entry("tobit_regression", "Tobit (Type-I censored normal regression)"),
+        output_root=str(tmp_path / "o"),
+        config={"outcome": "y", "predictors": ["x1"],
+                "censoring": "right", "censor_value": censor},
+    )
+    e = res.estimates
+    out = Path(res.output_dir)
+    tab = pd.read_csv(out / "tobit_coefficients.csv").set_index("term")
+
+    emp_frac = e["n_uncensored"] / e["n_obs"]
+    scale = e["scale_factor_Ey"]
+    assert abs(scale - emp_frac) < 0.05
+
+    mu_bar_est = float(tab.loc["const", "tobit_coef"] + tab.loc["x1", "tobit_coef"] * df["x1"].mean())
+    sigma_est = e["sigma"]
+    old_wrong = float(norm.cdf(mu_bar_est / sigma_est))
+    assert abs(scale - old_wrong) > 0.05
+
+    correct = float(norm.cdf((censor - mu_bar_est) / sigma_est))
+    assert abs(scale - correct) < 1e-3
+
+
 def test_tobit_skips_without_censoring_mass(tmp_path: Path) -> None:
     """Uncensored continuous outcome -> no limit mass -> honest skip to OLS."""
     rng = np.random.default_rng(3)
