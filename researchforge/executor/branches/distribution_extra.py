@@ -386,7 +386,7 @@ def _branch_kernel_density(ctx: Ctx) -> None:
             f"x = df[{col!r}].dropna().to_numpy(float); n = len(x)",
             "std = np.std(x, ddof=1); iqr = np.subtract(*np.percentile(x, [75, 25]))",
             "silverman = 0.9 * min(std, iqr/1.349) * n**(-1/5)  # rule-of-thumb bandwidths",
-            "scott = 1.06 * std * n**(-1/5)",
+            "scott = std * n**(-1/5)  # scipy gaussian_kde scott factor * sd",
             "kde = gaussian_kde(x)  # bw_method=<factor> to override",
             "grid = np.linspace(x.min(), x.max(), 1000); dens = kde(grid)",
             "modes = [i for i in range(1, len(grid)-1) if dens[i] > dens[i-1] and dens[i] > dens[i+1]]",

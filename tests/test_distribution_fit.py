@@ -113,3 +113,24 @@ def test_too_few_rows_skips(tmp_path: Path) -> None:
     assert "best_aic" not in res.estimates
     assert "跳过" in res.summary
     assert (Path(res.output_dir) / "report.md").exists()
+
+
+def test_free_loc_disclosure_present_for_positive_support_data(tmp_path: Path) -> None:
+    """Disclosure regression: when lognorm/gamma/weibull_min are actually fit (positive
+    data), the summary must disclose they use scipy's free-loc (3-parameter shifted)
+    form, not the canonical 2-parameter families."""
+    rng = np.random.default_rng(6)
+    df = pd.DataFrame({"x": rng.exponential(3.0, 400)})  # strictly positive
+    res = _run(df, tmp_path)
+    assert "自由 loc" in res.summary or "free" in res.summary.lower()
+    out = Path(res.output_dir)
+    txt = (out / "distribution_fit_summary.txt").read_text(encoding="utf-8")
+    assert "自由 loc" in txt
+
+
+def test_free_loc_disclosure_absent_when_only_norm_fits(tmp_path: Path) -> None:
+    # data with negatives -> positive-support families are skipped -> no loc disclosure
+    rng = np.random.default_rng(9)
+    df = pd.DataFrame({"x": rng.normal(0, 5, 300)})
+    res = _run(df, tmp_path)
+    assert "自由 loc" not in res.summary

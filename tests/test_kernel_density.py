@@ -101,3 +101,25 @@ def test_too_few_rows_skips(tmp_path: Path) -> None:
     assert "n_modes" not in res.estimates
     assert "跳过" in res.summary
     assert (Path(res.output_dir) / "report.md").exists()
+
+
+def test_code_snippet_scott_matches_reported_scott_bw(tmp_path: Path) -> None:
+    """Regression: the exported analysis_code.py snippet's `scott` line must reproduce
+    the reported scott_bw (std * n**-1/5, scipy gaussian_kde's own Scott factor), not
+    the Silverman 1.06 normal-reference constant."""
+    rng = np.random.default_rng(4)
+    x = rng.normal(0.0, 1.0, 400)
+    df = pd.DataFrame({"x": x})
+    res = _run(df, tmp_path)
+
+    code_path = Path(res.output_dir) / "analysis_code.py"
+    assert code_path.exists()
+    code_text = code_path.read_text(encoding="utf-8")
+    assert "scott = 1.06" not in code_text
+    assert "scott = std * n**(-1/5)" in code_text
+
+    # and it must actually reproduce the reported scott_bw
+    std = float(np.std(x, ddof=1))
+    n = x.size
+    scott_ref = std * n ** (-1 / 5)
+    assert abs(res.estimates["scott_bw"] - scott_ref) < 1e-4

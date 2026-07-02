@@ -181,6 +181,14 @@ def _branch_distribution_fit(ctx: Ctx) -> None:
         strong = (delta_aic_second == delta_aic_second and delta_aic_second >= 10)
         rank_note = "（与次优 ΔAIC≥10，胜出明显）" if strong else "（与次优差距不大，结论不稳健）"
 
+        fitted_names = set(res_df["dist"].tolist())
+        shifted_fitted = [nm for nm in ("lognorm", "gamma", "weibull_min") if nm in fitted_names]
+        loc_note = (
+            f"⚠ {', '.join(shifted_fitted)} 用 scipy 默认的**自由 loc**（三参数平移形式）拟合，"
+            "而非经典两参数族——正支撑族的自由-loc MLE 可能把 loc 拖向 min(x)，须留意。"
+            if shifted_fitted else ""
+        )
+
         (d / "distribution_fit_summary.txt").write_text(
             f"分布拟合（MLE，scipy.stats）：列 {col}，n={n}\n"
             f"候选分布：{', '.join(_CANDIDATES)} {skip_note}\n"
@@ -189,8 +197,9 @@ def _branch_distribution_fit(ctx: Ctx) -> None:
             f"与次优的 AIC 差 ΔAIC={gap_txt} {rank_note}\n"
             "注：AIC/BIC 比较的是候选分布之间的**相对**拟合优劣，并不证明最优分布在绝对意义上"
             "「足够好」——请配合 goodness_of_fit 做正式检验确认；正支撑分布在数据含 ≤0 时被跳过；"
-            "列可用 config={\"column\":\"...\"} 指定。\n\n"
-            "全部候选（按 AIC 排序）：\n" + out_df.to_string(index=False),
+            "列可用 config={\"column\":\"...\"} 指定。\n"
+            + (loc_note + "\n" if loc_note else "")
+            + "\n全部候选（按 AIC 排序）：\n" + out_df.to_string(index=False),
             encoding="utf-8",
         )
         files.append("distribution_fit_summary.txt")
@@ -202,6 +211,7 @@ def _branch_distribution_fit(ctx: Ctx) -> None:
             + (f" {skip_note}" if skip_note else "")
             + "⚠ AIC/BIC 只比较候选间的相对拟合，不证明绝对充分性——请配合 goodness_of_fit 确认；"
             "数据含 ≤0 时正支撑分布被跳过；列可经 config 指定。"
+            + (f" {loc_note}" if loc_note else "")
         )
         code += [
             "import numpy as np",
@@ -286,11 +296,18 @@ def _branch_goodness_of_fit(ctx: Ctx) -> None:
                     warnings.simplefilter("ignore", FutureWarning)
                     ar = stats.anderson(x, dist=_AD_SUPPORTED[dist_name])
                 ad_stat = float(ar.statistic)
-                # critical value at 5% significance. scipy reports significance_level
-                # in PERCENT ([15,10,5,2.5,1]); guard in case a future scipy switches to
-                # fractions ([.15,.10,.05,...]) so we don't match the wrong slot.
+                # critical value at 5% significance. scipy reports significance_level in
+                # PERCENT ([15,10,5,2.5,1]) for norm/expon/logistic/gumbel_r, but for
+                # weibull_min it instead reports CONFIDENCE levels (1-alpha) in
+                # [0.5,0.75,...,0.995] -> the 5% critical value is the 0.95 entry. Both
+                # tables have max <= 1.0, so disambiguate by whether it looks like a
+                # confidence-level table (min >= 0.5) vs a hypothetical small-alpha
+                # fraction table ([.01..0.15], which would need 0.05).
                 sigs = list(ar.significance_level)
-                target = 0.05 if (sigs and max(sigs) <= 1.0) else 5.0
+                if sigs and max(sigs) <= 1.0:
+                    target = 0.95 if min(sigs) >= 0.5 else 0.05
+                else:
+                    target = 5.0
                 if target in sigs:
                     ad_crit5 = float(ar.critical_values[sigs.index(target)])
                 else:

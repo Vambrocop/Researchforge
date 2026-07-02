@@ -111,3 +111,38 @@ def test_too_few_rows_skips(tmp_path: Path) -> None:
     assert "ks_stat" not in res.estimates
     assert "跳过" in res.summary
     assert (Path(res.output_dir) / "report.md").exists()
+
+
+def test_weibull_ad_critical_value_uses_confidence_level_table(tmp_path: Path) -> None:
+    """Regression for the AD 5% critical-value lookup bug: scipy's anderson() reports
+    weibull_min's table as CONFIDENCE levels (1-alpha) in [0.5..0.995], not the percent
+    convention used by norm/expon/logistic/gumbel_r. The 5% critical value is the 0.95
+    entry (~0.75-0.76), not the nearest-to-0.05 entry (~0.342, the 50th-percentile crit)."""
+    from scipy import stats
+
+    rng = np.random.default_rng(7)
+    x = stats.weibull_min.rvs(2.0, size=300, random_state=rng)
+    df = pd.DataFrame({"x": x})
+    res = _run(df, tmp_path, config={"dist": "weibull_min"})
+    out = Path(res.output_dir)
+    tbl = pd.read_csv(out / "goodness_of_fit.csv")
+    ad_row = tbl[tbl["test"].str.contains("Anderson")].iloc[0]
+    crit5 = float(ad_row["critical_5pct"])
+    # correct 5% critical value (the 0.95 confidence-level entry) is ~0.75-0.76;
+    # the old bug picked the 0.5 entry (~0.342) instead.
+    assert 0.7 < crit5 < 0.8
+    assert abs(crit5 - 0.342) > 0.1
+
+
+def test_norm_ad_critical_value_still_uses_percent_table(tmp_path: Path) -> None:
+    """Regression: the norm/expon/logistic/gumbel_r percent-table path (target=5.0) must
+    be unaffected by the weibull_min confidence-level disambiguation."""
+    rng = np.random.default_rng(8)
+    df = pd.DataFrame({"x": rng.normal(0, 1, 400)})
+    res = _run(df, tmp_path)
+    out = Path(res.output_dir)
+    tbl = pd.read_csv(out / "goodness_of_fit.csv")
+    ad_row = tbl[tbl["test"].str.contains("Anderson")].iloc[0]
+    crit5 = float(ad_row["critical_5pct"])
+    # scipy's norm 5% critical value (percent table index for 5.0) is ~0.75
+    assert 0.7 < crit5 < 0.8
