@@ -58,7 +58,16 @@ def _find_time_col(df: pd.DataFrame, fp: DataFingerprint) -> str | None:
     for c in fp.columns:
         if c.name.lower() in _TIME_NAMES:
             return c.name
+    # Fallback: a bare integer column whose values sit in a plausible calendar
+    # year range (1900-2100) with at least one duplicate (repeat years across
+    # units, e.g. a panel). This is ONLY trustworthy when the column name also
+    # carries a temporal anchor (e.g. "obs_year", "survey_date", "fiscal_yr")
+    # -- otherwise a bounded, duplicated integer column that is really an Elo
+    # rating, a score, or an index gets misread as the panel/time axis (P3-1).
     for c in fp.columns:
+        name_lower = c.name.lower()
+        if not any(token in name_lower for token in _TIME_NAMES):
+            continue
         s = df[c.name].dropna()
         if not s.empty and pd.api.types.is_integer_dtype(s):
             if int(s.min()) >= 1900 and int(s.max()) <= 2100 and s.nunique() < len(s):
