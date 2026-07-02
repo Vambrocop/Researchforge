@@ -112,7 +112,9 @@ def _branch_differential_abundance(ctx: Ctx) -> None:
             _degrade_note = ""
             use_aldex2 = False
             ar = None
-            if da_method == "aldex2":
+            if da_method == "aldex2" and not rbridge.r_names_safe([*taxa, group_col]):
+                _degrade_note = "；⚠ ALDEx2 需要标识符式列名（字母/数字/. _），已降级 CLR+Mann-Whitney"
+            elif da_method == "aldex2":
                 if rbridge.r_available() and rbridge.r_package_available("ALDEx2"):
                     _csv = d / "_da_input.csv"
                     sub[[*taxa, group_col]].to_csv(_csv, index=False)

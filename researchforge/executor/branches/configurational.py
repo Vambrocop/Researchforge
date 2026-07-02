@@ -297,7 +297,6 @@ def _branch_nca(ctx: Ctx) -> None:
 def _branch_panel_qca(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import re
 
     from researchforge.executor import rbridge
 
@@ -308,17 +307,15 @@ def _branch_panel_qca(ctx: Ctx) -> None:
     conditions = forced[:5] if forced else [c for c in cont if c != outcome][:5]
     anchors = _qca_anchors(cfg)
     incl_cut = _qca_incl_cut(cfg, 0.8)
-    names_safe = outcome is not None and all(
-        re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in [outcome, *conditions]
-    )
+    names_safe = outcome is not None and rbridge.r_names_safe([outcome, *conditions, unit])
     if not (unit and time):
         summary.append("面板 QCA 失败：需要面板数据（单位列 + 时间列）。")
     elif outcome is None or len(conditions) < 2:
         summary.append("面板 QCA 失败：需要 1 个结果 + ≥2 个条件（均连续，将模糊校准）。")
-    elif not (rbridge.r_available() and rbridge.r_package_available("SetMethods") and rbridge.r_package_available("QCA")):
-        summary.append("面板 QCA 需要 R 的 SetMethods + QCA 包（未检测到）。安装：install.packages(c('QCA','SetMethods'))；或用 fsqca（截面）。")
     elif not names_safe:
         summary.append("面板 QCA 失败：列名需为标识符式（字母/数字/. _），R 公式要求。")
+    elif not (rbridge.r_available() and rbridge.r_package_available("SetMethods") and rbridge.r_package_available("QCA")):
+        summary.append("面板 QCA 需要 R 的 SetMethods + QCA 包（未检测到）。安装：install.packages(c('QCA','SetMethods'))；或用 fsqca（截面）。")
     else:
 
         sub = df[[outcome, *conditions, unit]].dropna()

@@ -13,10 +13,23 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from functools import lru_cache
+
+
+def is_r_safe_name(name) -> bool:
+    """True if `name` is a safe R identifier (letters/digits/dot/underscore, not
+    starting with a digit) — safe to interpolate into an R formula / d[["..."]]."""
+    return re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(name)) is not None
+
+
+def r_names_safe(cols) -> bool:
+    """True if every non-empty name in `cols` is R-identifier-safe. Empty/None
+    entries are skipped (they mean 'no such column')."""
+    return all(is_r_safe_name(c) for c in cols if c is not None and c != "")
 
 
 @lru_cache(maxsize=1)

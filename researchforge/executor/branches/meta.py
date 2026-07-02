@@ -167,8 +167,6 @@ def _branch_meta_analysis(ctx: Ctx) -> None:
 def _branch_meta_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
-    import re
-
 
     from researchforge.executor import rbridge
 
@@ -215,17 +213,17 @@ def _branch_meta_regression(ctx: Ctx) -> None:
     _num_kind = {c.name: c.kind for c in fp.columns}
     bubble_mod = next((m for m in moderators if _num_kind.get(m) in {"continuous", "count"}), None)
     cols_all = [c for c in [*es_cols, study, *moderators] if c]
-    names_safe = all(re.fullmatch(r"[A-Za-z.][A-Za-z0-9._]*", str(c)) for c in moderators) if moderators else False
+    names_safe = bool(cols_all) and rbridge.r_names_safe(cols_all)
     if not roles:
         summary.append(
             "Meta 回归失败：未识别到效应量数据（需 yi+vi/sei，或两组 m/sd/n，或 2×2 ai/bi/ci/di）。详见 docs/meta-analysis.md。"
         )
     elif not moderators:
         summary.append("Meta 回归失败：需要 ≥1 个研究层调节变量（解释异质性的协变量）。用 config['moderators'] 指定。")
+    elif not names_safe:
+        summary.append("Meta 回归失败：效应量/研究/调节变量列名需为标识符式（字母/数字/. _），R 公式要求。")
     elif not (rbridge.r_available() and rbridge.r_package_available("metafor")):
         summary.append("Meta 回归需要 R 的 metafor 包（未检测到）。安装：install.packages('metafor')。")
-    elif not names_safe:
-        summary.append("Meta 回归失败：调节变量列名需为标识符式（字母/数字/. _），R 公式要求。")
     else:
         sub = df[cols_all].dropna()
         if len(sub) < len(moderators) + 3:
