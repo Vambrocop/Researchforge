@@ -35,6 +35,8 @@ def infer_kind(s: pd.Series) -> ColumnKind:
         if is_int:
             if nn.is_unique:
                 return "id"
+            if len(uniq) == 2:
+                return "binary"
             if bool((nn >= 0).all()):
                 return "count"
         return "continuous"
