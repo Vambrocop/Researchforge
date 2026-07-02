@@ -90,6 +90,51 @@ def test_mantel_null(tmp_path: Path) -> None:
     )
 
 
+def test_mantel_env_scale_invariance(tmp_path: Path) -> None:
+    """Env columns are z-scored before the euclidean pdist, so rescaling one env
+    column (x1000) must not change r/p — without standardization the large-magnitude
+    column would dominate the distance and change the result (unit-dependent)."""
+    rng = np.random.default_rng(42)
+    n = 30
+    grad = np.linspace(0, 10, n)
+    env1 = grad + rng.normal(0, 0.3, n)
+    env2 = grad * 0.5 + rng.normal(0, 0.3, n)
+    sp0 = np.clip((30 - 2.5 * grad + rng.normal(0, 1, n)).round(), 0, None).astype(int)
+    sp1 = np.clip((2.5 * grad + rng.normal(0, 1, n)).round(), 0, None).astype(int)
+    sp2 = np.clip((15 + 0 * grad + rng.normal(0, 1, n)).round(), 0, None).astype(int)
+    sp3 = np.clip((grad ** 1.2 + rng.normal(0, 1, n)).round(), 0, None).astype(int)
+
+    df_base = pd.DataFrame(
+        {"sp0": sp0, "sp1": sp1, "sp2": sp2, "sp3": sp3, "env1": env1, "env2": env2}
+    )
+    df_rescaled = df_base.copy()
+    df_rescaled["env1"] = df_rescaled["env1"] * 1000.0  # unit change, e.g. m -> mm
+
+    csv_base = tmp_path / "base.csv"
+    csv_rescaled = tmp_path / "rescaled.csv"
+    df_base.to_csv(csv_base, index=False)
+    df_rescaled.to_csv(csv_rescaled, index=False)
+
+    res_base = run_analysis(
+        profile_dataset(csv_base), _entry(), output_root=str(tmp_path / "o_base")
+    )
+    res_rescaled = run_analysis(
+        profile_dataset(csv_rescaled), _entry(), output_root=str(tmp_path / "o_rescaled")
+    )
+
+    assert "mantel_r" in res_base.estimates, f"summary={res_base.summary}"
+    assert "mantel_r" in res_rescaled.estimates, f"summary={res_rescaled.summary}"
+    assert abs(res_base.estimates["mantel_r"] - res_rescaled.estimates["mantel_r"]) < 1e-6, (
+        f"mantel_r should be scale-invariant after standardization: "
+        f"base={res_base.estimates['mantel_r']}, rescaled={res_rescaled.estimates['mantel_r']}"
+    )
+    assert abs(res_base.estimates["p_value"] - res_rescaled.estimates["p_value"]) < 1e-9, (
+        f"p_value should be identical (same permutation seed, same distances): "
+        f"base={res_base.estimates['p_value']}, rescaled={res_rescaled.estimates['p_value']}"
+    )
+    assert "标准化" in res_base.summary, f"summary={res_base.summary}"
+
+
 def test_mantel_precondition_no_env(tmp_path: Path) -> None:
     """Count cols but no continuous env variable -> precondition unmet."""
     rng = np.random.default_rng(0)

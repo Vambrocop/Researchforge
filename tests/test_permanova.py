@@ -65,6 +65,11 @@ def test_permanova_significant(tmp_path: Path) -> None:
     assert res.estimates["p_value"] < 0.05, (
         f"p_value={res.estimates['p_value']} should be < 0.05 for clearly separated groups"
     )
+    assert (
+        ("PERMDISP" in res.summary)
+        or ("betadisper" in res.summary)
+        or ("离散度" in res.summary)
+    ), f"expected a dispersion/PERMDISP disclosure in summary, got: {res.summary}"
 
 
 def test_permanova_null(tmp_path: Path) -> None:

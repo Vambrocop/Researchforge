@@ -21,6 +21,10 @@ def _diff_abundance_aldex2_via_r(csv_path, taxa: list[str], group: str):
         f"taxa <- c({taxa_r})\n"
         "counts <- t(as.matrix(d[, taxa]))\n"  # features x samples
         f'conds <- as.character(d[["{group}"]])\n'
+        # seed the MC-Dirichlet resampling so effect/p/q are reproducible run-to-run
+        # (unseeded, aldex()'s Monte-Carlo instances jitter each call); mirrors the
+        # set.seed(20240607) convention used by _cic_via_r (see r_backends/causal.py).
+        "set.seed(20240607)\n"
         # 128 MC Dirichlet instances (ALDEx2 default); Welch t with effect sizes
         'x <- aldex(round(counts), conds, mc.samples=128, test="t", effect=TRUE, denom="all", verbose=FALSE)\n'
         'cat("##R\\n")\n'

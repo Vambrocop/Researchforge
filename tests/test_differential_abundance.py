@@ -49,6 +49,41 @@ def test_differential_abundance_finds_enriched_taxon(tmp_path: Path) -> None:
     assert bool(otu0["significant"])  # the enriched taxon is flagged
 
 
+def test_aldex2_r_code_seeds_mc_resampling(tmp_path: Path, monkeypatch) -> None:
+    """ALDEx2's Monte-Carlo Dirichlet resampling must be seeded for reproducible
+    effect/p/q — verify the generated R code contains set.seed(...) BEFORE the
+    aldex() call, without actually invoking R (monkeypatch rbridge.run_r)."""
+    from researchforge.executor import rbridge
+    from researchforge.executor._helpers.r_backends.ecology import (
+        _diff_abundance_aldex2_via_r,
+    )
+
+    captured: dict = {}
+
+    def _fake_run_r(code: str, timeout: int = 120) -> str:
+        captured["code"] = code
+        return "##R\n"  # no data rows -> function raises RuntimeError below
+
+    monkeypatch.setattr(rbridge, "run_r", _fake_run_r)
+
+    csv = tmp_path / "da_input.csv"
+    pd.DataFrame({"otu0": [1, 2], "otu1": [3, 4], "grp": ["a", "b"]}).to_csv(
+        csv, index=False
+    )
+
+    try:
+        _diff_abundance_aldex2_via_r(csv, ["otu0", "otu1"], "grp")
+    except RuntimeError:
+        pass  # expected: the fake run_r returns no parseable rows
+
+    assert "code" in captured, "rbridge.run_r was not called"
+    code = captured["code"]
+    assert "set.seed(" in code
+    seed_idx = code.index("set.seed(")
+    aldex_idx = code.index("aldex(")
+    assert seed_idx < aldex_idx, "set.seed(...) must precede the aldex() call"
+
+
 def test_differential_abundance_precondition_unmet(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"x": rng.normal(0, 1, 20), "y": rng.normal(0, 1, 20)})  # no taxa/group

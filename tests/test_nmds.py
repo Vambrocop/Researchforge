@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -39,7 +41,15 @@ def test_nmds_executor(tmp_path: Path) -> None:
 
     assert list(coords.columns) == ["NMDS1", "NMDS2"]
     assert "stress" in res.estimates
+    assert math.isfinite(res.estimates["stress"])
     assert res.estimates["stress"] >= 0
+    # disclosure: which stress flavor (normalized Kruskal Stress-1 vs raw) is reported
+    assert "stress" in res.summary.lower()
+    assert (
+        ("normalized" in res.summary)
+        or ("raw" in res.summary)
+        or ("un-normalized" in res.summary)
+    ), f"summary={res.summary}"
 
 
 def test_nmds_precondition_unmet(tmp_path: Path) -> None:

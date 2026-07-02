@@ -31,44 +31,49 @@ def _branch_beta_diversity(ctx: Ctx) -> None:
             from scipy.spatial.distance import pdist, squareform
 
             mat = df[species].fillna(0).clip(lower=0).astype(float).values
-            dist = squareform(pdist(mat, metric="braycurtis"))
-            labels = [f"site{i + 1}" for i in range(len(mat))]
-            pd.DataFrame(np.round(dist, 4), index=labels, columns=labels).to_csv(
-                d / "bray_curtis.csv", encoding="utf-8"
-            )
-            files.append("bray_curtis.csv")
+            mat = mat[mat.sum(axis=1) > 0]  # Bray-Curtis undefined for empty sites
+            if len(mat) < 2:
+                summary.append("Beta 多样性跳过：有效（非空）样点不足 2 个。")
+            else:
+                dist = squareform(pdist(mat, metric="braycurtis"))
+                labels = [f"site{i + 1}" for i in range(len(mat))]
+                pd.DataFrame(np.round(dist, 4), index=labels, columns=labels).to_csv(
+                    d / "bray_curtis.csv", encoding="utf-8"
+                )
+                files.append("bray_curtis.csv")
 
-            iu = np.triu_indices(len(mat), k=1)
-            mean_bc = float(np.nanmean(dist[iu])) if iu[0].size else 0.0
-            estimates["mean_bray_curtis"] = round(mean_bc, 4)
-            estimates["n_sites"] = float(len(mat))
+                iu = np.triu_indices(len(mat), k=1)
+                mean_bc = float(np.nanmean(dist[iu])) if iu[0].size else 0.0
+                estimates["mean_bray_curtis"] = round(mean_bc, 4)
+                estimates["n_sites"] = float(len(mat))
 
-            try:
-                import matplotlib
+                try:
+                    import matplotlib
 
-                matplotlib.use("Agg")
-                import matplotlib.pyplot as plt
+                    matplotlib.use("Agg")
+                    import matplotlib.pyplot as plt
 
-                fig, ax = plt.subplots(figsize=(5, 4))
-                im = ax.imshow(dist, cmap="viridis", vmin=0, vmax=1)
-                fig.colorbar(im)
-                ax.set_title("Bray-Curtis dissimilarity")
-                fig.tight_layout()
-                fig.savefig(d / "bray_curtis_heatmap.png", dpi=150)
-                plt.close(fig)
-                files.append("bray_curtis_heatmap.png")
-            except Exception:
-                pass
+                    fig, ax = plt.subplots(figsize=(5, 4))
+                    im = ax.imshow(dist, cmap="viridis", vmin=0, vmax=1)
+                    fig.colorbar(im)
+                    ax.set_title("Bray-Curtis dissimilarity")
+                    fig.tight_layout()
+                    fig.savefig(d / "bray_curtis_heatmap.png", dpi=150)
+                    plt.close(fig)
+                    files.append("bray_curtis_heatmap.png")
+                except Exception:
+                    pass
 
-            summary.append(
-                f"{entry.method} 完成：{len(species)} 个物种 × {len(mat)} 个样点，"
-                f"平均 Bray-Curtis 相异度={mean_bc:.3f}"
-            )
-            code += [
-                "from scipy.spatial.distance import pdist, squareform",
-                f"mat = df[{species!r}].fillna(0).values",
-                "dist = squareform(pdist(mat, metric='braycurtis'))",
-            ]
+                summary.append(
+                    f"{entry.method} 完成：{len(species)} 个物种 × {len(mat)} 个样点，"
+                    f"平均 Bray-Curtis 相异度={mean_bc:.3f}"
+                )
+                code += [
+                    "from scipy.spatial.distance import pdist, squareform",
+                    f"mat = df[{species!r}].fillna(0).values",
+                    "mat = mat[mat.sum(axis=1) > 0]  # Bray-Curtis undefined for empty sites",
+                    "dist = squareform(pdist(mat, metric='braycurtis'))",
+                ]
         except Exception as err:
             summary.append(f"Beta 多样性失败：{err}")
 
@@ -318,7 +323,7 @@ def _branch_nmds(ctx: Ctx) -> None:
                 summary.append("NMDS 跳过：有效（非空）样点不足 4 个。")
             else:
                 dist = squareform(pdist(mat.values, metric="braycurtis"))
-                mds = MDS(
+                _mds_kwargs = dict(
                     n_components=2,
                     metric=False,
                     dissimilarity="precomputed",
@@ -326,6 +331,16 @@ def _branch_nmds(ctx: Ctx) -> None:
                     n_init=4,
                     max_iter=300,
                 )
+                try:
+                    # sklearn>=1.4: normalized_stress -> Kruskal Stress-1 (comparable to
+                    # the ecological <0.1/<0.2 rule of thumb); older sklearn lacks the
+                    # kwarg and returns raw (un-normalized) stress instead.
+                    mds = MDS(normalized_stress=True, **_mds_kwargs)
+                    stress_kind = "normalized (Kruskal Stress-1)"
+                except TypeError:
+                    mds = MDS(**_mds_kwargs)
+                    stress_kind = "raw / un-normalized（旧版 sklearn 无 normalized_stress，"\
+                        "数值可能 >1，不可直接套用 <0.1/<0.2 经验阈值）"
                 coords = mds.fit_transform(dist)
                 labels = [f"site{i + 1}" for i in range(len(mat))]
                 pd.DataFrame(
@@ -355,13 +370,16 @@ def _branch_nmds(ctx: Ctx) -> None:
 
                 summary.append(
                     f"{entry.method} 完成：{len(species)} 物种 × {len(mat)} 样点 → 2D 排序，"
-                    f"stress={mds.stress_:.4f}"
+                    f"stress={mds.stress_:.4f}（{stress_kind}）。"
+                    "⚠ stress 的可比性依赖于是否归一化：Kruskal Stress-1（新版 sklearn 默认）"
+                    "才适用常见的 <0.1 优/<0.2 可用经验阈值，raw stress 与之量纲不同。"
                 )
                 code += [
                     "from sklearn.manifold import MDS",
                     "from scipy.spatial.distance import pdist, squareform",
                     "dist = squareform(pdist(mat.values, metric='braycurtis'))",
-                    "coords = MDS(n_components=2, metric=False, dissimilarity='precomputed').fit_transform(dist)",
+                    "coords = MDS(n_components=2, metric=False, dissimilarity='precomputed',",
+                    "             normalized_stress=True).fit_transform(dist)  # Kruskal Stress-1",
                 ]
         except Exception as err:
             summary.append(f"NMDS 失败：{err}")
@@ -453,7 +471,12 @@ def _branch_permanova(ctx: Ctx) -> None:
                 estimates["p_value"] = round(p_value, 4)
                 summary.append(
                     f"{entry.method} 完成：按 {group_col} 分 {a} 组，"
-                    f"pseudo-F={F_obs:.3f}，p={p_value:.3f}（{n_perm} 次置换）"
+                    f"pseudo-F={F_obs:.3f}，p={p_value:.3f}（{n_perm} 次置换）。"
+                    "⚠ PERMANOVA 检验的是组间质心（centroid/位置）差异，但对组内**离散度**"
+                    "（dispersion）不均一同样敏感——离散度不同也可能给出显著的 pseudo-F，"
+                    "常需配合 PERMDISP/betadisper 检验组内离散度是否同质，"
+                    "以判断显著结果反映的是位置差异、离散度差异，还是二者皆有；"
+                    "⚠ 距离矩阵为原始计数上的 Bray-Curtis（未做总丰度标准化/转换）。"
                 )
                 code += [
                     "import numpy as np",
@@ -650,7 +673,13 @@ def _branch_mantel_test(ctx: Ctx) -> None:
 
     try:
         D_comm = squareform(pdist(comm_mat, metric=comm_metric))
-        D_env = squareform(pdist(env_mat, metric="euclidean"))
+        # z-score each env column before euclidean pdist: unstandardized columns on
+        # different scales let the large-magnitude column dominate the distance,
+        # making r/p unit-dependent (guard std==0 -> leave that column centered at 0).
+        env_std = env_mat.std(axis=0)
+        env_std_safe = np.where(env_std > 0, env_std, 1.0)
+        env_z = (env_mat - env_mat.mean(axis=0)) / env_std_safe
+        D_env = squareform(pdist(env_z, metric="euclidean"))
 
         iu = np.triu_indices(n, k=1)
         x = D_comm[iu]
@@ -734,6 +763,8 @@ def _branch_mantel_test(ctx: Ctx) -> None:
             "⚠ 距离度量选择会改变结论（计数群落默认 Bray-Curtis，可 config metric/corr 切换）；"
             "⚠ 空间自相关会使 Mantel r 偏高/p 偏小（样点非独立）——若 env 即地理距离，"
             "考虑偏 Mantel（控制空间）或谨慎解读；"
+            "⚠ 环境/空间变量在计算欧氏距离前已逐列标准化（z-score），避免量纲/尺度不同时"
+            "大数值列主导距离矩阵；"
             f"⚠ 列分组按 community={comm_cols[:3]}{'...' if len(comm_cols) > 3 else ''} / "
             f"env={env_cols} 自动划分，可用 config 覆盖。"
         )
@@ -741,7 +772,9 @@ def _branch_mantel_test(ctx: Ctx) -> None:
             "import numpy as np",
             "from scipy.spatial.distance import pdist, squareform",
             f"D_comm = squareform(pdist(df[{comm_cols!r}].values, metric={comm_metric!r}))",
-            f"D_env = squareform(pdist(df[{env_cols!r}].values, metric='euclidean'))",
+            f"env_mat = df[{env_cols!r}].values",
+            "env_z = (env_mat - env_mat.mean(axis=0)) / env_mat.std(axis=0)  # z-score env cols",
+            "D_env = squareform(pdist(env_z, metric='euclidean'))",
             "iu = np.triu_indices(len(D_comm), k=1); x, y = D_comm[iu], D_env[iu]",
             "r_obs = np.corrcoef(x, y)[0, 1]  # Mantel statistic (Pearson on triangles)",
             "# permutation: jointly permute rows/cols of one matrix, recompute |r|, count >= |r_obs|",
