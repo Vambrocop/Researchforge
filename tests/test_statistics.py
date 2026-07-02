@@ -171,3 +171,87 @@ def test_executor_group_comparison_two_groups(tmp_path):
     assert (out / "group_means.csv").exists()
     assert "pvalue" in res.estimates
     assert res.summary
+
+
+# ---------------------------------------------------------------------------
+# 5. group_comparison — P3-4: min-per-group guard + variance-assumption
+#    disclosure for the k>=3 (ANOVA) path.
+# ---------------------------------------------------------------------------
+
+def _make_group_csv_singleton(tmp_path: Path) -> Path:
+    """3 groups, one of which has only n=1 — must not yield a NaN statistic."""
+    rng = np.random.default_rng(11)
+    grp = ["A"] * 10 + ["B"] * 10 + ["C"] * 1
+    value = (
+        list(rng.normal(0, 1, 10))
+        + list(rng.normal(2, 1, 10))
+        + list(rng.normal(4, 1, 1))
+    )
+    df = pd.DataFrame({"grp": grp, "value": value})
+    csv = tmp_path / "group_singleton.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def _make_group_csv_unequal_variance(tmp_path: Path) -> Path:
+    """3 groups, clearly unequal variances (std 1, 1, 20) -> Levene should fire."""
+    rng = np.random.default_rng(55)
+    n_per = 30
+    grp = ["A"] * n_per + ["B"] * n_per + ["C"] * n_per
+    value = (
+        list(rng.normal(0, 1, n_per))
+        + list(rng.normal(0, 1, n_per))
+        + list(rng.normal(0, 20, n_per))
+    )
+    df = pd.DataFrame({"grp": grp, "value": value})
+    csv = tmp_path / "group_unequal_var.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def test_executor_group_comparison_singleton_group_no_nan(tmp_path):
+    csv = _make_group_csv_singleton(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    # a group with n=1 must not produce a NaN "result" — honest skip instead.
+    assert "statistic" not in res.estimates
+    assert "pvalue" not in res.estimates
+    assert "失败" in res.summary
+    assert "样本量" in res.summary
+
+
+def test_executor_group_comparison_unequal_variance_disclosure(tmp_path):
+    csv = _make_group_csv_unequal_variance(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "pvalue" in res.estimates
+    assert not np.isnan(res.estimates["pvalue"])
+    assert "Levene" in res.summary
+    assert "⚠" in res.summary
+    assert "不齐" in res.summary
+
+
+def test_executor_group_comparison_three_groups_balanced_regression(tmp_path):
+    """Regression: a normal balanced >=3-group case still yields a valid ANOVA
+    F/p (the guard + disclosure must not affect valid inputs)."""
+    csv = _make_group_csv(tmp_path, n_groups=3)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "statistic" in res.estimates
+    assert "pvalue" in res.estimates
+    assert not np.isnan(res.estimates["statistic"])
+    assert not np.isnan(res.estimates["pvalue"])
+    # variance-assumption disclosure is present regardless of Levene outcome
+    assert "Levene" in res.summary

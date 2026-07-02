@@ -532,46 +532,75 @@ def _branch_group_comparison(ctx: Ctx) -> None:
         groups = [df.loc[df[group_col] == lv, outcome].dropna().values for lv in levels]
         n_groups = len(groups)
 
-        if n_groups == 2:
-            stat, p = stats.ttest_ind(groups[0], groups[1], equal_var=False)
-            test_name = "Welch t-test"
+        # Guard: a group with <2 non-null observations makes var(ddof=1) NaN —
+        # skip honestly instead of reporting "统计量=nan, p=nan" as a result.
+        _too_small = [str(lv) for lv, g in zip(levels, groups) if len(g) < 2]
+        if _too_small:
+            summary.append(
+                f"组间比较失败：分组变量 {group_col} 下的组 {', '.join(_too_small)} "
+                "样本量 <2，组内方差不可估计，已跳过该比较（不报告 NaN 统计量）。"
+            )
         else:
-            stat, p = stats.f_oneway(*groups)
-            test_name = "one-way ANOVA"
+            var_note = ""
+            if n_groups == 2:
+                stat, p = stats.ttest_ind(groups[0], groups[1], equal_var=False)
+                test_name = "Welch t-test"
+            else:
+                stat, p = stats.f_oneway(*groups)
+                test_name = "one-way ANOVA"
+                try:
+                    lstat, lp = stats.levene(*groups)
+                    var_note = (
+                        f"⚠ 该 {n_groups} 组比较用经典单因素 ANOVA（f_oneway，假定各组方差相等）；"
+                        f"Levene 方差齐性检验：统计量={lstat:.4f}，p={lp:.3g}"
+                    )
+                    if lp < 0.05:
+                        var_note += (
+                            "（<0.05，提示各组方差不齐，ANOVA 的 p 值可能不可靠，"
+                            "更稳健的选择是 Welch ANOVA / Brown-Forsythe ANOVA）。"
+                        )
+                    else:
+                        var_note += "（未发现明显方差不齐证据）。"
+                except Exception as err:
+                    var_note = (
+                        f"⚠ 该 {n_groups} 组比较用经典单因素 ANOVA（f_oneway，假定各组方差相等）；"
+                        f"方差齐性检验(Levene)未能完成：{err}。"
+                    )
 
-        estimates["statistic"] = float(stat)
-        estimates["pvalue"] = float(p)
+            estimates["statistic"] = float(stat)
+            estimates["pvalue"] = float(p)
 
-        # Boxplot
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
+            # Boxplot
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
 
-            fig, ax = plt.subplots(figsize=(5, 4))
-            plot_data = [df.loc[df[group_col] == lv, outcome].dropna().values for lv in levels]
-            ax.boxplot(plot_data, tick_labels=[str(lv) for lv in levels])
-            ax.set_xlabel(group_col)
-            ax.set_ylabel(outcome)
-            ax.set_title(f"{outcome} by {group_col}")
-            fig.tight_layout()
-            fig.savefig(d / "boxplot.png", dpi=150)
-            plt.close(fig)
-            files.append("boxplot.png")
-        except Exception:
-            pass
+                fig, ax = plt.subplots(figsize=(5, 4))
+                plot_data = [df.loc[df[group_col] == lv, outcome].dropna().values for lv in levels]
+                ax.boxplot(plot_data, tick_labels=[str(lv) for lv in levels])
+                ax.set_xlabel(group_col)
+                ax.set_ylabel(outcome)
+                ax.set_title(f"{outcome} by {group_col}")
+                fig.tight_layout()
+                fig.savefig(d / "boxplot.png", dpi=150)
+                plt.close(fig)
+                files.append("boxplot.png")
+            except Exception:
+                pass
 
-        summary.append(
-            f"{entry.method} 完成：{outcome} 按 {group_col} 分 {n_groups} 组，"
-            f"统计量={stat:.4f}，p={p:.3g}"
-        )
-        code += [
-            "from scipy import stats",
-            f"groups = [df.loc[df['{group_col}'] == lv, '{outcome}'].dropna().values",
-            f"         for lv in df['{group_col}'].dropna().unique()]",
-            "stat, p = stats.ttest_ind(*groups[:2], equal_var=False)  # or f_oneway(*groups)",
-            "print(f'statistic={stat:.4f}, p={p:.3g}')",
-        ]
+            summary.append(
+                f"{entry.method} 完成：{outcome} 按 {group_col} 分 {n_groups} 组，"
+                f"统计量={stat:.4f}，p={p:.3g}"
+                + (f"。{var_note}" if var_note else "")
+            )
+            code += [
+                "from scipy import stats",
+                f"groups = [df.loc[df['{group_col}'] == lv, '{outcome}'].dropna().values",
+                f"         for lv in df['{group_col}'].dropna().unique()]",
+                "stat, p = stats.ttest_ind(*groups[:2], equal_var=False)  # or f_oneway(*groups)",
+                "print(f'statistic={stat:.4f}, p={p:.3g}')",
+            ]
 
 
 
