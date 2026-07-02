@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
+from scipy import stats
 
 from researchforge.catalog import Catalog
 from researchforge.executor import run_analysis
@@ -255,3 +257,179 @@ def test_executor_group_comparison_three_groups_balanced_regression(tmp_path):
     assert not np.isnan(res.estimates["pvalue"])
     # variance-assumption disclosure is present regardless of Levene outcome
     assert "Levene" in res.summary
+
+
+# ---------------------------------------------------------------------------
+# 6. group_comparison — P3-4b: hand-rolled Welch's ANOVA (used UNCONDITIONALLY
+#    on the k>=3 path, replacing the classic equal-variance f_oneway).
+# ---------------------------------------------------------------------------
+
+def _hand_welch_anova(groups: list) -> tuple[float, float, float, float]:
+    """Test-local, independently-written implementation of Welch's F-test
+    (Welch 1951, Satterthwaite-corrected df) — does NOT import or call the
+    executor's `_welch_anova` helper, so it serves as a genuine correctness
+    cross-check rather than testing the formula against itself."""
+    k = len(groups)
+    ns = np.array([len(g) for g in groups], dtype=float)
+    means = np.array([np.mean(g) for g in groups], dtype=float)
+    variances = np.array([np.var(g, ddof=1) for g in groups], dtype=float)
+    w = ns / variances
+    W = w.sum()
+    m_bar = (w * means).sum() / W
+    numer = (w * (means - m_bar) ** 2).sum() / (k - 1)
+    A = ((1 - w / W) ** 2 / (ns - 1)).sum()
+    denom = 1 + (2 * (k - 2) / (k**2 - 1)) * A
+    F = numer / denom
+    df1 = float(k - 1)
+    df2 = (k**2 - 1) / (3 * A)
+    p = float(stats.f.sf(F, df1, df2))
+    return float(F), p, df1, float(df2)
+
+
+def _make_group_csv_known(tmp_path: Path) -> Path:
+    """3 groups with hand-picked, KNOWN unequal n and variance:
+        A: n=4  [10.5,12.5,14.5,16.5]   mean=13.5   var=6.666667
+        B: n=6  [1.5,2.5,3.5,4.5,5.5,6.5]  mean=4.0  var=3.5
+        C: n=3  [100.5,106.5,112.5]  mean=106.5  var=36
+    (values use a +0.5 offset vs. the "obvious" integer picks purely to dodge
+    the profiler's all-unique-integers -> "id" kind misclassification — see
+    CLAUDE.md's "profiler id 陷阱"; Welch's F/p are translation-invariant so
+    this does not change the statistic.)
+    Independently verified against statsmodels.stats.oneway.anova_oneway
+    (use_var='unequal', welch_correction=True): Welch F=361.95828989622004,
+    p=3.128006484127184e-05, df1=2, df2=3.983257770316186 — vs. classic
+    f_oneway F=1036.4120126449238 (the low-variance group B dominates the
+    classic pooled-variance F but is properly down-weighted by Welch).
+    """
+    grp = ["A"] * 4 + ["B"] * 6 + ["C"] * 3
+    value = [10.5, 12.5, 14.5, 16.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 100.5, 106.5, 112.5]
+    df = pd.DataFrame({"grp": grp, "value": value})
+    csv = tmp_path / "group_known.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def test_executor_group_comparison_welch_matches_hand_formula(tmp_path):
+    """Correctness cross-check: the handler's Welch F/p/df must match an
+    independently-written implementation of the same formula to ~1e-6."""
+    csv = _make_group_csv_known(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    groups = [
+        np.array([10.5, 12.5, 14.5, 16.5]),
+        np.array([1.5, 2.5, 3.5, 4.5, 5.5, 6.5]),
+        np.array([100.5, 106.5, 112.5]),
+    ]
+    F, p, df1, df2 = _hand_welch_anova(groups)
+
+    assert res.estimates["statistic"] == pytest.approx(F, abs=1e-6)
+    assert res.estimates["pvalue"] == pytest.approx(p, abs=1e-9, rel=1e-6)
+    assert res.estimates["welch_df1"] == pytest.approx(df1)
+    assert res.estimates["welch_df2"] == pytest.approx(df2, abs=1e-6)
+
+    # sanity: on this heavily unbalanced/heteroscedastic fixture Welch's F is
+    # sharply different from the classic equal-variance ANOVA's F.
+    classic_stat, _classic_p = stats.f_oneway(*groups)
+    assert abs(res.estimates["statistic"] - classic_stat) > 100
+
+
+def test_executor_group_comparison_welch_diverges_under_heteroscedasticity(tmp_path):
+    """On clearly heteroscedastic data (std 1/1/20, unequal n), Welch's F/p
+    must differ from the classic equal-variance f_oneway result."""
+    csv = _make_group_csv_unequal_variance(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    raw = pd.read_csv(csv)
+    levels = raw["grp"].unique().tolist()
+    groups = [raw.loc[raw["grp"] == lv, "value"].values for lv in levels]
+    classic_stat, classic_p = stats.f_oneway(*groups)
+
+    assert not np.isclose(res.estimates["statistic"], classic_stat, rtol=1e-3)
+    assert not np.isclose(res.estimates["pvalue"], classic_p, rtol=1e-3)
+
+
+def test_executor_group_comparison_welch_converges_under_homogeneity(tmp_path):
+    """On homoscedastic, balanced data, Welch's F should closely track the
+    classic f_oneway F (the two coincide as variances/n become equal). Uses a
+    larger balanced sample (n=300, 100/group) so the per-group sample
+    variances are close enough for a tight-ish comparison; with only ~20/group
+    sampling noise in the per-group variances alone can push the two apart by
+    more than a few percent even though both are asymptotically the same."""
+    csv = _make_group_csv(tmp_path, n=300, n_groups=3)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    raw = pd.read_csv(csv)
+    levels = raw["grp"].unique().tolist()
+    groups = [raw.loc[raw["grp"] == lv, "value"].values for lv in levels]
+    classic_stat, _classic_p = stats.f_oneway(*groups)
+
+    assert res.estimates["statistic"] == pytest.approx(classic_stat, rel=0.1)
+
+
+def test_executor_group_comparison_welch_disclosure_is_unconditional(tmp_path):
+    """The Levene note is now a diagnostic explaining the (unconditional)
+    Welch default, not a pre-test switch — check the new framing and that
+    the Satterthwaite df are disclosed in estimates."""
+    csv = _make_group_csv_unequal_variance(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "已默认用 Welch 稳健单因素方差分析" in res.summary
+    assert "Levene" in res.summary
+    assert "welch_df1" in res.estimates
+    assert "welch_df2" in res.estimates
+
+    # same wording/behavior must also hold on homoscedastic data (p>=0.05
+    # case) — the default is NOT gated on the Levene result.
+    csv2 = _make_group_csv(tmp_path, n_groups=3)
+    fp2 = profile_dataset(csv2)
+    res2 = run_analysis(fp2, entry, output_root=str(tmp_path / "outputs2"))
+    assert "已默认用 Welch 稳健单因素方差分析" in res2.summary
+
+
+def _make_group_csv_degenerate(tmp_path: Path) -> Path:
+    """3 groups, one of which is exactly constant (var=0, n=5) so it passes
+    the min-per-group>=2 guard but makes Welch's weight w_i = n_i/v_i
+    infinite for that group."""
+    rng = np.random.default_rng(3)
+    grp = ["A"] * 8 + ["B"] * 8 + ["C"] * 5
+    value = (
+        list(rng.normal(0, 1, 8))
+        + list(rng.normal(3, 1, 8))
+        + [7.0] * 5  # constant within group -> var(ddof=1) == 0
+    )
+    df = pd.DataFrame({"grp": grp, "value": value})
+    csv = tmp_path / "group_degenerate.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def test_executor_group_comparison_degenerate_variance_skips_honestly(tmp_path):
+    """A constant group (var=0, n>=2) must not yield an inf/NaN Welch
+    statistic — the handler should skip with an honest failure message."""
+    csv = _make_group_csv_degenerate(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "statistic" not in res.estimates
+    assert "pvalue" not in res.estimates
+    assert "失败" in res.summary
+    assert "方差为 0" in res.summary
