@@ -86,6 +86,8 @@ def test_life_table_known_value(tmp_path: Path) -> None:
     assert math.isclose(tbl["L_x"].iloc[2], 148051.95, abs_tol=1.0)
     # e_x at the open last age = 1/m_x exactly = 2.0
     assert math.isclose(tbl["e_x"].iloc[2], 2.0, abs_tol=1e-3)
+    # age starts at 0 -> the e_0/出生时预期寿命 label IS appropriate here
+    assert "出生时预期寿命 e_0" in res.summary
 
 
 def test_life_table_from_deaths_exposure(tmp_path: Path) -> None:
@@ -118,6 +120,26 @@ def test_life_table_qx_input(tmp_path: Path) -> None:
     assert math.isclose(tbl["l_x"].iloc[1], 90476.19, abs_tol=1.0)
     assert math.isclose(tbl["q_x"].iloc[2], 1.0, abs_tol=1e-9)  # closed last interval
     assert res.estimates["e0"] > 0
+
+
+def test_life_table_adult_start_no_e0_label(tmp_path: Path) -> None:
+    """An adult table starting at age 20 (not 0) must NOT be labelled 'e_0 /
+    出生时预期寿命' — that phrase presumes a life table anchored at birth. The
+    numeric life-expectancy value is still correct and reported."""
+    csv = _csv(tmp_path, "adult.csv", pd.DataFrame({
+        "age": [20, 21, 22],
+        "mx": [0.001, 0.0012, 0.0015],
+    }))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("life_table", "Life table"),
+                       output_root=str(tmp_path / "o"),
+                       config={"age": "age", "rate": "mx"})
+    assert "出生时预期寿命 e_0" not in res.summary
+    assert "e_20" in res.summary
+    # numeric estimate is still correct / present
+    assert res.estimates["min_age"] == 20.0
+    assert res.estimates["e0"] > 0
+    assert res.estimates["e0"] == res.estimates["e_at_min_age"]
 
 
 def test_life_table_degrade_no_mortality(tmp_path: Path) -> None:
@@ -197,6 +219,43 @@ def test_chain_ladder_long_form(tmp_path: Path) -> None:
     assert math.isclose(e["oldest_factor"], 1.5, abs_tol=1e-9)
 
 
+def _raa_triangle() -> pd.DataFrame:
+    """The classic RAA (Reinsurance Association of America) triangle from
+    Mack (1993) "Distribution-free calculation of the standard error of chain
+    ladder reserve estimates", ASTIN Bulletin 23(2) — the reference example used
+    throughout the actuarial literature (also R ChainLadder::RAA)."""
+    nan = float("nan")
+    return pd.DataFrame({
+        "origin": [1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988, 1989, 1990],
+        "dev0": [5012, 106, 3410, 5655, 1092, 1513, 557, 1351, 3133, 2063],
+        "dev1": [8269, 4285, 8992, 11555, 9565, 6445, 4020, 6947, 5395, nan],
+        "dev2": [10907, 5396, 13873, 15766, 15836, 11702, 10946, 13112, nan, nan],
+        "dev3": [11805, 10666, 16141, 21266, 22169, 12935, 12314, nan, nan, nan],
+        "dev4": [13539, 13782, 18735, 23425, 25955, 15852, nan, nan, nan, nan],
+        "dev5": [16181, 15599, 22214, 26083, 26180, nan, nan, nan, nan, nan],
+        "dev6": [18009, 15496, 22863, 27067, nan, nan, nan, nan, nan, nan],
+        "dev7": [18608, 16169, 23466, nan, nan, nan, nan, nan, nan, nan],
+        "dev8": [18662, 16704, nan, nan, nan, nan, nan, nan, nan, nan],
+        "dev9": [18834, nan, nan, nan, nan, nan, nan, nan, nan, nan],
+    })
+
+
+def test_chain_ladder_mack_se_raa_reference(tmp_path: Path) -> None:
+    """Mack standard error on the canonical RAA triangle must reproduce the
+    well-known reference total SE(reserve) = 26909.01 (per Mack 1993 / R
+    ChainLadder::MackChainLadder(RAA), confirmed against R MackChainLadder).
+    The prior implementation (S_j = full column sum, double-counting the
+    latest-diagonal element) understates this -- the bug this test guards
+    against produces a materially SMALLER (unsafe) SE."""
+    csv = _csv(tmp_path, "raa.csv", _raa_triangle())
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("chain_ladder", "Chain-ladder"),
+                       output_root=str(tmp_path / "o"))
+    e = res.estimates
+    assert math.isclose(e["total_reserve"], 52135.2, rel_tol=0, abs_tol=1.0)
+    assert math.isclose(e["mack_total_se"], 26909.01, rel_tol=0, abs_tol=5.0)
+
+
 def test_chain_ladder_degrade_no_triangle(tmp_path: Path) -> None:
     """A single numeric column is not a triangle (need >=2 dev columns) -> honest 跳过."""
     csv = _csv(tmp_path, "one.csv", pd.DataFrame({
@@ -248,6 +307,56 @@ def test_loss_distribution_lognormal_recovery(tmp_path: Path) -> None:
     # the best (delta_aic == 0) row is lognormal
     best_row = fits.sort_values("aic").iloc[0]
     assert best_row["distribution"] == "lognormal"
+
+
+def test_loss_distribution_lognormal_tvar_closed_form(tmp_path: Path) -> None:
+    """Cross-check TVaR against the closed-form lognormal tail mean:
+        TVaR_a = exp(mu + sigma^2/2) * Phi(sigma - z_a) / (1 - a)
+    and confirm it is finite and >= VaR (a light/moderate tail has a well-defined
+    tail mean, unlike the divergent-tail case in test_loss_distribution_pareto_*)."""
+    from scipy import stats as sstats
+    rng = np.random.default_rng(11)
+    mu, sigma, n = 8.0, 0.6, 6000
+    losses = rng.lognormal(mean=mu, sigma=sigma, size=n)
+    csv = _csv(tmp_path, "loss.csv", pd.DataFrame({"claim_amount": losses}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("loss_distribution", "Loss distribution"),
+                       output_root=str(tmp_path / "o"),
+                       config={"loss": "claim_amount"})
+    e = res.estimates
+    assert math.isfinite(e["tvar_95"])
+    assert e["tvar_95"] >= e["var_95"]
+    z95 = 1.6448536269514722
+    theo_tvar95 = math.exp(mu + sigma ** 2 / 2.0) * sstats.norm.cdf(sigma - z95) / 0.05
+    assert math.isclose(e["tvar_95"], theo_tvar95, rel_tol=0.10)
+
+
+def test_loss_distribution_pareto_divergent_tail_undefined(tmp_path: Path) -> None:
+    """A Pareto fit with shape b<=1 has a mathematically UNDEFINED tail mean.
+    The fix must report this honestly (TVaR = +inf, flagged in the summary),
+    NOT a spurious finite (often negative) number from scipy.integrate.quad on a
+    divergent integral."""
+    from scipy import stats as sstats
+    rng = np.random.default_rng(7)
+    # true shape b=0.7 <= 1 -> tail mean does not exist
+    losses = sstats.pareto.rvs(b=0.7, size=4000, random_state=rng) * 1000.0
+    csv = _csv(tmp_path, "loss.csv", pd.DataFrame({"claim_amount": losses}))
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("loss_distribution", "Loss distribution"),
+                       output_root=str(tmp_path / "o"),
+                       config={"loss": "claim_amount"})
+    e = res.estimates
+    # best fit should be the (true) pareto distribution
+    assert "pareto" in res.summary
+    # TVaR must be reported as +inf (undefined), never a finite negative number
+    assert e["tvar_95"] == float("inf")
+    assert e["tvar_99"] == float("inf")
+    assert not (e["tvar_95"] < 0)  # guards explicitly against the old bug
+    # VaR itself is still a finite, sensible quantile
+    assert math.isfinite(e["var_95"])
+    assert e["var_95"] > 0
+    # the engine must disclose the divergence honestly
+    assert "未定义" in res.summary or "不存在" in res.summary
 
 
 def test_loss_distribution_custom_alpha(tmp_path: Path) -> None:

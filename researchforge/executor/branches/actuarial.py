@@ -282,9 +282,14 @@ def _branch_life_table(ctx: Ctx) -> None:
 
         _save_fig(d, "life_table.png", files, _plot)
 
+        min_age_val = float(age[0])
+        if min_age_val == 0.0:
+            e0_label = f"出生时预期寿命 e_0={e0:.2f} 岁"
+        else:
+            e0_label = f"e_{min_age_val:g}（起始年龄 {min_age_val:g} 岁处的预期寿命）={e0:.2f} 岁"
         summary.append(
             f"{ctx.entry.method} 完成：年龄列={age_name}，{src_note}（{n_ages} 个年龄组，"
-            f"基数 radix={radix:.0f}）；出生时预期寿命 e_0={e0:.2f} 岁。"
+            f"基数 radix={radix:.0f}）；{e0_label}。"
             f"全表（q_x/p_x/l_x/d_x/L_x/T_x/e_x）见 life_table.csv，生存曲线与 e_x 见图。"
             " ⚠ 这是「时期(period)生命表」——用当期各年龄死亡率合成的假想队列，"
             "不是真实出生队列(cohort)的经历，受死亡率随时间变化影响。"
@@ -638,9 +643,14 @@ def _mack_total_se(tri, f, latest_dev, ultimate):
                 else:
                     sigma2[j] = sigma2[last_known]
 
-        # column sums S_j = sum of C_{i,j} over origins observed at dev j (used in
-        # the parameter-uncertainty term)
-        col_sum = np.array([np.nansum(tri[:, j][np.isfinite(tri[:, j])]) for j in range(n_dev)])
+        # S_j = denominator of hat f_j = sum over origins observed in BOTH columns j and j+1
+        # (Mack 1993, Thm 3). NOT the full column sum, which double-counts the latest-diagonal
+        # element and understates the estimation variance (reproduces the reference SE exactly).
+        Smack = np.zeros(n_dev, dtype=float)
+        for _j in range(J):
+            _cj, _cj1 = tri[:, _j], tri[:, _j + 1]
+            _m = np.isfinite(_cj) & np.isfinite(_cj1)
+            Smack[_j] = float(np.nansum(_cj[_m]))
 
         # per-origin MSE of the ultimate (process + estimation), Mack eq.
         mse = np.zeros(n_origin, dtype=float)
@@ -653,7 +663,7 @@ def _mack_total_se(tri, f, latest_dev, ultimate):
             for j in range(k, J):
                 if f[j] <= 0 or not np.isfinite(sigma2[j]):
                     continue
-                Sj = col_sum[j]                     # column volume S_j
+                Sj = Smack[j]                       # column volume S_j
                 cij = _full_value(tri, ultimate, f, i, j)  # projected C_{i,j}
                 if not (cij and cij > 0):
                     continue
@@ -668,7 +678,7 @@ def _mack_total_se(tri, f, latest_dev, ultimate):
         # cross-origin covariance term (parameter uncertainty shared via S_j)
         cov = 0.0
         for j in range(J):
-            if f[j] <= 0 or not np.isfinite(sigma2[j]) or col_sum[j] <= 0:
+            if f[j] <= 0 or not np.isfinite(sigma2[j]) or Smack[j] <= 0:
                 continue
             affected = [i for i in range(n_origin)
                         if 0 <= latest_dev[i] <= j < J and np.isfinite(ultimate[i])]
@@ -677,7 +687,7 @@ def _mack_total_se(tri, f, latest_dev, ultimate):
             usum = np.sum([ultimate[i] for i in affected])
             usq = np.sum([ultimate[i] ** 2 for i in affected])
             cross = usum * usum - usq
-            cov += cross * (sigma2[j] / (f[j] ** 2)) / col_sum[j]
+            cov += cross * (sigma2[j] / (f[j] ** 2)) / Smack[j]
 
         total_var = total_var_proc_est + cov
         if total_var <= 0 or not np.isfinite(total_var):
@@ -807,18 +817,22 @@ def _branch_loss_distribution(ctx: Ctx) -> None:
             return float(dist.ppf(a, *params))
 
         def _tvar(dist, params, a):
-            # TVaR_a = (1/(1-a)) * integral_a^1 ppf(u) du, by numerical quadrature
+            # TVaR_a = (1/(1-a)) * integral_a^1 ppf(u) du. The tail mean must be finite and
+            # >= VaR_a (ppf is increasing); a non-finite or < VaR_a result signals a divergent
+            # tail (e.g. Pareto shape<=1) whose mean is undefined -> report +inf so the caller
+            # flags it honestly instead of printing a spurious (often negative) finite number.
             from scipy import integrate
             if a >= 1.0:
                 return float("nan")
+            var_a = float(dist.ppf(a, *params))
             try:
-                val, _ = integrate.quad(lambda u: dist.ppf(u, *params), a, 1.0,
-                                        limit=200)
-                return float(val / (1.0 - a))
+                val, _ = integrate.quad(lambda u: dist.ppf(u, *params), a, 1.0, limit=200)
+                tv = float(val / (1.0 - a))
             except Exception:
-                # fallback: average ppf on a fine grid in (a,1)
-                us = np.linspace(a, 1.0, 2000, endpoint=False)[1:]
-                return float(np.mean(dist.ppf(us, *params)))
+                tv = float("inf")
+            if not np.isfinite(tv) or tv < var_a:
+                return float("inf")
+            return tv
 
         # risk measures at every alpha for the BEST distribution
         var_at = {a: _var(best_dist, best_params, a) for a in alphas}
