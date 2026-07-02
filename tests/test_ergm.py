@@ -18,7 +18,7 @@ import pytest
 from researchforge.catalog.schema import AnalysisEntry, Precondition
 from researchforge.executor import run_analysis
 from researchforge.executor import rbridge
-from researchforge.executor.branches.network_science import _ergm_terms_ok
+from researchforge.executor.branches.network_science.ergm import _ergm_terms_ok
 from researchforge.profiler import profile_dataset
 
 _HAS_NX = importlib.util.find_spec("networkx") is not None
