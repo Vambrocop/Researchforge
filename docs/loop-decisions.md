@@ -28,6 +28,9 @@
 > - Fleiss' κ fleiss_kappa：`raters`(评分者列表,默认全部类别/二值/计数列)、`count_matrix`(默认 False;True 时各列=按类别已计数的「被试×类别」矩阵)；评分数不齐时按众数 n 对齐删行
 > - Bland-Altman bland_altman：`method1`/`method2`(两种连续测量列,默认前两个连续列)；LoA=bias±1.96·SD,各界限 95% CI 用 Bland-Altman SE(LoA)≈SD·√(1/n+1.96²/(2(n-1)))
 
+> **📌 已决方法学默认（lead 拍板记录，非 config 键；你仍可推翻）**
+> - **group_comparison k≥3 → Welch 稳健单因素方差分析**（2026-07-02，Fable 5 终审拍板）：此前 k≥3 用经典等方差 `f_oneway`，与 k=2 已用的 Welch t 不一致。改为**无条件**用 Welch's F（Satterthwaite 分数 df，手搓、无新依赖）——引擎标准是「跑严谨默认」，Welch 在方差齐性下几乎等效、异方差（尤其不等 n）下更稳（Delacre/Leys/Lakens 2019），且 Welch-t 正是其 k=2 特例，全族统一为 Welch。**不**按 Levene 门控切换（两阶段「先检验方差再选检验」误差控制差），Levene 保留为**诊断披露**（解释为何默认 Welch）。**拒** pingouin（为一个闭式统计量引重依赖，违最小依赖/可选后端约定）。这会改变 k≥3 的 `statistic`/`p_value`（即预期——换成更正确的 Welch 值，测试同步更新为修正值，非放宽）。
+
 > 说明：以下都是「默认能用、但你说了算」的点，不是 bug。按重要性排序。
 
 | # | 涉及分析 | 引擎默认 | 你可能想改成 | 状态 |
