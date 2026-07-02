@@ -48,6 +48,43 @@ _files: dict[str, Path] = {}
 _ALLOWED_SUFFIX = {".csv", ".tsv", ".txt", ".xlsx", ".xls"}
 _ID_RE = re.compile(r"[A-Za-z0-9_]+")
 _MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB cap per file — reject oversized uploads
+_UPLOAD_CHUNK_BYTES = 1 << 20  # 1 MiB — read/accumulate in bounded chunks, not one big read()
+
+# /api/analyze_folder batch-level caps — independent of the per-file _MAX_UPLOAD_BYTES.
+_MAX_FOLDER_FILES = 500
+_MAX_FOLDER_TOTAL_BYTES = 500 * 1024 * 1024  # 500 MB aggregate cap across the whole batch
+
+
+async def _read_capped(file: UploadFile, max_bytes: int | None = None) -> bytes:
+    """Read an UploadFile in bounded chunks, aborting with 413 the moment the running
+    total exceeds `max_bytes` — WITHOUT reading the rest of the body. This avoids the
+    old `await file.read()` pattern, which fully buffers the upload (however large)
+    into memory before any size check runs.
+
+    `max_bytes` defaults to the CURRENT value of the module-level `_MAX_UPLOAD_BYTES`
+    (read at call time, not bound as a def-time default) so tests can monkeypatch it."""
+    if max_bytes is None:
+        max_bytes = _MAX_UPLOAD_BYTES
+    # Fast path: if the part declared a Content-Length header over the cap, reject
+    # before reading anything at all.
+    try:
+        declared = int(file.headers.get("content-length") or 0)
+    except (TypeError, ValueError):
+        declared = 0
+    if declared > max_bytes:
+        raise HTTPException(status_code=413, detail="file too large (max 100 MB)")
+
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(status_code=413, detail="file too large (max 100 MB)")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _save_upload(file_id: str, filename: str | None, data: bytes) -> Path:
@@ -118,7 +155,8 @@ async def api_analyze(file: UploadFile = File(...)) -> JSONResponse:
     """Save an uploaded table (CSV / Excel / TSV, extension preserved) and return the
     fingerprint + recommendations."""
     file_id = uuid.uuid4().hex
-    dest = _save_upload(file_id, file.filename, await file.read())
+    data = await _read_capped(file)
+    dest = _save_upload(file_id, file.filename, data)
 
     from researchforge.web.service import analyze_path
 
@@ -130,22 +168,48 @@ async def api_analyze(file: UploadFile = File(...)) -> JSONResponse:
 async def api_analyze_folder(files: list[UploadFile] = File(...)) -> JSONResponse:
     """Batch: profile + top recommendations for EVERY table in an uploaded folder.
     Non-tabular files in the folder are skipped. Each accepted file gets its own
-    file_id so a row can be opened in the full single-file flow (via /api/reanalyze)."""
+    file_id so a row can be opened in the full single-file flow (via /api/reanalyze).
+
+    Two batch-level guards on top of the per-file _MAX_UPLOAD_BYTES cap: a max file
+    COUNT (_MAX_FOLDER_FILES) and a max AGGREGATE byte count across the whole batch
+    (_MAX_FOLDER_TOTAL_BYTES). Either cap stops the batch cleanly (files already
+    accepted are still analyzed); an oversized single file is skipped, same as before.
+    """
     saved: list[tuple[str, str, Path]] = []
+    total_bytes = 0
+    capped = False
+    cap_detail: str | None = None
     for f in files:
+        if len(saved) >= _MAX_FOLDER_FILES:
+            capped = True
+            cap_detail = f"stopped at {_MAX_FOLDER_FILES} files (folder file-count cap)"
+            break
+        if total_bytes >= _MAX_FOLDER_TOTAL_BYTES:
+            capped = True
+            cap_detail = (
+                f"stopped after {total_bytes} bytes "
+                f"(folder aggregate-size cap of {_MAX_FOLDER_TOTAL_BYTES} bytes)"
+            )
+            break
         if Path(f.filename or "").suffix.lower() not in _ALLOWED_SUFFIX:
             continue
         fid = uuid.uuid4().hex
         try:
-            dest = _save_upload(fid, f.filename, await f.read())
+            data = await _read_capped(f)
         except HTTPException:
-            continue  # skip an oversized file rather than aborting the whole batch
+            continue  # skip an oversized single file rather than aborting the whole batch
+        dest = _save_upload(fid, f.filename, data)
+        total_bytes += len(data)
         saved.append((fid, f.filename or dest.name, dest))
 
     from researchforge.web.service import analyze_folder_files
 
     summaries = analyze_folder_files(saved)
-    return JSONResponse({"n_files": len(summaries), "files": summaries})
+    resp: dict = {"n_files": len(summaries), "files": summaries}
+    if capped:
+        resp["capped"] = True
+        resp["detail"] = cap_detail
+    return JSONResponse(resp)
 
 
 @app.post("/api/clean")

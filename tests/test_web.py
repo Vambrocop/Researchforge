@@ -640,3 +640,126 @@ def test_analyze_folder_batch(tmp_path):
         assert {"id", "method", "family", "light"} <= set(f["top"][0])
         # each batch file is openable in the full flow
         assert web_app._resolve_upload(f["file_id"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Upload-cap tests (P2-3): caps must be enforced via bounded chunked reads,
+# not by buffering the whole body then checking len() after the fact.
+# ---------------------------------------------------------------------------
+def test_analyze_oversized_upload_returns_413(monkeypatch):
+    """A single /api/analyze upload over the cap must 413 — simulated by shrinking
+    _MAX_UPLOAD_BYTES rather than actually posting a multi-GB body."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    # Shrink the cap so a small, ordinary-looking CSV already exceeds it — this
+    # exercises the same code path (_read_capped's chunked accumulate-and-abort)
+    # that a real oversized upload would hit, without needing gigabytes of data.
+    monkeypatch.setattr(web_app, "_MAX_UPLOAD_BYTES", 16)
+
+    client = TestClient(web_app.app)
+    body = b"a,b\n1,2\n3,4\n5,6\n7,8\n9,10\n"  # well over 16 bytes
+    assert len(body) > 16
+    resp = client.post("/api/analyze", files={"file": ("d.csv", body, "text/csv")})
+    assert resp.status_code == 413, resp.text
+    assert "too large" in resp.json()["detail"]
+
+
+def test_read_capped_aborts_without_reading_rest():
+    """_read_capped must raise 413 as soon as the running total crosses max_bytes,
+    and must not silently truncate-and-succeed."""
+    import asyncio
+
+    from fastapi import HTTPException
+    from starlette.datastructures import Headers, UploadFile
+
+    import researchforge.web.app as web_app
+
+    upload = UploadFile(
+        file=io.BytesIO(b"x" * 100),
+        filename="big.csv",
+        headers=Headers({"content-type": "text/csv"}),
+    )
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(web_app._read_capped(upload, max_bytes=10))
+    assert exc.value.status_code == 413
+
+
+def test_analyze_folder_file_count_cap(monkeypatch):
+    """A folder batch exceeding the file-COUNT cap must stop cleanly: response is
+    capped, only up to the cap's worth of files are analyzed, no crash."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    monkeypatch.setattr(web_app, "_MAX_FOLDER_FILES", 2)
+
+    dfs = [
+        pd.DataFrame({"y": [float(i) for i in range(10)], "x": [float(i % 3) for i in range(10)]})
+        for _ in range(5)
+    ]
+    client = TestClient(web_app.app)
+    files = [
+        ("files", (f"f{i}.csv", df.to_csv(index=False).encode(), "text/csv"))
+        for i, df in enumerate(dfs)
+    ]
+    resp = client.post("/api/analyze_folder", files=files)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["n_files"] == 2, "must stop at the file-count cap"
+    assert data.get("capped") is True
+    assert "detail" in data and data["detail"]
+
+
+def test_analyze_folder_aggregate_bytes_cap(monkeypatch):
+    """A folder batch exceeding the AGGREGATE byte cap must stop cleanly: response
+    is capped, batch is truncated (not a crash), and files already under the cap
+    are still analyzed."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    # Each file is a small CSV of a known size; shrink the aggregate cap so the
+    # 2nd or 3rd file trips it, without needing a huge upload.
+    df = pd.DataFrame({"y": [float(i) for i in range(50)], "x": [float(i % 3) for i in range(50)]})
+    csv_bytes = df.to_csv(index=False).encode()
+    monkeypatch.setattr(web_app, "_MAX_FOLDER_TOTAL_BYTES", int(len(csv_bytes) * 1.5))
+
+    client = TestClient(web_app.app)
+    files = [("files", (f"f{i}.csv", csv_bytes, "text/csv")) for i in range(5)]
+    resp = client.post("/api/analyze_folder", files=files)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["n_files"] < 5, "must stop before all 5 files are processed"
+    assert data["n_files"] >= 1, "the file(s) under the cap must still be analyzed"
+    assert data.get("capped") is True
+    assert "detail" in data and data["detail"]
+
+
+def test_analyze_folder_oversized_single_file_still_skipped_not_fatal():
+    """Existing behavior preserved: one oversized file in a folder batch is skipped
+    (not fatal to the whole batch), distinct from the count/aggregate caps."""
+    from fastapi.testclient import TestClient
+
+    import researchforge.web.app as web_app
+
+    ok_df = pd.DataFrame({"y": [float(i) for i in range(10)], "x": [float(i % 3) for i in range(10)]})
+    client = TestClient(web_app.app)
+
+    # temporarily shrink the per-file cap so one "normal-looking" file is oversized
+    # while a second stays under it.
+    import researchforge.web.app as app_module
+
+    original = app_module._MAX_UPLOAD_BYTES
+    try:
+        app_module._MAX_UPLOAD_BYTES = 8  # tiny — the ok_df CSV will exceed this
+        files = [
+            ("files", ("big.csv", ok_df.to_csv(index=False).encode(), "text/csv")),
+        ]
+        resp = client.post("/api/analyze_folder", files=files)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["n_files"] == 0, "the oversized file must be skipped, not crash the batch"
+    finally:
+        app_module._MAX_UPLOAD_BYTES = original
