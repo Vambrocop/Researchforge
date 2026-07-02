@@ -142,7 +142,12 @@ def run_analysis(
               summary=summary, estimates=estimates, code=code)
     _handler = BRANCH_REGISTRY.get(entry.id)
     if _handler is not None:
-        _handler(ctx)
+        try:
+            _handler(ctx)
+        except Exception as err:  # noqa: BLE001 — degrade to a report, never crash the run
+            summary.append(
+                f"⚠ {entry.id} 执行失败：{type(err).__name__}: {str(err)[:200]}"
+            )
     else:
         summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")
 
