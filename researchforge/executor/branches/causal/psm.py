@@ -79,7 +79,10 @@ def _branch_psm(ctx: Ctx) -> None:
         att = float(diffs.mean())
         se = float(diffs.std(ddof=1) / np.sqrt(len(diffs))) if len(diffs) > 1 else float("nan")
         tstat = att / se if se and se > 0 else float("nan")
-        pval = float(2 * _st.norm.sf(abs(tstat))) if tstat == tstat else float("nan")
+        df_t = len(diffs) - 1  # matched-pairs t-test df; small-n matches (as few as 3 pairs) need
+        # the t reference distribution, not normal, or the p-value is anti-conservative.
+        pval = (float(2 * _st.t.sf(abs(tstat), df=df_t)) if tstat == tstat and df_t >= 1
+                else float("nan"))
 
         def _smd(a, b):
             a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
