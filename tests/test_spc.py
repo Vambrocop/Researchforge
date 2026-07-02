@@ -17,6 +17,8 @@ import pandas as pd
 
 from researchforge.catalog.schema import AnalysisEntry, Precondition
 from researchforge.executor import run_analysis
+from researchforge.executor._branch_api import Ctx
+from researchforge.executor.branches.spc import _measurement_col
 from researchforge.profiler import profile_dataset
 
 
@@ -35,6 +37,13 @@ def _csv(tmp_path: Path, name: str, df: pd.DataFrame) -> Path:
     p = tmp_path / name
     df.to_csv(p, index=False)
     return p
+
+
+def _bare_ctx(fp, df: pd.DataFrame, cfg: dict, tmp_path: Path) -> Ctx:
+    """A minimal Ctx sufficient for exercising the pure column-resolution
+    helpers (_measurement_col) without going through run_analysis setup."""
+    return Ctx(df=df, fp=fp, entry=None, cfg=cfg, d=tmp_path, files=[], summary=[],
+               estimates={}, code=[])
 
 
 # --------------------------------------------------------------------------- #
@@ -233,3 +242,109 @@ def test_gage_rr_degrade_unbalanced(tmp_path: Path) -> None:
                        config={"measurement": "y", "part": "part", "operator": "operator"})
     assert "跳过" in res.summary
     assert "ndc" not in res.estimates
+
+
+# --------------------------------------------------------------------------- #
+# 4) _measurement_col regression: must not steal a leading integer id/subgroup
+#    column from the real continuous measurement (bug: on the STANDARD SPC
+#    layout [id..., measurement] the old resolver returned the FIRST column
+#    whose kind was in (continuous, count, id) in profiler/column order, so an
+#    all-distinct-integer subgroup/part id (kind "id") ranked ahead of the real
+#    continuous measurement whenever it happened to come first).
+# --------------------------------------------------------------------------- #
+def test_measurement_col_prefers_continuous_over_leading_id(tmp_path: Path) -> None:
+    """STANDARD layout: [subgroup (int 1..k, first column), measure (continuous)].
+    Without any config, resolution must pick 'measure', NOT the leading integer
+    'subgroup' id column (which profiles as kind='id', all-distinct)."""
+    n = 30
+    subgroup = list(range(1, n + 1))  # all-distinct ints -> profiles as "id"
+    raw = np.linspace(-2, 2, n)
+    measure = (raw - raw.mean()) / raw.std(ddof=1)  # mean=0, sample SD=1 exactly
+    df = pd.DataFrame({"subgroup": subgroup, "measure": measure})
+    csv = _csv(tmp_path, "std_layout.csv", df)
+    fp = profile_dataset(csv)
+
+    # sanity: the profiler really does classify the leading column as "id"
+    kinds = {c.name: c.kind for c in fp.columns}
+    assert kinds["subgroup"] == "id"
+    assert kinds["measure"] == "continuous"
+
+    ctx = _bare_ctx(fp, df, cfg={}, tmp_path=tmp_path)
+    assert _measurement_col(ctx) == "measure"
+
+    # end-to-end: process_capability with NO 'measurement' key in config must
+    # compute Cp/Cpk on 'measure' (known Cp=Cpk=1.0 for mean=0,SD=1,LSL=-3,USL=3),
+    # not on 'subgroup' (which would give a wildly different, wrong Cp).
+    res = run_analysis(fp, _entry("process_capability", "Process Capability", "evaluate"),
+                       output_root=str(tmp_path / "o"),
+                       config={"lsl": -3.0, "usl": 3.0})
+    e = res.estimates
+    assert math.isclose(e["cp"], 1.0, rel_tol=0, abs_tol=1e-6)
+    assert math.isclose(e["cpk"], 1.0, rel_tol=0, abs_tol=1e-6)
+
+
+def test_control_chart_standard_layout_uses_measurement_not_id(tmp_path: Path) -> None:
+    """Same STANDARD layout trap for control_chart: a sequential integer id column
+    placed first must not be treated as the measurement. On the id column (a ramp
+    1..12) I-MR would flag most points as out-of-control (mirrors the reported bug:
+    71/75 flagged on real data); on the real 'measure' column (stable ~10 plus one
+    spike) only the injected spike should be flagged."""
+    vals = [10.0, 10.2, 9.8, 10.1, 9.9, 10.0, 10.3, 9.7, 100.0, 10.1, 9.9, 10.0]
+    ids = list(range(1, len(vals) + 1))  # sequential ramp, all-distinct -> kind "id"
+    df = pd.DataFrame({"subgroup": ids, "measure": vals})
+    csv = _csv(tmp_path, "std_layout_cc.csv", df)
+    fp = profile_dataset(csv)
+
+    res = run_analysis(fp, _entry("control_chart", "Control Chart"),
+                       output_root=str(tmp_path / "o"), config={})
+    e = res.estimates
+    # center line must track 'measure' (~9.9..10), not 'subgroup' (mean of 1..12 = 6.5)
+    assert abs(e["center_line"] - float(np.mean(vals))) < 1e-6
+    # only the injected spike (and maybe its immediate neighbor via moving range)
+    # should be out of control -- NOT the majority of points as would happen if the
+    # ramp id column were mistakenly used as the measurement.
+    assert e["n_out_of_control"] <= 3
+    out = Path(res.output_dir)
+    pts = pd.read_csv(out / "control_chart_points.csv")
+    spike = pts.loc[pts["value"] == 100.0]
+    assert bool(spike["out_of_control"].iloc[0])
+
+
+def test_measurement_col_fallback_to_count_when_no_continuous(tmp_path: Path) -> None:
+    """No continuous column at all -> the count/id fallback is preserved (the
+    docstring's original intent: an integer-valued measurement should still be
+    picked, just never ranked ABOVE a real continuous measurement)."""
+    counts = [5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10]  # non-negative, has duplicates -> "count"
+    df = pd.DataFrame({"value": counts})
+    csv = _csv(tmp_path, "count_only.csv", df)
+    fp = profile_dataset(csv)
+
+    kinds = {c.name: c.kind for c in fp.columns}
+    assert kinds["value"] == "count"
+
+    ctx = _bare_ctx(fp, df, cfg={}, tmp_path=tmp_path)
+    assert _measurement_col(ctx) == "value"
+
+    # end-to-end sanity: control_chart still runs (does not honestly-degrade) on
+    # the integer-only column via the fallback.
+    res = run_analysis(fp, _entry("control_chart", "Control Chart"),
+                       output_root=str(tmp_path / "o"), config={})
+    assert "跳过" not in res.summary
+    assert "center_line" in res.estimates
+
+
+def test_measurement_col_config_override_honored(tmp_path: Path) -> None:
+    """config['measurement'] / config['subgroup'] must still win outright, even
+    when a decoy continuous column would otherwise be auto-picked first."""
+    n = 20
+    decoy = np.linspace(0, 1, n)          # continuous, would auto-win if not overridden
+    subgroup = list(range(1, n + 1))       # id-kind
+    real_measure = np.linspace(100, 200, n)  # continuous, the one the user wants
+    df = pd.DataFrame({"decoy_continuous": decoy, "subgroup": subgroup,
+                        "real_measure": real_measure})
+    csv = _csv(tmp_path, "override.csv", df)
+    fp = profile_dataset(csv)
+
+    cfg = {"subgroup": "subgroup", "measurement": "real_measure"}
+    ctx = _bare_ctx(fp, df, cfg=cfg, tmp_path=tmp_path)
+    assert _measurement_col(ctx) == "real_measure"

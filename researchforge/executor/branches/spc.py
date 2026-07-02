@@ -56,21 +56,26 @@ _D2_MR2 = 1.128
 
 
 def _measurement_col(ctx: Ctx):
-    """Resolve the numeric measurement column.
-
-    Priority: config ``measurement`` -> a continuous/count/id column. The
-    time/unit columns are excluded from the auto-pick. Returns the column name or
-    None if no usable numeric column exists."""
+    """Resolve the numeric measurement column. Priority: config ``measurement`` ->
+    a CONTINUOUS column -> (only if none) a count/id integer column. Time/unit and any
+    user-designated grouping columns (subgroup/part/operator) are excluded from the
+    auto-pick, so the standard SPC layout ``[id..., measurement]`` picks the measurement,
+    not the leading integer id. Returns the column name or None."""
     fp, cfg, df = ctx.fp, ctx.cfg, ctx.df
     m = cfg.get("measurement")
     if m in df.columns:
         return m
     excl = {fp.unit_col, fp.time_col}
-    for c in fp.columns:
-        if c.name in excl:
-            continue
-        if c.kind in ("continuous", "count", "id"):
-            return c.name
+    for _k in ("subgroup", "part", "operator"):
+        _g = cfg.get(_k)
+        if _g in df.columns:
+            excl.add(_g)
+    for kinds in (("continuous",), ("count", "id")):   # prefer continuous, THEN integer
+        for c in fp.columns:
+            if c.name in excl:
+                continue
+            if c.kind in kinds:
+                return c.name
     return None
 
 
@@ -562,7 +567,7 @@ def _branch_process_capability(ctx: Ctx) -> None:
             f"{ctx.entry.method} 完成：测量列={meas}（{vals.size} 个观测，规格 {spec_txt}）；"
             f"x̄={x_bar:.6g}，组内σ={sigma_within:.6g}{within_note}、整体σ={sigma_overall:.6g}。"
             f"短期能力 {cp_txt}Cpk={cpk:.4g}（{verdict}）；长期表现 {pp_txt}Ppk={ppk:.4g}；"
-            f"正态模型估计超规格比例≈{frac_out:.4%}（{ppm_out:.1f} ppm）。明细见 process_capability.csv 与图。"
+            f"正态模型估计超规格比例≈{frac_out:.4%}（{ppm_out:.1f} ppm，按整体σ的长期估计）。明细见 process_capability.csv 与图。"
             " ⚠ Cp/Cpk 用组内（短期）σ衡量「过程潜力」，Pp/Ppk 用整体（长期）样本σ衡量「实际表现」；"
             "Cpk 远大于 Ppk 说明子组间漂移大（过程不稳）。 ⚠ 全部指数与 ppm 估计假定数据近似正态且过程稳定；"
             "对非正态数据应先做变换或用分布专用能力指数（如基于分位数的 Cp）。规格限为工程/客户要求，"
