@@ -16,6 +16,15 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
+# Modules that failed to import during auto-discovery: (module_name, repr(exc)).
+# One broken family must not take down the other ~294 analyses — surfaced (not
+# swallowed) via `cli status` so it stays visible until fixed.
+IMPORT_ERRORS: list[tuple[str, str]] = []
+
 # Recursively import every submodule/sub-package so its @register decorators run.
 for _info in pkgutil.walk_packages(__path__, prefix=__name__ + "."):
-    importlib.import_module(_info.name)
+    try:
+        importlib.import_module(_info.name)
+    except Exception as exc:  # noqa: BLE001 - quarantine, don't abort the whole registry
+        IMPORT_ERRORS.append((_info.name, repr(exc)))
+        continue

@@ -295,6 +295,7 @@ def _cmd_status() -> int:
     from pathlib import Path
 
     from researchforge import __next_milestone__, __version__
+    from researchforge.executor import branches
     from researchforge.quality.scorecard import DIM_LABELS, MODULE_LINE_LIMIT, compute_scorecard
 
     repo = Path(__file__).resolve().parent.parent
@@ -330,6 +331,9 @@ def _cmd_status() -> int:
     print(f"规模  {int(m['n_methods'])} 方法 / {int(m['n_families'])} 族 / "
           f"{int(m['n_test_files'])} 测试文件 / 最大模块 {int(m.get('max_module_lines', 0))} 行 (护栏 {MODULE_LINE_LIMIT})")
     print(f"Git   分支 {branch} · 未推送 {n_unpushed if n_unpushed is not None else '?'} · 工作树 {'有改动' if dirty else '干净'}")
+    if branches.IMPORT_ERRORS:
+        names = "、".join(name for name, _ in branches.IMPORT_ERRORS)
+        print(f"⚠ {len(branches.IMPORT_ERRORS)} 个分支模块导入失败: {names}")
 
     print("\n🔜 下一波 (docs/deferred-log.md):")
     if nexts:
