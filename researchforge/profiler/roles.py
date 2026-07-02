@@ -27,11 +27,11 @@ _OUTCOME_RE = re.compile(
 )
 _TREATMENT_RE = re.compile(
     r"(?:^|_|\b)(treat|treatment|treated|intervention|arm|group|condition|"
-    r"exposed|exposure|policy|program|assigned|dose|d|t)(?:$|_|\b)",
+    r"exposed|exposure|policy|program|assigned|dose)(?:$|_|\b)",
     re.I,
 )
 _TIME_RE = re.compile(
-    r"(?:^|_|\b)(year|yr|date|time|month|quarter|period|day|week|wave|t)(?:$|_|\b)",
+    r"(?:^|_|\b)(year|yr|date|time|month|quarter|period|day|week|wave)(?:$|_|\b)",
     re.I,
 )
 

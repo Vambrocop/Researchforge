@@ -38,7 +38,7 @@ def validate_config(
         spec = allowed.get(key)
         if spec is None:
             opts = "、".join(allowed) or "（无）"
-            warns.append(f"未知参数 '{key}'：{entry.id} 仅接受 {opts}；已忽略、回退默认。")
+            warns.append(f"未知参数 '{key}'：{entry.id} 仅接受 {opts}；可能被忽略、回退默认。")
             continue
         warns.extend(_check_value(entry, spec, key, val, known_cols))
 
@@ -53,22 +53,22 @@ def _check_value(
 
     if t == "choice" and spec.choices and val not in spec.choices:
         out.append(
-            f"参数 '{key}'={val!r} 不在允许取值 {spec.choices} 内；已忽略、回退默认。"
+            f"参数 '{key}'={val!r} 不在允许取值 {spec.choices} 内；可能被忽略、回退默认。"
         )
     elif t == "int" and (isinstance(val, bool) or not isinstance(val, int)):
-        out.append(f"参数 '{key}' 应为整数，收到 {type(val).__name__}；已忽略、回退默认。")
+        out.append(f"参数 '{key}' 应为整数，收到 {type(val).__name__}；可能被忽略、回退默认。")
     elif t == "float" and (isinstance(val, bool) or not isinstance(val, (int, float))):
-        out.append(f"参数 '{key}' 应为数值，收到 {type(val).__name__}；已忽略、回退默认。")
+        out.append(f"参数 '{key}' 应为数值，收到 {type(val).__name__}；可能被忽略、回退默认。")
     elif t == "bool" and not isinstance(val, bool):
-        out.append(f"参数 '{key}' 应为布尔值，收到 {type(val).__name__}；已忽略、回退默认。")
+        out.append(f"参数 '{key}' 应为布尔值，收到 {type(val).__name__}；可能被忽略、回退默认。")
     elif t == "column":
         if not isinstance(val, str):
-            out.append(f"参数 '{key}' 应为单个列名，收到 {type(val).__name__}；已忽略、回退默认。")
+            out.append(f"参数 '{key}' 应为单个列名，收到 {type(val).__name__}；可能被忽略、回退默认。")
         elif known_cols is not None and val not in known_cols:
-            out.append(f"参数 '{key}' 指定的列 '{val}' 不在数据中；已忽略、回退默认。")
+            out.append(f"参数 '{key}' 指定的列 '{val}' 不在数据中；可能被忽略、回退默认。")
     elif t == "columns":
         if not isinstance(val, (list, tuple)):
-            out.append(f"参数 '{key}' 应为列名列表，收到 {type(val).__name__}；已忽略、回退默认。")
+            out.append(f"参数 '{key}' 应为列名列表，收到 {type(val).__name__}；可能被忽略、回退默认。")
         elif known_cols is not None:
             missing = [c for c in val if c not in known_cols]
             if missing:
