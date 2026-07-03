@@ -19,10 +19,20 @@ import re
 
 # Name signals (word-boundary, case-insensitive). Outcome words are the dependent
 # variable a study predicts/explains; treatment a binary intervention; time a period.
-_OUTCOME_RE = re.compile(
-    r"(?:^|_|\b)(outcome|target|response|dependent|depvar|label|yield|"
-    r"score|rating|progression|growth|sales|revenue|profit|price|"
-    r"result|grade|gpa|severity|risk|y)(?:$|_|\b)",
+#
+# Split by CONFIDENCE so the hint can safely BIND execution (see resolve_outcome):
+#  - HIGH = unambiguous dependent-variable names (a column called 'target'/'outcome'/'y' is
+#    essentially never a predictor) → safe to override the "first continuous column" default.
+#  - MEDIUM = domain words that are OFTEN the DV but just as often a feature (a 'price' or
+#    'score' column may be either) → surfaced as a hint only, must NOT bind (else we'd model
+#    the wrong column on data where the domain word is actually a predictor).
+_OUTCOME_HIGH_RE = re.compile(
+    r"(?:^|_|\b)(outcome|target|response|dependent|depvar|label|y)(?:$|_|\b)",
+    re.I,
+)
+_OUTCOME_MED_RE = re.compile(
+    r"(?:^|_|\b)(yield|score|rating|progression|growth|sales|revenue|profit|"
+    r"price|result|grade|gpa|severity|risk)(?:$|_|\b)",
     re.I,
 )
 _TREATMENT_RE = re.compile(
@@ -56,33 +66,45 @@ def detect_roles(columns) -> dict:
     """Return {likely_outcome, likely_treatment, likely_time, reason} from a list
     of ColumnInfo (in dataframe order). Any value may be None."""
     out: dict[str, object] = {
-        "likely_outcome": None, "likely_treatment": None,
-        "likely_time": None, "reason": "",
+        "likely_outcome": None, "likely_outcome_confidence": "",
+        "likely_treatment": None, "likely_time": None, "reason": "",
     }
     names = [c.name for c in columns]
     numeric = [c for c in columns if c.kind in _NUMERIC_KINDS]
     binary = [c for c in columns if c.kind == "binary"]
 
-    # --- likely_outcome -----------------------------------------------------
+    # --- likely_outcome (with a confidence tier; see the regex split above) --------------
     # 0. a binary column named like an outcome/event = a classification TARGET. Highest
     #    precision, checked first so a true binary target beats a continuous predictor
     #    that merely name-matches (e.g. an 'approved' target alongside a 'score' feature).
     b_named = [c for c in binary if _BIN_OUTCOME_RE.search(str(c.name))]
-    named = [c for c in numeric if _OUTCOME_RE.search(str(c.name))]
+    high_named = [c for c in numeric if _OUTCOME_HIGH_RE.search(str(c.name))]
+    med_named = [c for c in numeric if _OUTCOME_MED_RE.search(str(c.name))]
     if b_named:
         out["likely_outcome"] = b_named[0].name
+        out["likely_outcome_confidence"] = "high"
         out["reason"] = f"binary column '{b_named[0].name}' matches an outcome/event pattern (classification target)"
-    # 1. name signal among numeric columns (highest precision)
-    elif named:
-        out["likely_outcome"] = named[0].name
-        out["reason"] = f"name '{named[0].name}' matches an outcome pattern"
-    # 2. position fallback: the LAST numeric column, when there are >=2 numeric
+    # 1. unambiguous dependent-variable name among numeric columns → HIGH confidence
+    elif high_named:
+        out["likely_outcome"] = high_named[0].name
+        out["likely_outcome_confidence"] = "high"
+        out["reason"] = f"name '{high_named[0].name}' matches an unambiguous outcome pattern"
+    # 2. domain outcome-ish name → MEDIUM (often the DV, but could be a predictor; hint only)
+    elif med_named:
+        out["likely_outcome"] = med_named[0].name
+        out["likely_outcome_confidence"] = "medium"
+        out["reason"] = (
+            f"name '{med_named[0].name}' matches a domain outcome pattern "
+            f"(ambiguous — could be a predictor; verify before modeling)"
+        )
+    # 3. position fallback: the LAST numeric column, when there are >=2 numeric
     #    columns before it (the common ML convention that the target is last) and
-    #    it isn't a time/id-looking column.
+    #    it isn't a time/id-looking column → LOW confidence
     elif len(numeric) >= 3:
         last = numeric[-1]
         if last.kind in _NUMERIC_KINDS and not _TIME_RE.fullmatch(str(last.name).strip().lower() or " "):
             out["likely_outcome"] = last.name
+            out["likely_outcome_confidence"] = "low"
             out["reason"] = f"'{last.name}' is the last numeric column (common target position)"
 
     # --- likely_treatment ---------------------------------------------------

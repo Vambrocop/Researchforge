@@ -46,6 +46,7 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
 
     roles = detect_roles(columns)
     fp.likely_outcome = roles["likely_outcome"]
+    fp.likely_outcome_confidence = roles.get("likely_outcome_confidence", "")
     fp.likely_treatment = roles["likely_treatment"]
     fp.likely_time = roles["likely_time"]
     fp.role_hint_reason = roles["reason"]

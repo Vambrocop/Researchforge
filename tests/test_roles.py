@@ -78,6 +78,37 @@ def test_survival_event_not_mistaken_for_classification_outcome():
     assert roles["likely_outcome"] != "event"
 
 
+def test_outcome_confidence_high_for_unambiguous_name():
+    # an unambiguous DV name ('target') → HIGH confidence (safe to bind execution to it)
+    cols = [_col("x1", "continuous"), _col("target", "continuous"), _col("x2", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "target"
+    assert roles["likely_outcome_confidence"] == "high"
+
+
+def test_outcome_confidence_medium_for_domain_word():
+    # a domain word ('price') that could just as well be a predictor → MEDIUM (hint only,
+    # must NOT bind — here 'price' is a feature and 'sales' is the real outcome, but by name
+    # alone that is unknowable, so detection stays non-binding rather than guess wrong).
+    cols = [_col("adspend", "continuous"), _col("price", "continuous"), _col("sales", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome_confidence"] == "medium"
+
+
+def test_outcome_confidence_low_for_position():
+    cols = [_col("a", "continuous"), _col("b", "continuous"), _col("c", "count")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "c"
+    assert roles["likely_outcome_confidence"] == "low"
+
+
+def test_binary_outcome_is_high_confidence():
+    cols = [_col("approved", "binary"), _col("income", "continuous"), _col("score", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "approved"
+    assert roles["likely_outcome_confidence"] == "high"
+
+
 def test_treatment_and_time_hints():
     cols = [_col("treated", "binary"), _col("year", "count"), _col("y", "continuous")]
     roles = detect_roles(cols)

@@ -57,6 +57,11 @@ class DataFingerprint(BaseModel):
     # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
     # run-time defaults — only suggest a `config` to the user.
     likely_outcome: Optional[str] = None
+    # Confidence in likely_outcome: "high" = an unambiguous dependent-variable name
+    # (outcome/target/y/…) or a clear binary event → safe to BIND as the run-time outcome;
+    # "medium" = a domain word that is often but not always the DV (price/sales/score…) →
+    # surfaced as a hint only, never binds; "low" = position convention; "" = none detected.
+    likely_outcome_confidence: str = ""
     likely_treatment: Optional[str] = None
     likely_time: Optional[str] = None
     role_hint_reason: str = ""
