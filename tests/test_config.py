@@ -28,9 +28,12 @@ def test_config_outcome_and_predictors_override(tmp_path: Path) -> None:
     n = 150
     a = rng.normal(0, 1, n)
     b = rng.normal(0, 1, n)
-    y = 2.0 * a + rng.normal(0, 0.3, n)
-    # column order makes 'a' the first continuous -> the DEFAULT outcome
-    df = pd.DataFrame({"a": a, "b": b, "y": y})
+    c = 2.0 * a + rng.normal(0, 0.3, n)
+    # neutral column names (none is a high-confidence outcome name, so Wave E's
+    # resolve_outcome does NOT bind one) -> column order makes 'a' the DEFAULT outcome.
+    # This keeps the test focused on the config-override mechanism; high-confidence
+    # outcome binding is covered separately in test_roles.
+    df = pd.DataFrame({"a": a, "b": b, "c": c})
     csv = tmp_path / "d.csv"
     df.to_csv(csv, index=False)
     fp = profile_dataset(csv)
@@ -39,12 +42,12 @@ def test_config_outcome_and_predictors_override(tmp_path: Path) -> None:
     res0 = run_analysis(fp, _ols_entry(), output_root=str(tmp_path / "o0"))
     assert "a" not in res0.estimates
 
-    # override: outcome='y', predictors=['a'] -> regresses y ~ a, slope ~ 2
+    # override: outcome='c', predictors=['a'] -> regresses c ~ a, slope ~ 2
     res1 = run_analysis(
         fp,
         _ols_entry(),
         output_root=str(tmp_path / "o1"),
-        config={"outcome": "y", "predictors": ["a"]},
+        config={"outcome": "c", "predictors": ["a"]},
     )
     assert abs(res1.estimates["a"] - 2.0) < 0.3
 
