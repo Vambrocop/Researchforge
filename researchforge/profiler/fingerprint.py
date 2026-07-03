@@ -24,6 +24,12 @@ class ColumnInfo(BaseModel):
     dtype: str
     n_missing: int
     n_unique: int
+    # True for a rating-scale-like column: a small run of consecutive positive
+    # integers (e.g. a 1–5 Likert), which profiles as `kind="count"` but is really
+    # ORDINAL. Distinguishes a bounded rating from an unbounded count (which starts at
+    # 0 / has many levels), so ordinal-regression and rater-agreement methods can be
+    # surfaced without changing the coarse `count` type. Defaults False (additive).
+    ordinal_like: bool = False
 
 
 class Issue(BaseModel):

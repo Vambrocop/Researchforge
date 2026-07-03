@@ -268,11 +268,13 @@ GOLDEN = [
           {"ols_regression", "robust_regression", "regularized_regression", "correlation",
            "gradient_boosting", "random_forest", "gam", "quantile_regression"},
           currently_ok=True, why=""),  # GUARD: a unique-int id column must not derail regression
-    # ↓ honest-ratchet gaps (strict-xfail): Wave-C smarter-selection should fix → XPASS → promote
+    # a Likert 1-5 outcome (profiles as `count`) surfaces ordinal regression, not just count
+    # models — Wave C: profiler ordinal_like → has_ordinal_outcome → requires_ordinal fit bonus.
     _case("ordinal_outcome", _ordinal_outcome,
           {"proportional_odds_logit", "ordered_probit", "brant_test"},
-          currently_ok=False,
-          why="ordinal 1-5 outcome profiles as `count` → count models surface; ordinal regression not detected"),
+          currently_ok=True,
+          why=""),
+    # ↓ honest-ratchet gaps (strict-xfail): Wave-C smarter-selection should fix → XPASS → promote
     _case("multi_rater", _multi_rater,
           {"fleiss_kappa", "icc", "cohens_kappa"},
           currently_ok=False,

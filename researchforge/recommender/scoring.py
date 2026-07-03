@@ -138,6 +138,12 @@ _SPECIFIC_PRECOND = {
     "is_panel": ("is_panel", 16.0),
     "is_timeseries": ("is_timeseries", 16.0),
     "requires_count_outcome": ("has_count", 14.0),
+    # ordinal outcome (bounded 1..k rating): a rating scale profiles as `count`, so ordinal
+    # regression (proportional-odds / ordered-probit) would otherwise tie count models and get
+    # buried. Weighted just above count so on a genuine rating it edges out Poisson/NB — which
+    # stay feasible (not wrong, just less ideal). Gated on has_ordinal_OUTCOME (1–2 rating cols),
+    # so a ≥3-rater block goes to agreement methods, not ordinal regression.
+    "requires_ordinal": ("has_ordinal_outcome", 15.0),
     "requires_geo": ("has_geo", 12.0),
     "requires_binary_outcome": ("has_binary", 12.0),
     "requires_treatment": ("has_treatment", 12.0),

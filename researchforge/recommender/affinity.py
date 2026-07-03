@@ -138,6 +138,13 @@ def data_signals(fp: DataFingerprint) -> dict:
     n_bin = sum(1 for c in cols if c.kind == "binary")
     n_cat = sum(1 for c in cols if c.kind == "categorical" and c.name not in edge_cols)
     n_id = len(id_cols)
+    # ordinal_like = a bounded 1..k rating scale (profiles as `count`; see types.is_ordinal_like).
+    # Structure splits the two things a rating scale can mean: ≥3 parallel rating columns are
+    # RATERS (inter-rater agreement); 1–2 are an ORDINAL OUTCOME (ordinal regression). Mutually
+    # exclusive so ordinal-regression and agreement methods never both float up on the same data.
+    n_ordinal = sum(1 for c in cols if getattr(c, "ordinal_like", False))
+    has_rater_block = n_ordinal >= 3
+    has_ordinal_outcome = n_ordinal >= 1 and not has_rater_block
     names = [str(c.name).lower() for c in fp.columns]
 
     def _hint(words):
@@ -169,6 +176,9 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_binary": n_bin >= 1,
         "has_categorical": n_cat >= 1,
         "has_count": n_count >= 1,
+        "has_ordinal": n_ordinal >= 1,
+        "has_ordinal_outcome": has_ordinal_outcome,
+        "has_rater_block": has_rater_block,
         "has_survival": has_survival,
         "has_group": has_group,
         "has_treatment": bool(getattr(fp, "treatment_candidates", None)),

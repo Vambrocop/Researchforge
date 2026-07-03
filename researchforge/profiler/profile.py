@@ -9,7 +9,7 @@ import pandas as pd
 from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
 from researchforge.profiler.ingest import read_table as _robust_read_table
 from researchforge.profiler.quality import diagnose
-from researchforge.profiler.types import infer_kind
+from researchforge.profiler.types import infer_kind, is_ordinal_like
 
 _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day", "week"}
 
@@ -32,6 +32,7 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
             dtype=str(df[c].dtype),
             n_missing=int(df[c].isna().sum()),
             n_unique=int(df[c].nunique(dropna=True)),
+            ordinal_like=is_ordinal_like(df[c]),
         )
         for c in df.columns
     ]

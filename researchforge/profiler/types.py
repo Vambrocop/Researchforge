@@ -57,3 +57,28 @@ def infer_kind(s: pd.Series) -> ColumnKind:
     if nn.nunique() == 2:
         return "binary"
     return "categorical"
+
+
+def is_ordinal_like(s: pd.Series) -> bool:
+    """A rating-scale hint: does this column look like an ORDINAL Likert scale rather
+    than an unbounded count? True when the values are a short run of CONSECUTIVE
+    POSITIVE integers (min ≥ 1, no zero, ≤ 7 distinct levels, e.g. {1,2,3,4,5}).
+
+    This is intentionally strict — a count that starts at 0, has many levels, or skips
+    values (a genuine Poisson/abundance) is NOT ordinal_like — so it separates a bounded
+    rating (surface ordinal regression / rater agreement) from an unbounded count
+    (surface Poisson/NB) even though both profile as `kind="count"`.
+    """
+    nn = s.dropna()
+    if len(nn) == 0 or not pd.api.types.is_numeric_dtype(nn) or pd.api.types.is_bool_dtype(nn):
+        return False
+    if not (pd.api.types.is_integer_dtype(nn) or bool((nn % 1 == 0).all())):
+        return False
+    if nn.is_unique:  # an id-like column, not a rating
+        return False
+    uniq = sorted(int(v) for v in nn.unique())
+    if len(uniq) < 3 or len(uniq) > 7:
+        return False
+    if uniq[0] < 1:  # a 0-based / negative scale reads as a count, not a rating
+        return False
+    return uniq == list(range(uniq[0], uniq[-1] + 1))  # consecutive levels
