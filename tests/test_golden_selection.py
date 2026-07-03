@@ -119,6 +119,89 @@ def _two_categorical() -> pd.DataFrame:
     return pd.DataFrame({"region": region, "sector": sector, "y": y.round(3)})
 
 
+def _ordinal_outcome() -> pd.DataFrame:
+    # a Likert 1..5 ordinal outcome + continuous predictors → ordinal regression.
+    rng = np.random.default_rng(30)
+    n = 220
+    x1 = rng.normal(0, 1, n); x2 = rng.normal(0, 1, n)
+    lat = 0.8 * x1 - 0.5 * x2 + rng.normal(0, 1, n)
+    y = np.digitize(lat, np.quantile(lat, [.2, .4, .6, .8])) + 1
+    return pd.DataFrame({"satisfaction": y, "x1": x1.round(3), "x2": x2.round(3)})
+
+
+def _poisson_count() -> pd.DataFrame:
+    rng = np.random.default_rng(31)
+    n = 220
+    x1 = rng.normal(0, 1, n); mu = np.exp(0.5 + 0.4 * x1)
+    return pd.DataFrame({"events": rng.poisson(mu), "x1": x1.round(3),
+                         "x2": rng.normal(0, 1, n).round(3)})
+
+
+def _contingency() -> pd.DataFrame:
+    # two binary categoricals, no continuous outcome → 2×2 association.
+    rng = np.random.default_rng(32)
+    n = 200
+    a = rng.binomial(1, 0.5, n)
+    b = rng.binomial(1, 1 / (1 + np.exp(-(0.5 * (a - 0.5)))))
+    return pd.DataFrame({"exposed": a, "disease": b})
+
+
+def _many_continuous() -> pd.DataFrame:
+    # ~10 correlated continuous columns, no obvious outcome → dim-reduction / correlation.
+    rng = np.random.default_rng(33)
+    n = 180
+    f1 = rng.normal(0, 1, n); f2 = rng.normal(0, 1, n)
+    cols = {}
+    for i in range(5):
+        cols[f"a{i}"] = (f1 + rng.normal(0, 0.4, n)).round(3)
+    for i in range(5):
+        cols[f"b{i}"] = (f2 + rng.normal(0, 0.4, n)).round(3)
+    return pd.DataFrame(cols)
+
+
+def _community_matrix() -> pd.DataFrame:
+    # many species-count columns + a habitat group → ecology community analysis.
+    rng = np.random.default_rng(34)
+    n = 90
+    grp = rng.choice(["site_A", "site_B"], n)
+    cols = {"habitat": grp}
+    for i in range(8):
+        base = 5 + (grp == "site_A") * 3 * (i % 2)
+        cols[f"sp{i}"] = rng.poisson(base).astype(int)
+    return pd.DataFrame(cols)
+
+
+def _multi_rater() -> pd.DataFrame:
+    # 4 raters on the same 1..5 scale → inter-rater agreement.
+    rng = np.random.default_rng(35)
+    n = 120
+    true = rng.integers(1, 6, n)
+    return pd.DataFrame({f"rater{r}": np.clip(true + rng.integers(-1, 2, n), 1, 5) for r in range(4)})
+
+
+def _three_factor() -> pd.DataFrame:
+    # replicated 2×3 factorial, continuous response → factorial ANOVA.
+    rng = np.random.default_rng(36)
+    rows = []
+    for A in ["a1", "a2"]:
+        for B in ["b1", "b2", "b3"]:
+            for _ in range(20):
+                rows.append({"drug": A, "dose": B,
+                             "response": round(10 + (A == "a1") * 2 + (B == "b2") * 1.5 + rng.normal(0, 1), 3)})
+    return pd.DataFrame(rows)
+
+
+def _id_plus_measurement() -> pd.DataFrame:
+    # a unique-integer id column FIRST + a continuous outcome + predictors. GUARD:
+    # the id must NOT derail selection (it profiles as `id`) — a real regressor stays on top.
+    rng = np.random.default_rng(38)
+    n = 150
+    x1 = rng.normal(0, 1, n); x2 = rng.normal(0, 1, n)
+    y = 2 + 1.5 * x1 - 0.8 * x2 + rng.normal(0, 1, n)
+    return pd.DataFrame({"record_id": np.arange(1000, 1000 + n), "outcome": y.round(3),
+                         "x1": x1.round(3), "x2": x2.round(3)})
+
+
 def _case(name, build, accept, currently_ok, why, reject=None):
     payload = {"name": name, "build": build, "accept": set(accept), "reject": set(reject or ())}
     marks = () if currently_ok else (pytest.mark.xfail(reason=why, strict=True),)
@@ -165,6 +248,39 @@ GOLDEN = [
           currently_ok=True, why="",  # a real group/association method belongs on top
           reject={"community_detection", "centrality_suite", "network_analysis",
                   "link_prediction", "stochastic_block_model", "ergm", "epidemic_model"}),
+    # ── Wave-0 expansion (2026-07-04): broader structural coverage + honest-ratchet gaps ──
+    _case("poisson_count", _poisson_count,
+          {"poisson_regression", "negative_binomial_regression", "zero_inflated_poisson",
+           "zero_inflated_negbin", "tweedie_glm"},
+          currently_ok=True, why=""),  # count outcome → count-model family
+    _case("contingency", _contingency,
+          {"chi_square_test", "fisher_exact", "loglinear", "cmh_test",
+           "epi_risk_measures", "logistic_regression"},
+          currently_ok=True, why=""),  # 2×2 association: epi_risk_measures/logistic surface
+    _case("many_continuous", _many_continuous,
+          {"correlation", "correlation_matrix", "pca", "factor_analysis",
+           "pls_regression", "pls_sem"},
+          currently_ok=True, why=""),  # many correlated continuous → correlation/dim-reduction
+    _case("community_matrix", _community_matrix,
+          {"permanova", "diversity_indices", "beta_diversity", "nmds", "rda", "indicator_species"},
+          currently_ok=True, why=""),  # species×site count matrix → ecology community method
+    _case("id_plus_measurement", _id_plus_measurement,
+          {"ols_regression", "robust_regression", "regularized_regression", "correlation",
+           "gradient_boosting", "random_forest", "gam", "quantile_regression"},
+          currently_ok=True, why=""),  # GUARD: a unique-int id column must not derail regression
+    # ↓ honest-ratchet gaps (strict-xfail): Wave-C smarter-selection should fix → XPASS → promote
+    _case("ordinal_outcome", _ordinal_outcome,
+          {"proportional_odds_logit", "ordered_probit", "brant_test"},
+          currently_ok=False,
+          why="ordinal 1-5 outcome profiles as `count` → count models surface; ordinal regression not detected"),
+    _case("multi_rater", _multi_rater,
+          {"fleiss_kappa", "icc", "cohens_kappa"},
+          currently_ok=False,
+          why="4 raters on a 1-5 scale profile as `count` → inter-rater agreement not detected"),
+    _case("three_factor", _three_factor,
+          {"factorial_anova", "anova_oneway", "ancova"},
+          currently_ok=False,
+          why="binary factor mis-read as classification target → factorial/ANOVA not surfaced on top"),
 ]
 
 
