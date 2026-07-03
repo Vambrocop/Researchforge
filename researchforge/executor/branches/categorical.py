@@ -212,7 +212,7 @@ def _branch_loglinear(ctx: Ctx) -> None:
             ax.set_yticklabels([str(x) for x in rlabels])
             ax.set_xlabel(str(f2))
             ax.set_ylabel(str(f1))
-            ax.set_title("Standardized Pearson residuals (O-E)/sqrt(E)")
+            ax.set_title("Adjusted (standardized) Pearson residuals (O-E)/sqrt(E(1-r/n)(1-c/n))")
             for i in range(r):
                 for j in range(c):
                     ax.text(j, i, f"{std_resid[i, j]:.1f}", ha="center", va="center",
@@ -256,10 +256,11 @@ def _branch_loglinear(ctx: Ctx) -> None:
             + f"结论：{verdict}\n"
             f"稀疏单元格（期望<5）：{n_sparse} 个；最小期望频数 {round(min_expected, 3)}\n"
             "注：G² 与 Pearson χ² 渐近等价（大样本下相近），都检验「行列独立」（饱和模型 vs 主效应模型）；"
-            "标准化 Pearson 残差 (O-E)/sqrt(E) 指出偏离独立最大的单元格（|残差|>2 提示该单元格观测显著偏离期望）；"
+            "调整（标准化）Pearson 残差 (O-E)/√(E·(1-row/n)·(1-col/n)) ~N(0,1)，指出偏离独立最大的单元格"
+            "（|残差|>2 提示该单元格观测显著偏离期望）；"
             "假定 Poisson/多项抽样；列由 config factors 选定。\n\n"
             "观测列联表：\n" + obs.to_string() + "\n\n"
-            "标准化 Pearson 残差：\n"
+            "调整（标准化）Pearson 残差：\n"
             + pd.DataFrame(np.round(std_resid, 3), index=rlabels, columns=clabels).to_string(),
             encoding="utf-8",
         )
@@ -269,18 +270,19 @@ def _branch_loglinear(ctx: Ctx) -> None:
             f"{entry.method} 完成（{f1} × {f2}，{r}×{c} 表，N={int(n)}）："
             f"似然比 G²={round(g2, 3)}（df={dof}, p={p_g2:.4g}），Pearson χ²={round(pearson_chi2, 3)}；{verdict}。"
             + (sparse_note if sparse_note else "")
-            + "⚠ G² 是对数线性饱和模型 vs 独立模型的偏差检验；标准化残差 (O-E)/√E 标出偏离独立的单元格（|·|>2 显著）；"
-            "假定 Poisson/多项抽样；列由 config factors 选定。"
+            + "⚠ G² 是对数线性饱和模型 vs 独立模型的偏差检验；调整（标准化）残差 (O-E)/√(E(1-row/n)(1-col/n)) "
+            "标出偏离独立的单元格（|·|>2 显著）；假定 Poisson/多项抽样；列由 config factors 选定。"
         )
         code += [
             "import pandas as pd, numpy as np",
             "from scipy import stats",
             f"obs = pd.crosstab(df[{f1!r}], df[{f2!r}])  # r×c contingency table",
             "O = obs.to_numpy(float); n = O.sum()",
-            "E = O.sum(1, keepdims=True) @ O.sum(0, keepdims=True) / n  # independence expected",
+            "row_tot = O.sum(1, keepdims=True); col_tot = O.sum(0, keepdims=True)",
+            "E = row_tot @ col_tot / n  # independence expected",
             "G2 = 2*np.nansum(np.where(O>0, O*np.log(O/E), 0))  # likelihood-ratio (deviance)",
             "df = (obs.shape[0]-1)*(obs.shape[1]-1); p = stats.chi2.sf(G2, df)",
-            "std_resid = (O - E)/np.sqrt(E)  # standardized Pearson residuals",
+            "std_resid = (O - E)/np.sqrt(E*(1-row_tot/n)*(1-col_tot/n))  # adjusted (standardized) Pearson residuals",
         ]
     except Exception as err:
         summary.append(f"对数线性模型失败：{err}")
@@ -640,8 +642,10 @@ def _branch_ordinal_association(ctx: Ctx) -> None:
 
         # Goodman-Kruskal large-sample (consistent, ASE1) SE for gamma — this is the
         # CONFIDENCE-INTERVAL SE (valid under the alternative):
-        #   SE = 4/(C+D)^2 * sqrt( sum_ij n_ij (D·A_ij - C·B_ij)^2 )
+        #   SE = 2/(C+D)^2 * sqrt( sum_ij n_ij (D·A_ij - C·B_ij)^2 )
         # where A_ij/B_ij are per-cell concordant/discordant neighbour sums.
+        # (DescTools GoodmanKruskalGamma: psi_ij = 2(D·pi_c - C·pi_d)/(C+D)^2,
+        # sigma2 = Σ n_ij psi_ij^2 = 4/(C+D)^4 · s  =>  SE = 2/(C+D)^2 · sqrt(s).)
         # NOTE: ASE1 must NOT be used as the null SE for an H0: gamma=0 z-test (that
         # would be mis-calibrated); the association significance test is τ-b's p
         # (γ and τ-b test the same concordance null). So we report a γ CI, not a γ p.
@@ -658,7 +662,7 @@ def _branch_ordinal_association(ctx: Ctx) -> None:
                     Bmat[i, j] = A[i + 1:, :j].sum() + A[:i, j + 1:].sum()
             if (C + D) > 0:
                 s = np.sum(A * (D * Amat - C * Bmat) ** 2)
-                gamma_se = float(4.0 / (C + D) ** 2 * np.sqrt(s))
+                gamma_se = float(2.0 / (C + D) ** 2 * np.sqrt(s))
                 if gamma_se == gamma_se:
                     gamma_ci_lo = float(gamma - 1.959963985 * gamma_se)
                     gamma_ci_hi = float(gamma + 1.959963985 * gamma_se)

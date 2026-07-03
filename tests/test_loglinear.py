@@ -122,6 +122,31 @@ def test_standardized_residuals_recompute(tmp_path: Path) -> None:
             assert abs(got[(a, b)] - sr[i, j]) < 1e-3
 
 
+def test_residual_label_is_adjusted_not_plain(tmp_path: Path) -> None:
+    # Regression test: the emitted summary/report must describe the residual
+    # formula that is ACTUALLY computed — the adjusted (standardized) Pearson
+    # residual (O-E)/sqrt(E*(1-row/n)*(1-col/n)), not the plain (O-E)/sqrt(E)
+    # (which has variance < 1 and is not ~N(0,1)).
+    tab = np.array([[40, 10], [10, 40]])
+    rl, cl = ["A", "B"], ["x", "y"]
+    df = _df_from_table(tab, rl, cl)
+    csv = tmp_path / "lbl.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"factors": ["row", "col"]})
+    assert "调整（标准化）" in res.summary
+    report_text = (Path(res.output_dir) / "report.md").read_text(encoding="utf-8")
+    code_text = (Path(res.output_dir) / "analysis_code.py").read_text(encoding="utf-8")
+    # the exported code snippet must include the row/col-total correction terms
+    assert "row_tot" in code_text and "col_tot" in code_text
+    assert "1-row_tot/n" in code_text.replace(" ", "")
+    summary_txt = (Path(res.output_dir) / "loglinear_summary.txt").read_text(encoding="utf-8")
+    assert "调整（标准化）Pearson 残差" in summary_txt
+    assert "(O-E)/sqrt(E)" not in report_text
+    assert "(O-E)/sqrt(E)" not in summary_txt
+
+
 def test_sparse_cells_flagged(tmp_path: Path) -> None:
     # small counts -> some expected < 5 -> sparse flag in summary + estimate.
     tab = np.array([[3, 1, 0], [1, 0, 2], [0, 2, 1]])

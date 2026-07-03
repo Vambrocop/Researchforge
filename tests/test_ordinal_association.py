@@ -114,6 +114,45 @@ def test_gamma_magnitude_ge_tau_and_somers(tmp_path: Path) -> None:
     assert g >= abs(res.estimates["somers_d_xy"]) - 1e-9
 
 
+def _gamma_se_ref(tab: np.ndarray) -> float:
+    """Independent reference for the Goodman-Kruskal gamma ASE1 SE:
+    SE = 2/(C+D)^2 * sqrt( sum_ij n_ij (D*A_ij - C*B_ij)^2 ), where C/D are the
+    TRUE (non-double-counted) concordant/discordant pair counts and A_ij/B_ij
+    are per-cell concordant/discordant neighbour sums (matches DescTools
+    GoodmanKruskalGamma: psi=2(D*pi_c-C*pi_d)/(C+D)^2, sigma2=sum n*psi^2 —
+    hard-codes the 2.0 constant independently of whatever the engine uses, so
+    a regression back to the old 4.0 constant will be caught)."""
+    A = tab.astype(float)
+    r, c = A.shape
+    C, D = _cd_ref(tab)  # true pair counts (already divided by 2)
+    Amat = np.zeros_like(A)
+    Bmat = np.zeros_like(A)
+    for i in range(r):
+        for j in range(c):
+            Amat[i, j] = A[i + 1:, j + 1:].sum() + A[:i, :j].sum()
+            Bmat[i, j] = A[i + 1:, :j].sum() + A[:i, j + 1:].sum()
+    s = np.sum(A * (D * Amat - C * Bmat) ** 2)
+    return float(2.0 / (C + D) ** 2 * np.sqrt(s))
+
+
+def test_gamma_se_matches_correct_constant(tmp_path: Path) -> None:
+    # Regression test for the gamma SE constant: DescTools/bootstrap-verified
+    # formula is SE = 2/(C+D)^2 * sqrt(s), NOT 4/(C+D)^2 * sqrt(s) (which is
+    # exactly 2x too large and produces CIs twice as wide as they should be).
+    tab = np.array([[20, 10, 5], [8, 25, 12], [3, 9, 30]])
+    df = _df_from_table(tab, [1, 2, 3], [1, 2, 3])
+    csv = tmp_path / "se.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"var1": "x", "var2": "y"})
+    se_ref = _gamma_se_ref(tab)
+    # engine rounds gamma_se to 4dp before returning it in estimates
+    assert abs(res.estimates["gamma_se"] - se_ref) < 1e-4
+    # sanity: the old (buggy) 4.0-based constant would give exactly 2x this SE.
+    assert abs(res.estimates["gamma_se"] - 2.0 * se_ref) > 1e-3
+
+
 def test_too_few_columns_skips(tmp_path: Path) -> None:
     df = pd.DataFrame({"only": [1, 2, 3] * 10, "cont": np.arange(30.0) + 0.5})
     csv = tmp_path / "one.csv"

@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.stats import fisher_exact
+from scipy.stats.contingency import odds_ratio as _sp_cond_odds_ratio
 
 from researchforge.catalog.schema import AnalysisEntry, Precondition
 from researchforge.executor import run_analysis
@@ -40,6 +41,10 @@ def _df_from_table(tab: np.ndarray, rlabels, clabels) -> pd.DataFrame:
 
 def test_2x2_matches_scipy(tmp_path: Path) -> None:
     # sparse 2x2 with diagonal dominance -> OR > 1.
+    # NOTE: the reported "odds_ratio" is the CONDITIONAL MLE OR (the standard
+    # "Fisher exact OR", via scipy.stats.contingency.odds_ratio(kind='conditional')),
+    # NOT scipy.stats.fisher_exact's own returned value, which is the sample
+    # OR=ad/bc. The exact p-value is unaffected by which OR estimand is used.
     tab = np.array([[8, 2], [1, 9]])
     rl, cl = ["A", "B"], ["x", "y"]
     df = _df_from_table(tab, rl, cl)
@@ -48,14 +53,20 @@ def test_2x2_matches_scipy(tmp_path: Path) -> None:
     fp = profile_dataset(csv)
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
                        config={"var1": "row", "var2": "col"})
-    or_ref, p_ref = fisher_exact(tab, alternative="two-sided")
-    assert abs(res.estimates["odds_ratio"] - float(or_ref)) < 1e-3
+    sample_or_ref, p_ref = fisher_exact(tab, alternative="two-sided")
+    cond_or_ref = float(_sp_cond_odds_ratio(tab, kind="conditional").statistic)
+    assert abs(res.estimates["odds_ratio"] - cond_or_ref) < 1e-3
     assert abs(res.estimates["p_value"] - float(p_ref)) < 1e-5
     assert res.estimates["odds_ratio"] > 1.0  # direction correct
     assert res.estimates["table_rows"] == 2.0
     assert res.estimates["table_cols"] == 2.0
     assert res.estimates["n"] == float(tab.sum())
     assert (Path(res.output_dir) / "fisher_table.csv").exists()
+    # regression guard: the OR must NOT be the raw sample OR=ad/bc (the bug this
+    # test catches mislabeled the sample OR as "conditional MLE").
+    assert abs(res.estimates["odds_ratio"] - float(sample_or_ref)) > 1e-2
+    assert abs(res.estimates["sample_odds_ratio"] - float(sample_or_ref)) < 1e-3
+    assert "条件" in res.summary  # label discloses conditional-MLE estimand
 
 
 def test_strong_sparse_assoc_detected(tmp_path: Path) -> None:

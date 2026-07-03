@@ -12,10 +12,13 @@ these are the textbook independence / exact / paired hypothesis tests:
                       Reports chi2, df, p; bias-corrected Cramer's V effect size;
                       expected counts; flags cells with expected<5 (+ Yates note
                       for 2x2).
-  * fisher_exact  — Fisher's exact test for a 2x2 table (odds ratio + exact p,
-                    1- and 2-sided via scipy.stats.fisher_exact). r×c degrades
-                    honestly to a Monte-Carlo / chi-square approximation with a
-                    note (scipy Fisher is 2x2 only).
+  * fisher_exact  — Fisher's exact test for a 2x2 table (conditional-MLE odds
+                    ratio via scipy.stats.contingency.odds_ratio + exact p,
+                    1- and 2-sided, via scipy.stats.fisher_exact — scipy's own
+                    fisher_exact OR is the SAMPLE OR=ad/bc, reported alongside
+                    for reference). r×c degrades honestly to a Monte-Carlo /
+                    chi-square approximation with a note (scipy Fisher is 2x2
+                    only).
   * mcnemar_test  — McNemar's test for PAIRED binary data (two binary measurements
                     on the same subjects). Builds the 2x2 paired table and uses
                     statsmodels.stats.contingency_tables.mcnemar (exact for small
@@ -400,15 +403,35 @@ def _branch_fisher_exact(ctx: Ctx) -> None:
             pass
 
         if is_2x2:
-            # scipy fisher_exact returns (odds_ratio, p) for 2x2. Sample (conditional
-            # MLE) OR is the standard Fisher OR; also give the 1-sided p (greater).
-            odds_ratio, p_two = fisher_exact(O, alternative="two-sided")
+            # scipy fisher_exact's returned "odds_ratio" is the SAMPLE OR = ad/bc
+            # (NOT the conditional MLE, despite common assumption) — the exact
+            # p-values are unaffected by which OR estimand is reported, since they
+            # come from the noncentral hypergeometric CDF at psi=1. We report the
+            # CONDITIONAL MLE OR (the standard "Fisher exact OR") via
+            # scipy.stats.contingency.odds_ratio(kind='conditional'); fall back to
+            # the sample OR (and relabel) if that API is unavailable.
+            sample_or, p_two = fisher_exact(O, alternative="two-sided")
             _, p_greater = fisher_exact(O, alternative="greater")
             _, p_less = fisher_exact(O, alternative="less")
-            odds_ratio = float(odds_ratio); p_two = float(p_two)
+            sample_or = float(sample_or); p_two = float(p_two)
             p_greater = float(p_greater); p_less = float(p_less)
 
+            or_label = "条件最大似然比值比"
+            or_note = "OR 为条件 MLE（与样本 ad/bc 略有差异）"
+            try:
+                from scipy.stats.contingency import odds_ratio as _sp_cond_odds_ratio
+
+                # scipy requires an integer-typed table for the conditional MLE.
+                odds_ratio = float(
+                    _sp_cond_odds_ratio(O.astype(np.int64), kind="conditional").statistic
+                )
+            except Exception:
+                odds_ratio = sample_or
+                or_label = "样本比值比 OR=ad/bc"
+                or_note = "当前 scipy 版本不支持条件 MLE，已回退为样本 OR=ad/bc"
+
             estimates["odds_ratio"] = round(odds_ratio, 4) if np.isfinite(odds_ratio) else float("inf")
+            estimates["sample_odds_ratio"] = round(sample_or, 4) if np.isfinite(sample_or) else float("inf")
             estimates["p_value"] = round(p_two, 6)
             estimates["p_one_sided"] = round(min(p_greater, p_less), 6)
             estimates["n"] = round(n, 1)
@@ -449,11 +472,11 @@ def _branch_fisher_exact(ctx: Ctx) -> None:
             )
             (d / "fisher_summary.txt").write_text(
                 f"Fisher 精确检验（{v1} × {v2}，2×2，N={int(n)}）\n"
-                f"条件最大似然比值比 OR={round(odds_ratio, 4)}\n"
+                f"{or_label} OR={round(odds_ratio, 4)}（样本 OR=ad/bc={round(sample_or, 4) if np.isfinite(sample_or) else 'inf'}）\n"
                 f"双侧精确 p={p_two:.4g}；单侧 greater p={p_greater:.4g}，less p={p_less:.4g}\n"
                 f"结论：{verdict}，{or_dir}\n"
                 "注：精确检验基于超几何分布，不依赖大样本近似——对小样本/稀疏 2×2 优于卡方；"
-                "OR 为条件 MLE（与样本 ad/bc 略有差异）；列由 config var1/var2 选定。\n\n"
+                f"{or_note}；列由 config var1/var2 选定。\n\n"
                 "2×2 表：\n" + obs.to_string(),
                 encoding="utf-8",
             )
@@ -461,14 +484,16 @@ def _branch_fisher_exact(ctx: Ctx) -> None:
 
             summary.append(
                 f"{entry.method} 完成（{v1} × {v2}，2×2，N={int(n)}）："
-                f"OR={round(odds_ratio, 3) if np.isfinite(odds_ratio) else 'inf'}，"
+                f"{or_label} OR={round(odds_ratio, 3) if np.isfinite(odds_ratio) else 'inf'}，"
                 f"双侧精确 p={p_two:.4g}（单侧 p={min(p_greater, p_less):.4g}）；{verdict}，{or_dir}。"
-                "⚠ 精确检验不依赖大样本假定——小样本/稀疏 2×2 首选；OR 为条件 MLE；列由 config var1/var2 指定。"
+                f"⚠ 精确检验不依赖大样本假定——小样本/稀疏 2×2 首选；{or_note}；列由 config var1/var2 指定。"
             )
             code += [
                 "from scipy.stats import fisher_exact",
+                "from scipy.stats.contingency import odds_ratio",
                 f"obs = pd.crosstab(df[{v1!r}], df[{v2!r}])  # must be 2x2",
-                "odds_ratio, p = fisher_exact(obs, alternative='two-sided')  # exact (hypergeometric)",
+                "sample_or, p = fisher_exact(obs, alternative='two-sided')  # exact p (hypergeometric); sample_or = ad/bc",
+                "cond_mle_or = odds_ratio(obs, kind='conditional').statistic  # standard 'Fisher exact OR'",
             ]
         else:
             # r×c: scipy.stats.fisher_exact is 2x2 ONLY. Honest degrade — try a
