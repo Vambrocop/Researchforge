@@ -185,6 +185,10 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_binary": n_bin >= 1,
         "has_categorical": n_cat >= 1,
         "has_count": n_count >= 1,
+        # a genuine count OUTCOME — excludes a rater block (≥3 parallel rating columns profile
+        # as `count` but are ordinal ratings, not counts), so Poisson/NB don't outrank the
+        # inter-rater agreement / reliability methods that the structure actually calls for.
+        "has_count_outcome": n_count >= 1 and not has_rater_block,
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
         "has_rater_block": has_rater_block,

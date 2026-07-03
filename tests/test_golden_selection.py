@@ -275,10 +275,13 @@ GOLDEN = [
           currently_ok=True,
           why=""),
     # ↓ honest-ratchet gaps (strict-xfail): Wave-C smarter-selection should fix → XPASS → promote
+    # ≥3 parallel 1-5 rating columns (profile as `count`) surface inter-rater agreement /
+    # reliability, not count models — Wave C: profiler ordinal_like → has_rater_block gates the
+    # count-outcome bonus off and floors the agreement/psychometrics families (κ / ICC / α / ω).
     _case("multi_rater", _multi_rater,
           {"fleiss_kappa", "icc", "cohens_kappa"},
-          currently_ok=False,
-          why="4 raters on a 1-5 scale profile as `count` → inter-rater agreement not detected"),
+          currently_ok=True,
+          why=""),
     # replicated factorial (continuous response + 2 categorical factors) surfaces factorial
     # ANOVA — Wave C: gate binary-outcome bonus on outcome_is_binary (a binary DESIGN FACTOR
     # no longer floats logistic/epi up) + factorial_anova requires ≥2 factors (min_categorical_cols).

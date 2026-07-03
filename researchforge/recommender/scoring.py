@@ -137,7 +137,7 @@ _SPECIFIC_PRECOND = {
     "requires_edgelist": ("has_edgelist", 14.0),
     "is_panel": ("is_panel", 16.0),
     "is_timeseries": ("is_timeseries", 16.0),
-    "requires_count_outcome": ("has_count", 14.0),
+    "requires_count_outcome": ("has_count_outcome", 14.0),
     # ordinal outcome (bounded 1..k rating): a rating scale profiles as `count`, so ordinal
     # regression (proportional-odds / ordered-probit) would otherwise tie count models and get
     # buried. Weighted just above count so on a genuine rating it edges out Poisson/NB — which
@@ -164,6 +164,14 @@ _STRUCTURE_PRECOND = {
     "is_timeseries": "is_timeseries",
 }
 _STRUCTURE_FLOOR = 72.0
+
+# A rater block (≥3 parallel rating columns) is a data STRUCTURE owned by the inter-rater
+# agreement (κ) and internal-consistency reliability (ICC / Cronbach / ω) families — just as
+# an edge list is owned by network methods. These families' members read those columns as
+# raters/items, so they're floored above the generic multi-numeric methods (correlation, IRT,
+# ML) that the ratings would otherwise attract. Only fires on a genuine rater block.
+_RATER_FAMILIES = {"agreement", "psychometrics"}
+_RATER_FLOOR = 85.0
 
 
 def _precond_bonus(signals: dict, pre) -> float:
@@ -196,6 +204,8 @@ def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict
     pm = entry.preconditions.model_dump()
     if any(pm.get(flag) and signals.get(sig) for flag, sig in _STRUCTURE_PRECOND.items()):
         base = max(base, _STRUCTURE_FLOOR)
+    if signals.get("has_rater_block") and entry.family in _RATER_FAMILIES:
+        base = max(base, _RATER_FLOOR)
     raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
