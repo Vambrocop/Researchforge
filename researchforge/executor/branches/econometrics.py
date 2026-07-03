@@ -174,12 +174,28 @@ def _branch_random_effects(ctx: Ctx) -> None:
             try:
                 from linearmodels.panel import PanelOLS, RandomEffects
 
+                from researchforge.executor.branches.panel_extra import _time_varying
+
                 dd = (
                     df[[fp.unit_col, fp.time_col, y, *preds]]
                     .dropna()
                     .drop_duplicates([fp.unit_col, fp.time_col])
                     .set_index([fp.unit_col, fp.time_col])
                 )
+                # entity_effects absorbs time-invariant regressors entirely; fitting
+                # PanelOLS on one raises AbsorbingEffectError and kills the whole
+                # method. Drop them first (mirrors panel_extra's hausman_test /
+                # mundlak / first_difference, which all pre-filter via _time_varying).
+                tv = _time_varying(dd, preds)
+                dropped = [p for p in preds if p not in tv]
+                if not tv:
+                    summary.append(
+                        "随机效应模型跳过：全部预测变量在单位内都不随时间变化"
+                        "（entity_effects 会把它们完全吸收，FE 无法拟合、无法与 RE 比较）。"
+                    )
+                    return
+                preds = tv
+
                 fe = PanelOLS(dd[y], dd[preds], entity_effects=True).fit(
                     cov_type="clustered", cluster_entity=True
                 )
@@ -194,8 +210,31 @@ def _branch_random_effects(ctx: Ctx) -> None:
                 common = [p for p in preds if p in fe.params.index and p in re.params.index]
                 diff = (fe_u.params[common] - re_u.params[common]).values
                 vdiff = (fe_u.cov.loc[common, common] - re_u.cov.loc[common, common]).values
-                h_stat = max(0.0, float(diff @ np.linalg.pinv(vdiff) @ diff))
-                h_p = float(chi2.sf(h_stat, len(common)))
+                # Guarded Hausman (mirrors panel_extra.hausman_test's fallback): the
+                # classic variance-difference form H = diff' inv(V_FE-V_RE) diff is
+                # only valid when V_FE-V_RE is PSD & well-conditioned. np.linalg.pinv
+                # inverts NEGATIVE eigenvalues too (it only zeroes near-zero ones), so
+                # when vdiff is non-PSD the quadratic form can go negative and
+                # max(0, ...) clips it to 0 -> p=1 -> spuriously recommends RE (and
+                # stores possibly-inconsistent RE coefficients). Fall back to the
+                # algebraically equivalent regression-based (Mundlak) Hausman, which
+                # is always well-defined.
+                eigmin = float(np.linalg.eigvalsh(vdiff).min()) if len(common) else 0.0
+                if len(common) and np.linalg.cond(vdiff) < 1e12 and eigmin > 0:
+                    h_stat = max(0.0, float(diff @ np.linalg.inv(vdiff) @ diff))
+                    h_p = float(chi2.sf(h_stat, len(common)))
+                    method_note = "classic"
+                else:
+                    emeans = dd.groupby(level=0)[common].transform("mean")
+                    mcols = [f"{c}__m" for c in common]
+                    emeans.columns = mcols
+                    aug = pd.concat([dd[common], emeans], axis=1).assign(const=1.0)
+                    re_aux = RandomEffects(dd[y], aug).fit()
+                    bm = re_aux.params[mcols].values
+                    vm = re_aux.cov.loc[mcols, mcols].values
+                    h_stat = max(0.0, float(bm @ np.linalg.pinv(vm) @ bm))
+                    h_p = float(chi2.sf(h_stat, len(mcols)))
+                    method_note = "regression"
                 use_fe = h_p < 0.05
                 rec = "FE（固定效应）" if use_fe else "RE（随机效应）"
                 tab = pd.DataFrame(
@@ -234,15 +273,29 @@ def _branch_random_effects(ctx: Ctx) -> None:
                 estimates["hausman_p"] = round(h_p, 4)
                 for c in common:
                     estimates[c] = round(float(chosen.params[c]), 4)
+                dropped_note = (
+                    f"（时不变变量 {dropped} 与实体效应共线、已从 FE/RE 剔除）" if dropped else ""
+                )
+                fallback_note = (
+                    ""
+                    if method_note == "classic"
+                    else "\n⚠ 披露：经典 Hausman（V_FE−V_RE 方差差）在本样本非正定，"
+                    "已改用回归式(Mundlak)Hausman（RE 加时变协变量的实体均值、对均值系数做联合 "
+                    "Wald）——与经典式渐近等价，且恒可定义。"
+                )
                 summary.append(
                     f"{entry.method} 完成：面板 {dd.index.get_level_values(0).nunique()} 单位 × "
-                    f"{dd.index.get_level_values(1).nunique()} 期；结果 {y}，{len(common)} 个预测变量。"
+                    f"{dd.index.get_level_values(1).nunique()} 期；结果 {y}，{len(common)} 个预测变量{dropped_note}。"
                     f"Hausman H={h_stat:.3f}, p={h_p:.3g} → 推荐 {rec}"
                     f"（p<0.05 表示随机效应与回归元相关、RE 不一致，应用 FE）。系数对比见 fe_re_coefficients.csv（聚类稳健 SE）。"
+                    + fallback_note
+                    + "\n⚠ 披露：FE/RE 均假定回归元对特质误差严格外生；模型只吸收个体效应，"
+                    "未建模时间效应，无法吸收共同时间冲击。"
                 )
                 code += [
                     "from linearmodels.panel import PanelOLS, RandomEffects  # 面板 RE + Hausman",
-                    "# FE=PanelOLS(entity_effects); RE=RandomEffects; H=(b_fe-b_re)'pinv(Vfe-Vre)(b_fe-b_re)",
+                    "# FE=PanelOLS(entity_effects); RE=RandomEffects; guarded Hausman: classic when "
+                    "V_FE-V_RE is PSD, else regression-based (Mundlak) fallback",
                 ]
             except Exception as err:
                 summary.append(f"随机效应模型失败：{err}")
