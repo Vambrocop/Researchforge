@@ -162,6 +162,15 @@ def data_signals(fp: DataFingerprint) -> dict:
         c.kind in {"binary", "categorical"} and c.name != lo and c.name not in excl and c.name not in edge_cols
         for c in fp.columns
     )
+    # A binary is a classification OUTCOME only when it's the role-detected outcome, OR when
+    # there's no continuous/count column to be the outcome (a pure-binary table). When a
+    # continuous outcome is present, a binary is a DESIGN FACTOR (drug arm, sex) — so
+    # binary-outcome methods (logistic/epi/diagnostic) must NOT outrank the ANOVA/regression
+    # that models the continuous response. Gates the requires_binary_outcome fit bonus.
+    lo_col = fp.column(lo) if lo else None
+    outcome_is_binary = (lo_col is not None and lo_col.kind == "binary") or (
+        n_bin >= 1 and n_cont == 0 and n_count == 0
+    )
     return {
         "n_rows": fp.n_rows,
         "is_panel": bool(fp.is_panel),
@@ -179,6 +188,7 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
         "has_rater_block": has_rater_block,
+        "outcome_is_binary": outcome_is_binary,
         "has_survival": has_survival,
         "has_group": has_group,
         "has_treatment": bool(getattr(fp, "treatment_candidates", None)),

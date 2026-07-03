@@ -52,6 +52,10 @@
     outcome/factor_a/factor_b.
   preconditions:
     requires_group: true
+    # a FACTORIAL design needs ≥2 crossed factors (that's what distinguishes it from one-way
+    # ANOVA); makes the method feasible only with two grouping columns present, and lets a
+    # genuine factorial dataset surface it above generic single-factor group methods.
+    min_categorical_cols: 2
     min_continuous: 1
     min_rows: 8
   produces:

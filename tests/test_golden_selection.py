@@ -279,10 +279,13 @@ GOLDEN = [
           {"fleiss_kappa", "icc", "cohens_kappa"},
           currently_ok=False,
           why="4 raters on a 1-5 scale profile as `count` → inter-rater agreement not detected"),
+    # replicated factorial (continuous response + 2 categorical factors) surfaces factorial
+    # ANOVA — Wave C: gate binary-outcome bonus on outcome_is_binary (a binary DESIGN FACTOR
+    # no longer floats logistic/epi up) + factorial_anova requires ≥2 factors (min_categorical_cols).
     _case("three_factor", _three_factor,
           {"factorial_anova", "anova_oneway", "ancova"},
-          currently_ok=False,
-          why="binary factor mis-read as classification target → factorial/ANOVA not surfaced on top"),
+          currently_ok=True,
+          why=""),
 ]
 
 

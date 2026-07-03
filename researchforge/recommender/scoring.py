@@ -145,7 +145,10 @@ _SPECIFIC_PRECOND = {
     # so a ≥3-rater block goes to agreement methods, not ordinal regression.
     "requires_ordinal": ("has_ordinal_outcome", 15.0),
     "requires_geo": ("has_geo", 12.0),
-    "requires_binary_outcome": ("has_binary", 12.0),
+    # gated on outcome_is_binary (not raw has_binary): a binary DESIGN FACTOR alongside a
+    # continuous outcome must not lift logistic/epi over the ANOVA/regression modeling the
+    # response. Fires when the binary is the role-detected outcome, or the table is pure-binary.
+    "requires_binary_outcome": ("outcome_is_binary", 12.0),
     "requires_treatment": ("has_treatment", 12.0),
 }
 
