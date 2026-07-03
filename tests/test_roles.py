@@ -161,6 +161,60 @@ def test_run_no_nudge_when_outcome_configured(tmp_path: Path):
     assert "💡" not in res.summary
 
 
+def test_regression_binds_high_confidence_outcome(tmp_path: Path):
+    # execution coherence: a high-confidence named outcome ('target') that is NOT the first
+    # continuous column must be the modeled dependent variable — not a right-hand predictor.
+    from researchforge.catalog.registry import Catalog
+    from researchforge.executor.run import _regression
+
+    rng = np.random.default_rng(0)
+    n = 120
+    x1 = rng.normal(0, 1, n); x2 = rng.normal(0, 1, n)
+    df = pd.DataFrame({"x1": x1.round(3), "x2": x2.round(3),
+                       "target": (2 + 1.5 * x1 - 0.8 * x2 + rng.normal(0, 0.5, n)).round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome_confidence == "high"
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, rhs, formula, _ = _regression(df, fp, entry, {})
+    assert y == "target"          # bound, not cont[0]=x1
+    assert "target" not in rhs    # and not also a predictor
+
+
+def test_regression_medium_confidence_does_not_bind(tmp_path: Path):
+    # a MEDIUM domain word ('sales') must NOT override the first-continuous default (it could
+    # be a predictor) — safety: never model the wrong column on an ambiguous name.
+    from researchforge.catalog.registry import Catalog
+    from researchforge.executor.run import _regression
+
+    rng = np.random.default_rng(1)
+    n = 120
+    a = rng.normal(0, 1, n)
+    df = pd.DataFrame({"adspend": a.round(3), "price": rng.normal(0, 1, n).round(3),
+                       "sales": (3 * a + rng.normal(0, 1, n)).round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome_confidence == "medium"
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, _, _, _ = _regression(df, fp, entry, {})
+    assert y == "adspend"         # first continuous, NOT the medium 'sales' hint
+
+
+def test_config_outcome_overrides_detection(tmp_path: Path):
+    from researchforge.catalog.registry import Catalog
+    from researchforge.executor.run import _regression
+
+    rng = np.random.default_rng(2)
+    n = 80
+    df = pd.DataFrame({"x1": rng.normal(0, 1, n).round(3),
+                       "target": rng.normal(0, 1, n).round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, _, _, _ = _regression(df, fp, entry, {"outcome": "x1"})
+    assert y == "x1"              # explicit config beats the high-confidence 'target'
+
+
 def test_run_no_nudge_when_method_has_no_outcome_param(tmp_path: Path):
     df = pd.DataFrame({"a": range(40), "b": [i * 1.3 for i in range(40)], "target": range(40)})
     csv = tmp_path / "d.csv"

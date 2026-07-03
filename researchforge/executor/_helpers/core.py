@@ -34,6 +34,28 @@ def _pick_did_treatment(df, fp: DataFingerprint) -> list[str]:
     return [best[1]] if best else []
 
 
+def resolve_outcome(fp: DataFingerprint, cfg: dict | None, candidates: list[str]) -> str:
+    """Pick the dependent variable for a modeling run — the single place role detection
+    becomes BINDING (closes the selection→execution loop). Priority:
+
+      1. an explicit ``config["outcome"]`` (user intent always wins),
+      2. a HIGH-confidence detected outcome (an unambiguous DV name like target/y/outcome)
+         when it is one of the candidate columns — so ``[x1, x2, target]`` models ``target``,
+         not the first column,
+      3. otherwise the first candidate (the long-standing "first continuous column" default).
+
+    MEDIUM/LOW confidence hints deliberately do NOT bind: a domain word (price/sales/score)
+    is just as often a predictor, so binding it could model the wrong column. ``candidates``
+    is the eligible dependent-variable columns in dataframe order (must be non-empty)."""
+    cfg = cfg or {}
+    if cfg.get("outcome") in candidates:
+        return cfg["outcome"]
+    lo = getattr(fp, "likely_outcome", None)
+    if getattr(fp, "likely_outcome_confidence", "") == "high" and lo in candidates:
+        return lo
+    return candidates[0]
+
+
 def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None = None):
     import statsmodels.formula.api as smf
 
@@ -41,8 +63,8 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None 
     cont = [c.name for c in fp.columns if c.kind == "continuous"]
     if not cont:
         raise ValueError("没有连续型因变量，无法回归")
-    # user override: config["outcome"] picks the dependent variable; else first continuous
-    y = cfg["outcome"] if cfg.get("outcome") in cont else cont[0]
+    # dependent variable: config override > high-confidence detected outcome > first continuous
+    y = resolve_outcome(fp, cfg, cont)
     # optional explicit predictor list via config["predictors"]
     forced_rhs = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     exclude = {y, fp.unit_col, fp.time_col}

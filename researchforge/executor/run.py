@@ -62,6 +62,7 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _report,
     _resid_plot,
     _run_dir,
+    resolve_outcome,
     _sem_latents,
     _silhouette_plot,
     _synthetic_control,
@@ -128,10 +129,18 @@ def run_analysis(
     # integer-valued / non-first target). See profiler/roles.py.
     if (fp.likely_outcome and not (cfg.get("outcome") or cfg.get("y"))
             and any(p.name in ("outcome", "y") for p in entry.params)):
-        summary.append(
-            f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
-            "若引擎默认选取不符，用 config outcome 指定。"
-        )
+        if fp.likely_outcome_confidence == "high":
+            # high-confidence outcomes are BOUND by resolve_outcome (regression family) —
+            # tell the user it was auto-selected, not just suggested.
+            summary.append(
+                f"💡 已自动选取 '{fp.likely_outcome}' 为结果变量（{fp.role_hint_reason}，高置信）；"
+                "如需改用其他列，用 config outcome 指定。"
+            )
+        else:
+            summary.append(
+                f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
+                "引擎默认仍取第一连续列——若不符，用 config outcome 指定。"
+            )
     estimates: dict[str, float] = {}
     code: list[str] = ["import pandas as pd", f"df = pd.read_csv(r'{fp.path}')", ""]
 
