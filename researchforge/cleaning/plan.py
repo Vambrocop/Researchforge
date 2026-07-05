@@ -19,7 +19,9 @@ _NUMERIC_KINDS = {"continuous", "count"}
 
 
 class CleaningStep(BaseModel):
-    action: str  # drop_duplicates | impute_median | impute_mode | drop_column | flag_outliers
+    # drop_duplicates | impute_median | impute_mode | drop_column | flag_outliers
+    # | collapse_rare (rare categorical levels -> "Other") | flag_high_cardinality (advisory)
+    action: str
     column: Optional[str] = None
     reason: str = ""
 
@@ -61,6 +63,22 @@ def make_cleaning_plan(fp: DataFingerprint) -> list[CleaningStep]:
                     reason=issue.detail + " (flagged for review, not auto-removed)",
                 )
             )
+        elif issue.kind == "rare_categories":
+            steps.append(
+                CleaningStep(
+                    action="collapse_rare",
+                    column=issue.column,
+                    reason=issue.detail + " → 合并入 'Other'（稳住下游模型、收窄独热）",
+                )
+            )
+        elif issue.kind == "high_cardinality":
+            steps.append(
+                CleaningStep(
+                    action="flag_high_cardinality",
+                    column=issue.column,
+                    reason=issue.detail + " (像标识符/自由文本，建议分析时排除，不自动删除)",
+                )
+            )
     return steps
 
 
@@ -98,6 +116,20 @@ def apply_cleaning_plan(
                     entry.update(applied=True, detail=f"imputed missing with mode={mode.iloc[0]}")
         elif step.action == "flag_outliers":
             entry.update(applied=False, detail="flagged only — left unchanged")
+        elif step.action == "collapse_rare":
+            if step.column in out.columns:
+                vc = out[step.column].value_counts(dropna=True)
+                thresh = max(2, round(0.01 * len(out)))
+                rare = list(vc[vc < thresh].index)
+                if len(rare) >= 2:  # only worth it when a real tail collapses
+                    col = out[step.column].astype("object")
+                    out[step.column] = col.where(~col.isin(rare), "Other")
+                    entry.update(
+                        applied=True,
+                        detail=f"collapsed {len(rare)} rare levels (<{thresh} rows) into 'Other'",
+                    )
+        elif step.action == "flag_high_cardinality":
+            entry.update(applied=False, detail="flagged only — likely identifier/free text, left unchanged")
         log.append(entry)
     return out, log
 

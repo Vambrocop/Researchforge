@@ -44,6 +44,11 @@ def diagnose(df: pd.DataFrame) -> list[Issue]:
                       detail=f"{miss} missing values", column=str(col), count=miss)
             )
         nuniq = int(s.nunique(dropna=True))
+        is_text = (
+            not pd.api.types.is_numeric_dtype(s)
+            and not pd.api.types.is_bool_dtype(s)
+            and not pd.api.types.is_datetime64_any_dtype(s)
+        )
         if nuniq <= 1:
             issues.append(
                 Issue(kind="constant", severity="low",
@@ -51,17 +56,27 @@ def diagnose(df: pd.DataFrame) -> list[Issue]:
             )
         # High-cardinality text column (likely free text / identifier): a poor
         # grouping factor and a memory risk for one-hot. Numbers/dates exempt.
-        elif (
-            not pd.api.types.is_numeric_dtype(s)
-            and not pd.api.types.is_bool_dtype(s)
-            and not pd.api.types.is_datetime64_any_dtype(s)
-            and nuniq > max(50, 0.5 * n)
-        ):
+        elif is_text and nuniq > max(50, 0.5 * n):
             issues.append(
                 Issue(kind="high_cardinality", severity="low",
                       detail=f"{nuniq} distinct text values ({nuniq / n:.0%} of rows)",
                       column=str(col), count=nuniq)
             )
+        # Low-cardinality categorical with a long RARE tail: many levels, several of
+        # which appear in <1% of rows (e.g. a 'country' factor where most levels are
+        # singletons). Collapsing the tail into "Other" stabilises downstream models and
+        # cuts one-hot width. Needs >=6 levels (a tail to speak of) and >=2 genuinely rare
+        # ones; a balanced few-level factor (region N/S/E/W) never trips this.
+        elif is_text and nuniq >= 6:
+            vc = s.value_counts(dropna=True)
+            thresh = max(2, round(0.01 * n))
+            n_rare = int((vc < thresh).sum())
+            if n_rare >= 2:
+                issues.append(
+                    Issue(kind="rare_categories", severity="low",
+                          detail=f"{n_rare} rare levels (<{thresh} rows each) out of {nuniq}",
+                          column=str(col), count=n_rare)
+                )
         if pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s):
             nn = s.dropna()
             if len(nn) >= 8:

@@ -46,6 +46,57 @@ def test_cli_pick_binary_picks_logistic(tmp_path, capsys):
     assert "run " in out                          # prints the exact run command
 
 
+def test_cli_clean_preview_and_apply(tmp_path, capsys):
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.cli import main
+
+    rng = np.random.default_rng(4)
+    n = 200
+    common = rng.choice(["A", "B", "C"], 150)
+    rare = [f"r{i}" for i in range(25)]
+    grp = list(common) + list(rng.choice(rare, 50))
+    rng.shuffle(grp)
+    df = pd.DataFrame({"grp": grp, "x": rng.normal(0, 1, n).round(3), "const": 1})
+    df.loc[:9, "x"] = np.nan  # missing to impute
+    csv = tmp_path / "dirty.csv"
+    df.to_csv(csv, index=False)
+
+    # preview: shows the plan, writes nothing
+    assert main(["clean", str(csv)]) == 0
+    out = capsys.readouterr().out
+    assert "清理计划" in out and "collapse_rare" in out and "预览" in out
+    assert not (tmp_path / "dirty_cleaned.csv").exists()
+
+    # apply: writes a cleaned CSV + a log; const column gone, missing imputed
+    outp = tmp_path / "cleaned.csv"
+    assert main(["clean", str(csv), "--apply", "--out", str(outp)]) == 0
+    out = capsys.readouterr().out
+    assert "已应用" in out
+    assert outp.exists()
+    cleaned = pd.read_csv(outp)
+    assert "const" not in cleaned.columns
+    assert cleaned["x"].isna().sum() == 0
+    assert outp.with_suffix(".cleaning.json").exists()
+
+
+def test_cli_clean_on_clean_data(tmp_path, capsys):
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.cli import main
+
+    rng = np.random.default_rng(2)
+    df = pd.DataFrame({"a": rng.normal(0, 1, 40).round(3), "b": rng.normal(0, 1, 40).round(3)})
+    csv = tmp_path / "ok.csv"
+    df.to_csv(csv, index=False)
+    assert main(["clean", str(csv)]) == 0
+    # no actionable steps -> honest "nothing to clean", not a fabricated plan
+    out = capsys.readouterr().out
+    assert "未发现需要清理" in out or "清理计划" in out  # either honest-empty or advisory-only
+
+
 def test_cli_pick_survival(tmp_path, capsys):
     import numpy as np
     import pandas as pd

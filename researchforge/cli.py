@@ -24,6 +24,24 @@ def _markers() -> dict[str, str]:
     return _EMOJI if "utf" in enc else _ASCII
 
 
+_ISSUE_LABELS = {
+    "duplicate_rows": "重复行", "missing": "缺失", "constant": "常量列",
+    "outliers": "离群", "rare_categories": "稀有类别", "high_cardinality": "高基数标识符",
+    "coerced_numeric": "已转数值",
+}
+
+
+def _quality_nudge(fp) -> str | None:
+    """One-line, actionable data-quality summary (None if clean). Points at `clean`."""
+    if not fp.issues:
+        return None
+    from collections import Counter
+
+    c = Counter(i.kind for i in fp.issues)
+    parts = "、".join(f"{c[k]} {_ISSUE_LABELS.get(k, k)}" for k in c)
+    return f"⚠ 数据质量：{len(fp.issues)} 项发现（{parts}）→ 跑 `clean <data>` 预览/清理"
+
+
 def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     from researchforge.catalog.registry import Catalog
     from researchforge.profiler import profile_dataset
@@ -36,8 +54,9 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
         f"面板={fp.is_panel} 时序={fp.is_timeseries} "
         f"时间列={fp.time_col} 单位列={fp.unit_col}"
     )
-    if fp.issues:
-        print(f"质量问题：{len(fp.issues)} 项（运行清洗可处理）")
+    nudge = _quality_nudge(fp)
+    if nudge:
+        print(nudge)
     if fp.likely_outcome:
         hint = f"💡 可能的结果变量：{fp.likely_outcome}（{fp.role_hint_reason}）"
         if fp.likely_treatment:
@@ -177,12 +196,53 @@ def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
     if entry is None:
         print(f"未知分析 id：{analysis_id}")
         return 1
+    nudge = _quality_nudge(fp)
+    if nudge:
+        print(nudge)
     res = run_analysis(fp, entry, config=cfg)
     print(f"已执行：{res.method}")
     print(f"摘要：{res.summary}")
     print(f"产物目录：{res.output_dir}")
     for f in res.files:
         print(f"  - {f}")
+    return 0
+
+
+def _cmd_clean(path: str, apply_changes: bool = False, out: str | None = None) -> int:
+    from pathlib import Path
+
+    from researchforge.cleaning import (
+        apply_cleaning_plan,
+        make_cleaning_plan,
+        write_cleaning_log,
+    )
+    from researchforge.profiler import profile_dataset
+    from researchforge.profiler.profile import read_table
+
+    fp = profile_dataset(path)
+    plan = make_cleaning_plan(fp)
+    if not plan:
+        print("✓ 未发现需要清理的问题（无重复 / 缺失 / 常量 / 稀有类别 / 高基数标识符）。")
+        return 0
+    print(f"清理计划（{len(plan)} 步）—— 基于数据质量诊断：")
+    for s in plan:
+        col = f" [{s.column}]" if s.column else ""
+        print(f"  • {s.action}{col} — {s.reason}")
+    if not apply_changes:
+        print("\n（预览，未改动。加 --apply 应用并写出清洗后的 CSV。）")
+        return 0
+    df = read_table(Path(path))
+    cleaned, log = apply_cleaning_plan(df, plan)
+    out_path = Path(out) if out else Path(path).with_name(Path(path).stem + "_cleaned.csv")
+    cleaned.to_csv(out_path, index=False, encoding="utf-8")
+    log_path = write_cleaning_log(log, out_path.with_suffix(".cleaning.json"))
+    applied = [e for e in log if e["applied"]]
+    print(f"\n已应用 {len(applied)}/{len(log)} 步 → {out_path}")
+    for e in log:
+        mark = "✓" if e["applied"] else "⚠"
+        col = f" [{e['column']}]" if e["column"] else ""
+        print(f"  {mark} {e['action']}{col} — {e['detail']}")
+    print(f"清洗日志：{log_path}")
     return 0
 
 
@@ -447,6 +507,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help='JSON of substantive overrides, e.g. \'{"outcome":"yield","predictors":["rain","fert"]}\'',
     )
+    cln = sub.add_parser("clean", help="preview (or --apply) a data-cleaning plan from quality diagnostics")
+    cln.add_argument("path", help="path to a CSV/Excel file")
+    cln.add_argument("--apply", action="store_true", dest="apply_changes",
+                     help="apply the plan and write a cleaned CSV (default: preview only)")
+    cln.add_argument("--out", default=None,
+                     help="output path for the cleaned CSV (default: <name>_cleaned.csv)")
     par = sub.add_parser("params", help="show an analysis's configurable parameters (machine-readable spec)")
     par.add_argument("analysis", help="analysis id from the catalog (e.g. ols)")
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
@@ -483,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_pick(args.path, args.goal)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis, args.config)
+    if args.command == "clean":
+        return _cmd_clean(args.path, args.apply_changes, args.out)
     if args.command == "params":
         return _cmd_params(args.analysis)
     if args.command == "ingest":
