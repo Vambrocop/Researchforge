@@ -177,7 +177,36 @@ def _cmd_params(analysis_id: str) -> int:
     return 0
 
 
-def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
+def _auto_clean_before_run(path: str, fp) -> str:
+    """`run --clean`: apply the cleaning plan when it has real (non-advisory) steps and
+    return the path to run the analysis on. Advisory-only (flag_*) or empty plans leave
+    the original file untouched. Mirrors `_cmd_clean`'s --apply disclosure format."""
+    from pathlib import Path
+
+    from researchforge.cleaning import apply_cleaning_plan, make_cleaning_plan, write_cleaning_log
+    from researchforge.profiler.profile import read_table
+
+    plan = make_cleaning_plan(fp)
+    applicable = [s for s in plan if not s.action.startswith("flag_")]
+    if not applicable:
+        print("✓ 数据已足够干净（无实质性清理步骤），直接在原文件上运行。")
+        return path
+    df = read_table(Path(path))
+    cleaned, log = apply_cleaning_plan(df, plan)
+    out_path = Path(path).with_name(Path(path).stem + "_cleaned.csv")
+    cleaned.to_csv(out_path, index=False, encoding="utf-8")
+    log_path = write_cleaning_log(log, out_path.with_suffix(".cleaning.json"))
+    applied = [e for e in log if e["applied"]]
+    print(f"🧹 --clean：已应用 {len(applied)}/{len(log)} 步 → {out_path}")
+    for e in log:
+        mark = "✓" if e["applied"] else "⚠"
+        col = f" [{e['column']}]" if e["column"] else ""
+        print(f"  {mark} {e['action']}{col} — {e['detail']}")
+    print(f"清洗日志：{log_path}")
+    return str(out_path)
+
+
+def _cmd_run(path: str, analysis_id: str, config: str | None = None, clean_first: bool = False) -> int:
     import json
 
     from researchforge.catalog import Catalog
@@ -196,6 +225,10 @@ def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
     if entry is None:
         print(f"未知分析 id：{analysis_id}")
         return 1
+    if clean_first:
+        run_path = _auto_clean_before_run(path, fp)
+        if run_path != path:
+            fp = profile_dataset(run_path)
     nudge = _quality_nudge(fp)
     if nudge:
         print(nudge)
@@ -208,7 +241,9 @@ def _cmd_run(path: str, analysis_id: str, config: str | None = None) -> int:
     return 0
 
 
-def _cmd_clean(path: str, apply_changes: bool = False, out: str | None = None) -> int:
+def _cmd_clean(
+    path: str, apply_changes: bool = False, out: str | None = None, rare_threshold: float = 0.01
+) -> int:
     from pathlib import Path
 
     from researchforge.cleaning import (
@@ -232,7 +267,7 @@ def _cmd_clean(path: str, apply_changes: bool = False, out: str | None = None) -
         print("\n（预览，未改动。加 --apply 应用并写出清洗后的 CSV。）")
         return 0
     df = read_table(Path(path))
-    cleaned, log = apply_cleaning_plan(df, plan)
+    cleaned, log = apply_cleaning_plan(df, plan, rare_threshold=rare_threshold)
     out_path = Path(out) if out else Path(path).with_name(Path(path).stem + "_cleaned.csv")
     cleaned.to_csv(out_path, index=False, encoding="utf-8")
     log_path = write_cleaning_log(log, out_path.with_suffix(".cleaning.json"))
@@ -507,12 +542,22 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help='JSON of substantive overrides, e.g. \'{"outcome":"yield","predictors":["rain","fert"]}\'',
     )
+    run_p.add_argument(
+        "--clean", action="store_true", dest="clean_first",
+        help="auto-clean (apply the diagnosed plan) before running, if it has real "
+             "(non-advisory) steps; default off — clean/--apply stays opt-in",
+    )
     cln = sub.add_parser("clean", help="preview (or --apply) a data-cleaning plan from quality diagnostics")
     cln.add_argument("path", help="path to a CSV/Excel file")
     cln.add_argument("--apply", action="store_true", dest="apply_changes",
                      help="apply the plan and write a cleaned CSV (default: preview only)")
     cln.add_argument("--out", default=None,
                      help="output path for the cleaned CSV (default: <name>_cleaned.csv)")
+    cln.add_argument(
+        "--rare-threshold", type=float, default=0.01, dest="rare_threshold",
+        help="min row-share for a categorical level to escape collapse_rare when "
+             "applying (default 0.01); detection stays fixed at 1%% in profiler/quality.py",
+    )
     par = sub.add_parser("params", help="show an analysis's configurable parameters (machine-readable spec)")
     par.add_argument("analysis", help="analysis id from the catalog (e.g. ols)")
     sub.add_parser("ingest", help="process skills_inbox into the catalog manifest")
@@ -548,9 +593,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "pick":
         return _cmd_pick(args.path, args.goal)
     if args.command == "run":
-        return _cmd_run(args.path, args.analysis, args.config)
+        return _cmd_run(args.path, args.analysis, args.config, args.clean_first)
     if args.command == "clean":
-        return _cmd_clean(args.path, args.apply_changes, args.out)
+        return _cmd_clean(args.path, args.apply_changes, args.out, args.rare_threshold)
     if args.command == "params":
         return _cmd_params(args.analysis)
     if args.command == "ingest":

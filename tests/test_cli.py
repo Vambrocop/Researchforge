@@ -97,6 +97,50 @@ def test_cli_clean_on_clean_data(tmp_path, capsys):
     assert "未发现需要清理" in out or "清理计划" in out  # either honest-empty or advisory-only
 
 
+def _dirty_df(seed: int = 7, n: int = 200):
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed)
+    common = rng.choice(["A", "B", "C"], n - 30)
+    rare = [f"r{i}" for i in range(20)]
+    grp = list(common) + list(rng.choice(rare, 30))
+    rng.shuffle(grp)
+    df = pd.DataFrame({
+        "grp": grp,
+        "x": rng.normal(0, 1, n).round(3),
+        "const": 1,
+    })
+    df.loc[:9, "x"] = np.nan
+    return df
+
+
+def test_cli_run_clean_flag_auto_cleans_then_runs(tmp_path, capsys):
+    from researchforge.cli import main
+
+    csv = tmp_path / "dirty.csv"
+    _dirty_df().to_csv(csv, index=False)
+
+    assert main(["run", str(csv), "descriptive_stats", "--clean"]) == 0
+    out = capsys.readouterr().out
+    assert "已应用" in out  # disclosure of applied cleaning steps
+    assert "已执行" in out  # analysis actually ran afterward
+    assert (tmp_path / "dirty_cleaned.csv").exists()
+
+
+def test_cli_run_without_clean_flag_skips_cleaning(tmp_path, capsys):
+    from researchforge.cli import main
+
+    csv = tmp_path / "dirty2.csv"
+    _dirty_df(seed=8).to_csv(csv, index=False)
+
+    assert main(["run", str(csv), "descriptive_stats"]) == 0
+    out = capsys.readouterr().out
+    assert "已执行" in out
+    assert "已应用" not in out  # no auto-clean disclosure without --clean
+    assert not (tmp_path / "dirty2_cleaned.csv").exists()
+
+
 def test_cli_pick_survival(tmp_path, capsys):
     import numpy as np
     import pandas as pd

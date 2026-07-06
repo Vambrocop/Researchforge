@@ -83,7 +83,7 @@ def make_cleaning_plan(fp: DataFingerprint) -> list[CleaningStep]:
 
 
 def apply_cleaning_plan(
-    df: pd.DataFrame, steps: list[CleaningStep]
+    df: pd.DataFrame, steps: list[CleaningStep], rare_threshold: float = 0.01
 ) -> tuple[pd.DataFrame, list[dict]]:
     out = df.copy()
     log: list[dict] = []
@@ -119,7 +119,7 @@ def apply_cleaning_plan(
         elif step.action == "collapse_rare":
             if step.column in out.columns:
                 vc = out[step.column].value_counts(dropna=True)
-                thresh = max(2, round(0.01 * len(out)))
+                thresh = max(2, round(rare_threshold * len(out)))
                 rare = list(vc[vc < thresh].index)
                 if len(rare) >= 2:  # only worth it when a real tail collapses
                     col = out[step.column].astype("object")

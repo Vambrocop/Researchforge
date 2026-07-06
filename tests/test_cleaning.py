@@ -91,6 +91,30 @@ def test_rare_categories_detected_and_collapsed(tmp_path):
     assert hc["applied"] is False
 
 
+def test_apply_rare_threshold_knob_collapses_more_aggressively(tmp_path):
+    # detection (profiler/quality.py) stays fixed at 1%; this only tunes how
+    # aggressively `apply_cleaning_plan` collapses once rare_categories is flagged.
+    import re
+
+    df = _rare_tail_df()  # seed=0
+    csv = tmp_path / "rare_knob.csv"
+    df.to_csv(csv, index=False)
+    plan = make_cleaning_plan(profile_dataset(csv))
+
+    _, log_default = apply_cleaning_plan(df, plan)  # default rare_threshold=0.01
+    _, log_aggressive = apply_cleaning_plan(df, plan, rare_threshold=0.05)
+
+    default_entry = next(e for e in log_default if e["action"] == "collapse_rare")
+    aggressive_entry = next(e for e in log_aggressive if e["action"] == "collapse_rare")
+    assert default_entry["applied"] and aggressive_entry["applied"]
+
+    def _n_collapsed(detail: str) -> int:
+        m = re.search(r"collapsed (\d+) rare levels", detail)
+        return int(m.group(1)) if m else 0
+
+    assert _n_collapsed(aggressive_entry["detail"]) > _n_collapsed(default_entry["detail"])
+
+
 def test_balanced_categorical_not_collapsed(tmp_path):
     # a plain low-cardinality categorical with NO rare tail must not trip collapse_rare
     import numpy as np
