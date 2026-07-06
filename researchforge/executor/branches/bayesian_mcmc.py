@@ -89,6 +89,10 @@ def _resolve_reg(ctx: Ctx, method: str, *, binary_outcome: bool):
     def _is_binary(col):
         return df[col].dropna().nunique() == 2
 
+    # shared resolver (config already honoured above via the wider any-column check):
+    # high-confidence detected outcome > first non-treatment-named candidate > first.
+    from researchforge.executor.run import resolve_outcome
+
     forced_y = cfg.get("outcome")
     if forced_y in df.columns:
         outcome = forced_y
@@ -97,9 +101,9 @@ def _resolve_reg(ctx: Ctx, method: str, *, binary_outcome: bool):
         bins += [c for c in df.columns if c not in bins and c not in excl and _is_binary(c)]
         if not bins:
             return None, [], f"{method} 跳过：未找到二值结果变量（需 1 个两类别列）。"
-        outcome = bins[0]
+        outcome = resolve_outcome(fp, cfg, bins)
     elif cont:
-        outcome = cont[0]
+        outcome = resolve_outcome(fp, cfg, cont)
     else:
         return None, [], f"{method} 跳过：未找到连续结果变量（需 1 个连续列）。"
 

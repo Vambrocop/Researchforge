@@ -62,6 +62,17 @@ _BIN_OUTCOME_RE = re.compile(
 _NUMERIC_KINDS = {"continuous", "count"}
 
 
+def is_treatment_named(name: str) -> bool:
+    """True when a column NAME carries a treatment/arm signal (treat/arm/exposed/dose…).
+
+    Public so the executor's outcome resolver can skip a treatment-named column when
+    falling back to "first candidate" — a treatment indicator is almost never the
+    dependent variable. Name-signal ONLY: deliberately not based on detect_roles'
+    positional likely_treatment fallback (which tags the first non-outcome binary even
+    without any name evidence, and would flip conventions arbitrarily)."""
+    return bool(_TREATMENT_RE.search(str(name)))
+
+
 def detect_roles(columns) -> dict:
     """Return {likely_outcome, likely_treatment, likely_time, reason} from a list
     of ColumnInfo (in dataframe order). Any value may be None."""

@@ -223,3 +223,137 @@ def test_run_no_nudge_when_method_has_no_outcome_param(tmp_path: Path):
     entry = AnalysisEntry(id="x", method="m", domain="d", family="statistics", goal="describe")
     res = run_analysis(fp, entry, output_root=str(tmp_path / "o"))
     assert "💡" not in res.summary
+
+
+# ── Wave G: selection→execution coherence across outcome TYPES (binary/count/ordinal) ──
+
+def test_resolve_outcome_skips_treatment_named():
+    # fallback rule: a treatment-named candidate (treat/arm/exposed/dose…) is skipped when
+    # a non-treatment candidate exists; if ALL are treatment-named, first-candidate stands.
+    from researchforge.executor.run import resolve_outcome
+    from researchforge.profiler.fingerprint import DataFingerprint
+
+    fp = DataFingerprint(path="x", n_rows=100, n_cols=2, columns=[])  # no role hints
+    assert resolve_outcome(fp, {}, ["treated", "died"]) == "died"
+    assert resolve_outcome(fp, {}, ["exposed", "flag"]) == "flag"
+    assert resolve_outcome(fp, {}, ["dose_a", "arm_b"]) == "dose_a"   # all treatment-named
+    assert resolve_outcome(fp, {}, ["flag", "treated"]) == "flag"      # order kept otherwise
+    assert resolve_outcome(fp, {"outcome": "treated"}, ["treated", "died"]) == "treated"  # config wins
+
+
+def test_logistic_binds_event_outcome_over_leading_treatment(tmp_path: Path):
+    # {treated, age, dose, died}: 'died' is the high-confidence binary outcome; the leading
+    # 'treated' flag must NOT be modeled as the dependent variable (the old first-binary grab).
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(0)
+    n = 200
+    treated = rng.binomial(1, 0.5, n)
+    age = rng.normal(60, 10, n).round(1)
+    p = 1 / (1 + np.exp(-(-1 + 1.2 * treated + 0.03 * (age - 60))))
+    df = pd.DataFrame({"treated": treated, "age": age,
+                       "dose": rng.normal(5, 1, n).round(2), "died": rng.binomial(1, p)})
+    csv = tmp_path / "t.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "died" and fp.likely_outcome_confidence == "high"
+    entry = {e.id: e for e in Catalog.load().all()}["logistic_regression"]
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "o"))
+    assert "结果变量 died" in res.summary
+    # config override still wins over the role binding
+    res2 = run_analysis(fp, entry, output_root=str(tmp_path / "o2"), config={"outcome": "treated"})
+    assert "结果变量 treated" in res2.summary
+
+
+def test_logistic_skips_treatment_named_without_high_confidence(tmp_path: Path):
+    # {exposed, x, flag}: no high-confidence outcome name fires, but 'exposed' is
+    # treatment-named → the resolver falls back to 'flag', not the leading treatment column.
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(3)
+    n = 200
+    exposed = rng.binomial(1, 0.5, n)
+    flag = rng.binomial(1, 1 / (1 + np.exp(-0.8 * (exposed - 0.5))))
+    df = pd.DataFrame({"exposed": exposed, "x": rng.normal(0, 1, n).round(3), "flag": flag})
+    csv = tmp_path / "t.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    entry = {e.id: e for e in Catalog.load().all()}["logistic_regression"]
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "o"))
+    assert "结果变量 flag" in res.summary
+
+
+def test_poisson_binds_high_confidence_count_outcome(tmp_path: Path):
+    # {events, x1, y}: both 'events' and 'y' are count columns; 'y' is the high-confidence
+    # outcome name and NOT first — the count family must model y, not grab events.
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(4)
+    n = 220
+    x1 = rng.normal(0, 1, n)
+    events = rng.poisson(3, n)                       # a count PREDICTOR (first count col)
+    y = rng.poisson(np.exp(0.4 + 0.3 * x1))          # the named count outcome
+    df = pd.DataFrame({"events": events, "x1": x1.round(3), "y": y})
+    csv = tmp_path / "p.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    entry = {e.id: e for e in Catalog.load().all()}["poisson_regression"]
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "o"))
+    assert "计数结果 y" in res.summary  # exact summary line, not an incidental substring
+
+
+def test_is_treatment_named_word_boundaries():
+    # word-boundary behavior: segments match (group_size), embeddings don't (grouping).
+    from researchforge.profiler.roles import is_treatment_named
+
+    assert is_treatment_named("treated")
+    assert is_treatment_named("group_size")           # 'group' as a segment
+    assert is_treatment_named("condition_score")      # 'condition' as a segment
+    assert not is_treatment_named("grouping")          # embedded, no boundary
+    assert not is_treatment_named("programming_score") # 'program' embedded in 'programming'
+    assert not is_treatment_named("blood_pressure")
+
+
+def test_resolve_outcome_rescues_outcome_signal(tmp_path: Path):
+    # M1 regression (cold review): a compound DV name carrying a treatment word as a
+    # segment ('body_condition_score' — standard animal-science outcome, first column per
+    # convention) must NOT be skipped by the treatment-name rule: the role detector flags
+    # it as the likely outcome (medium via 'score'), and that outcome signal vetoes the
+    # skip. Old first-column behavior stands.
+    from researchforge.executor.run import _regression, resolve_outcome
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(6)
+    n = 150
+    age = rng.uniform(2, 12, n)
+    weight = rng.normal(500, 60, n)
+    bcs = (3 + 0.1 * age - 0.002 * (weight - 500) + rng.normal(0, 0.3, n))
+    df = pd.DataFrame({"body_condition_score": bcs.round(2), "age": age.round(1),
+                       "weight": weight.round(1)})
+    csv = tmp_path / "bcs.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "body_condition_score"  # medium, via 'score'
+    cont = [c.name for c in fp.columns if c.kind == "continuous"]
+    assert resolve_outcome(fp, {}, cont) == "body_condition_score"  # veto: not skipped
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, _, _, _ = _regression(df, fp, entry, {})
+    assert y == "body_condition_score"
+
+
+def test_poisson_config_can_force_any_column(tmp_path: Path):
+    # count-family config contract (cold review S1): config['outcome'] may force a column
+    # the profiler did NOT tag as count (the id-trap: all-unique ints profile as 'id') —
+    # aligned with count_models._resolve_count_outcome's wider check.
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(7)
+    n = 220
+    x1 = rng.normal(0, 1, n)
+    base = rng.poisson(5, n)
+    df = pd.DataFrame({"visits": base, "x1": x1.round(3),
+                       "case_no": np.arange(1000, 1000 + n)})  # all-unique ints -> 'id'
+    csv = tmp_path / "f.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.column("case_no").kind == "id"
+    entry = {e.id: e for e in Catalog.load().all()}["poisson_regression"]
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "o"),
+                       config={"outcome": "case_no"})
+    assert "计数结果 case_no" in res.summary

@@ -79,7 +79,15 @@ def _resolve_ordinal(ctx: Ctx, method: str):
             and c.name not in excl
         ]
         ord_cols.sort(key=lambda c: 0 if c.kind == "count" else 1)
-        outcome = ord_cols[0].name if ord_cols else None
+        # shared resolver on the sorted candidates: high-confidence detected outcome >
+        # first non-treatment-named (an ordinal 'dose' is the regressor, not the outcome
+        # — {dose, severity} models severity) > first. config already handled above.
+        if ord_cols:
+            from researchforge.executor.run import resolve_outcome
+
+            outcome = resolve_outcome(fp, cfg, [c.name for c in ord_cols])
+        else:
+            outcome = None
         if outcome is None:
             return None, None, (
                 f"{method}跳过：未找到有序结果变量（{_MIN_LEVELS}–{_MAX_LEVELS} 个有序等级，"

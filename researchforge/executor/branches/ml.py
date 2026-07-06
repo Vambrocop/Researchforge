@@ -13,6 +13,7 @@ from researchforge.executor.run import (
     _network_via_nx,
     _plotly_scatter,
     _silhouette_plot,
+    resolve_outcome,
 )
 
 
@@ -25,7 +26,7 @@ def _branch_bart(ctx: Ctx) -> None:
     from researchforge.executor import rbridge
 
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    y = resolve_outcome(fp, cfg, cont) if cont else None  # config > high-conf role > convention
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     if forced:
         preds = forced[:20]
@@ -116,7 +117,7 @@ def _branch_conformal_prediction(ctx: Ctx) -> None:
     import importlib.util
 
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    y = resolve_outcome(fp, cfg, cont) if cont else None  # config > high-conf role > convention
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     if forced:
         preds = forced[:15]
@@ -524,10 +525,12 @@ def _branch_random_forest(ctx: Ctx) -> None:
     # when there is no continuous column — a lone binary is usually a
     # treatment / flag *feature*, not the prediction target. This prevents
     # silently running the wrong analysis on the common "outcome + indicator" shape.
+    # Within each tier the shared resolver applies (config > high-confidence detected
+    # outcome > first non-treatment-named > first) — closes selection→execution for ML.
     if cont_cols:
-        outcome, is_clf = cont_cols[0], False
+        outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
     elif binary_cols:
-        outcome, is_clf = binary_cols[0], True
+        outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True
     else:
         outcome, is_clf = None, False
 
@@ -629,10 +632,12 @@ def _branch_xgboost(ctx: Ctx) -> None:
     # when there is no continuous column — a lone binary is usually a
     # treatment / flag *feature*, not the prediction target. This prevents
     # silently running the wrong analysis on the common "outcome + indicator" shape.
+    # Within each tier the shared resolver applies (config > high-confidence detected
+    # outcome > first non-treatment-named > first) — closes selection→execution for ML.
     if cont_cols:
-        outcome, is_clf = cont_cols[0], False
+        outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
     elif binary_cols:
-        outcome, is_clf = binary_cols[0], True
+        outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True
     else:
         outcome, is_clf = None, False
 

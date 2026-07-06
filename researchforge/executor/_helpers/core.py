@@ -42,18 +42,29 @@ def resolve_outcome(fp: DataFingerprint, cfg: dict | None, candidates: list[str]
       2. a HIGH-confidence detected outcome (an unambiguous DV name like target/y/outcome)
          when it is one of the candidate columns — so ``[x1, x2, target]`` models ``target``,
          not the first column,
-      3. otherwise the first candidate (the long-standing "first continuous column" default).
+      3. otherwise the first candidate that is NOT treatment-named (treat/arm/exposed/dose…) —
+         a treatment indicator is almost never the dependent variable, so ``[treated, died]``
+         resolves to ``died`` even when no outcome name fires. Name-signal only (no positional
+         treatment guess), so unnamed column conventions are never flipped. A candidate that
+         is itself the role-detected ``likely_outcome`` (ANY confidence) is never skipped:
+         compound measurement names like ``body_condition_score`` / ``group_size`` carry a
+         treatment word as a segment but ARE the outcome — the outcome signal vetoes the skip
+         (medium still doesn't jump the order; the veto only protects the convention).
+      4. otherwise the first candidate (the long-standing "first column" default).
 
     MEDIUM/LOW confidence hints deliberately do NOT bind: a domain word (price/sales/score)
     is just as often a predictor, so binding it could model the wrong column. ``candidates``
     is the eligible dependent-variable columns in dataframe order (must be non-empty)."""
+    from researchforge.profiler.roles import is_treatment_named
+
     cfg = cfg or {}
     if cfg.get("outcome") in candidates:
         return cfg["outcome"]
     lo = getattr(fp, "likely_outcome", None)
     if getattr(fp, "likely_outcome_confidence", "") == "high" and lo in candidates:
         return lo
-    return candidates[0]
+    non_treat = [c for c in candidates if not is_treatment_named(c) or c == lo]
+    return non_treat[0] if non_treat else candidates[0]
 
 
 def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None = None):

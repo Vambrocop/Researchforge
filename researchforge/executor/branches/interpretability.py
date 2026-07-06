@@ -40,14 +40,17 @@ def _build_model(ctx: Ctx, label: str, min_rows: int = 30):
     cont = [c.name for c in fp.columns if c.kind == "continuous"]
     binary = [c.name for c in fp.columns if c.kind == "binary"]
 
-    # outcome: config wins; else first continuous (regression); else a lone binary (classify)
+    # outcome: config wins; else the shared resolver within each tier (high-confidence
+    # detected outcome > first non-treatment-named > first) — continuous before binary.
+    from researchforge.executor.run import resolve_outcome
+
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
     if outcome is not None:
         is_clf = fp.column(outcome) is not None and fp.column(outcome).kind in {"binary", "categorical"}
     elif cont:
-        outcome, is_clf = cont[0], False
+        outcome, is_clf = resolve_outcome(fp, cfg, cont), False
     elif binary:
-        outcome, is_clf = binary[0], True
+        outcome, is_clf = resolve_outcome(fp, cfg, binary), True
     else:
         return None, f"{label}跳过：未找到结果变量（需连续或二值列），config outcome 指定。"
 

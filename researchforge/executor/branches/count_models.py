@@ -20,6 +20,7 @@ ending with ⚠ disclosures. Failures degrade honestly ("<method>失败：<reaso
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ---------------------------------------------------------------------------
@@ -30,14 +31,19 @@ def _resolve_count_outcome(fp, df, cfg):
 
     A count column = integer-valued, non-negative, with repeats (profiler tags
     all-unique integers as 'id', not 'count'). config['outcome'] may force any
-    existing column (the user knows better than the profiler).
+    existing column (the user knows better than the profiler) — deliberately WIDER
+    than resolve_outcome's candidate check, so keep this branch first. The unforced
+    path then delegates to the shared resolver (high-confidence detected outcome >
+    first non-treatment-named count > first count).
     """
     _excl = {fp.unit_col, fp.time_col}
     count_cols = [c.name for c in fp.columns if c.kind == "count" and c.name not in _excl]
     forced = cfg.get("outcome")
     if forced is not None and forced in df.columns:
         return forced, count_cols
-    return (count_cols[0] if count_cols else None), count_cols
+    if not count_cols:
+        return None, count_cols
+    return resolve_outcome(fp, cfg, count_cols), count_cols
 
 
 def _resolve_predictors(fp, df, cfg, outcome):
@@ -401,9 +407,9 @@ def _branch_tweedie_glm(ctx: Ctx) -> None:
     if forced is not None and forced in df.columns:
         outcome = forced
     elif cont_cols:
-        outcome = cont_cols[0]
+        outcome = resolve_outcome(fp, cfg, cont_cols)
     elif count_cols:
-        outcome = count_cols[0]
+        outcome = resolve_outcome(fp, cfg, count_cols)
     else:
         outcome = None
 

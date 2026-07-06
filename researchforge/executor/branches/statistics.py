@@ -17,6 +17,7 @@ from researchforge.executor.run import (
     _plotly_corr_heatmap,
     _quantile_process_plot,
     _varimax,
+    resolve_outcome,
 )
 
 
@@ -652,15 +653,18 @@ def _branch_logistic_regression(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import statsmodels.formula.api as smf
 
-    # identify outcome (first binary column, excluding unit/time) and predictors
+    # outcome: config override > high-confidence detected binary outcome (e.g. 'died',
+    # 'approved') > first non-treatment-named binary > first binary. Closes the
+    # selection→execution loop for the binary family — a leading treatment flag
+    # ({treated, died, …}) is no longer mistaken for the dependent variable.
     binary_cols = [
         c.name
         for c in fp.columns
         if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}
     ]
-    outcome = binary_cols[0] if binary_cols else None
+    outcome = resolve_outcome(fp, cfg, binary_cols) if binary_cols else None
     exclude = {outcome, fp.unit_col, fp.time_col}
-    predictors = [
+    predictors = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != outcome] or [
         c.name
         for c in fp.columns
         if c.kind in {"continuous", "count"} and c.name not in exclude
@@ -856,7 +860,16 @@ def _branch_negative_binomial_regression(ctx: Ctx) -> None:
     count_cols = [
         c.name for c in fp.columns if c.kind == "count" and c.name not in _excl
     ]
-    outcome = count_cols[0] if count_cols else None
+    # config may force ANY existing column (id-trap: an all-unique-int count profiles as
+    # 'id' — the user knows better), matching count_models._resolve_count_outcome; else the
+    # shared resolver (high-confidence outcome > first non-treatment-named count > first).
+    forced = cfg.get("outcome")
+    if forced is not None and forced in df.columns:
+        outcome = forced
+    elif count_cols:
+        outcome = resolve_outcome(fp, cfg, count_cols)
+    else:
+        outcome = None
 
     if outcome is None:
         summary.append("负二项回归失败：未找到计数型结果变量。")
@@ -1012,7 +1025,16 @@ def _branch_poisson_regression(ctx: Ctx) -> None:
     count_cols = [
         c.name for c in fp.columns if c.kind == "count" and c.name not in _excl
     ]
-    outcome = count_cols[0] if count_cols else None
+    # config may force ANY existing column (id-trap: an all-unique-int count profiles as
+    # 'id' — the user knows better), matching count_models._resolve_count_outcome; else the
+    # shared resolver (high-confidence outcome > first non-treatment-named count > first).
+    forced = cfg.get("outcome")
+    if forced is not None and forced in df.columns:
+        outcome = forced
+    elif count_cols:
+        outcome = resolve_outcome(fp, cfg, count_cols)
+    else:
+        outcome = None
 
     if outcome is None:
         summary.append("泊松回归失败：未找到计数型结果变量。")

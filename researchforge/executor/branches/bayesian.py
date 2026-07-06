@@ -107,13 +107,18 @@ def _prob_b_gt_a(a1: float, b1: float, a2: float, b2: float, rng=None) -> tuple[
 
 
 def _resolve_binary_outcome(df, fp, cfg):
-    """Pick a binary outcome column (config 'outcome' wins; else first binary col)."""
+    """Pick a binary outcome column (config 'outcome' wins; else the shared resolver:
+    high-confidence detected outcome > first non-treatment-named binary > first binary)."""
     excl = {fp.unit_col, fp.time_col}
     bin_cols = [c.name for c in fp.columns if c.kind == "binary" and c.name not in excl]
     chosen = cfg.get("outcome")
     if chosen and chosen in df.columns:
         return chosen, bin_cols
-    return (bin_cols[0] if bin_cols else None), bin_cols
+    if not bin_cols:
+        return None, bin_cols
+    from researchforge.executor.run import resolve_outcome
+
+    return resolve_outcome(fp, cfg, bin_cols), bin_cols
 
 
 def _coerce_binary(series):
