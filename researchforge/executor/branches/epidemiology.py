@@ -14,6 +14,23 @@ from __future__ import annotations
 import math
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
+from researchforge.profiler.roles import is_treatment_named
+
+
+def _resolve_exposure(fp, bin_cols):
+    """Exposure ≈ TREATMENT (the reverse of an outcome): prefer a treatment-named binary
+    (exposed/treated/arm…), else the first binary that is NOT the role-detected outcome,
+    else the first binary. Mirrors resolve_outcome but with inverted preference — an epi
+    exposure is the intervention, not the disease."""
+    if not bin_cols:
+        return None
+    lo = getattr(fp, "likely_outcome", None)
+    treat = [c for c in bin_cols if is_treatment_named(c)]
+    if treat:
+        return treat[0]
+    non_out = [c for c in bin_cols if c != lo]
+    return non_out[0] if non_out else bin_cols[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -119,9 +136,12 @@ def _branch_diagnostic_test_eval(ctx: Ctx) -> None:
     z = _z_for(ci_level)
 
     # --- resolve truth (a binary gold-standard column) ---
+    # truth is OUTCOME-semantics (the disease / gold standard) → the shared resolver picks a
+    # high-confidence detected outcome and skips a treatment-named binary (an 'exposed' column
+    # is the test-condition, not the truth), instead of grabbing whichever binary comes first.
     truth = cfg.get("truth") or cfg.get("outcome")
     if truth not in bin_cols:
-        truth = bin_cols[0] if bin_cols else None
+        truth = resolve_outcome(fp, {}, bin_cols) if bin_cols else None
     if truth is None:
         summary.append("诊断试验评价跳过：需要一个二值金标准/疾病列（真值）。config 用 truth 指定。")
         return
@@ -429,12 +449,17 @@ def _branch_epi_risk_measures(ctx: Ctx) -> None:
         ci_level = 0.95
     z = _z_for(ci_level)
 
+    # exposure ≈ TREATMENT (prefer a treatment-named binary); outcome ≈ DISEASE (the shared
+    # outcome resolver among the remaining binaries). Reverse rule: without it, column order
+    # alone decided which binary was exposure vs outcome — {disease, exposed} vs {exposed,
+    # disease} gave opposite (and half the time wrong) assignments.
     exposure = cfg.get("exposure")
     if exposure not in bin_cols:
-        exposure = bin_cols[0] if bin_cols else None
+        exposure = _resolve_exposure(fp, bin_cols)
     outcome = cfg.get("outcome")
     if outcome not in bin_cols or outcome == exposure:
-        outcome = next((c for c in bin_cols if c != exposure), None)
+        rest = [c for c in bin_cols if c != exposure]
+        outcome = resolve_outcome(fp, {}, rest) if rest else None
     if exposure is None or outcome is None or exposure == outcome:
         summary.append("流行病学风险测度跳过：需要 1 个二值暴露列 + 1 个不同的二值结局列。config 用 exposure/outcome 指定。")
         return
@@ -639,10 +664,13 @@ def _branch_calibration_assessment(ctx: Ctx) -> None:
         summary.append("校准评估需要预测概率列(0-1)；未检测到。请提供取值在 [0,1] 的连续列，或 config 用 prob 指定。")
         return
 
-    # --- resolve the binary outcome ---
+    # --- resolve the binary outcome (the observed event paired with the predicted prob) ---
+    # OUTCOME-semantics → shared resolver among the non-prob binaries (high-confidence name,
+    # treatment-name skip) rather than first-binary.
     outcome = cfg.get("outcome")
     if outcome not in bin_cols or outcome == prob:
-        outcome = next((c for c in bin_cols if c != prob), None)
+        rest = [c for c in bin_cols if c != prob]
+        outcome = resolve_outcome(fp, {}, rest) if rest else None
     if outcome is None:
         summary.append("校准评估跳过：需要一个二值结局列（与预测概率配对）。config 用 outcome 指定。")
         return

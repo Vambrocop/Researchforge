@@ -322,3 +322,62 @@ def test_calibration_degrade_no_prob_column(tmp_path: Path) -> None:
                        config={"outcome": "event"})
     assert "预测概率" in res.summary or "跳过" in res.summary
     assert "brier" not in res.estimates
+
+
+# --------------------------------------------------------------------------- #
+# Wave H1: role-semantics wiring — exposure≈treatment, truth/outcome≈disease,
+# resolved by NAME not column ORDER (was order-dependent → half the time wrong).
+# --------------------------------------------------------------------------- #
+def test_epi_risk_exposure_outcome_order_independent(tmp_path: Path) -> None:
+    rng = np.random.default_rng(0)
+    n = 200
+    exposed = rng.binomial(1, 0.5, n)
+    disease = rng.binomial(1, 1 / (1 + np.exp(-(0.7 * exposed - 0.3))))
+
+    def run(cols):
+        fp = profile_dataset(_csv(tmp_path, "e.csv", pd.DataFrame(cols)))
+        return run_analysis(fp, _entry("epi_risk_measures", "Epi"),
+                            output_root=str(tmp_path / "o")).summary
+
+    # both column orders must assign exposure=exposed, outcome=disease (name, not position)
+    for cols in ({"exposed": exposed, "disease": disease},
+                 {"disease": disease, "exposed": exposed}):
+        s = run(cols)
+        assert "暴露 exposed" in s and "结局 disease" in s
+
+
+def test_epi_risk_treatment_named_is_exposure(tmp_path: Path) -> None:
+    # {age, treated, died}: 'treated' → exposure (treatment-named), 'died' → outcome (event)
+    rng = np.random.default_rng(1)
+    n = 200
+    treated = rng.binomial(1, 0.5, n)
+    died = rng.binomial(1, 1 / (1 + np.exp(-(0.7 * treated - 0.3))))
+    fp = profile_dataset(_csv(tmp_path, "t.csv", pd.DataFrame(
+        {"age": rng.normal(60, 8, n).round(1), "treated": treated, "died": died})))
+    s = run_analysis(fp, _entry("epi_risk_measures", "Epi"), output_root=str(tmp_path / "o")).summary
+    assert "暴露 treated" in s and "结局 died" in s
+
+
+def test_epi_risk_config_overrides_role_semantics(tmp_path: Path) -> None:
+    rng = np.random.default_rng(2)
+    n = 200
+    exposed = rng.binomial(1, 0.5, n)
+    disease = rng.binomial(1, 1 / (1 + np.exp(-(0.7 * exposed))))
+    fp = profile_dataset(_csv(tmp_path, "c.csv", pd.DataFrame({"a": exposed, "b": disease})))
+    s = run_analysis(fp, _entry("epi_risk_measures", "Epi"), output_root=str(tmp_path / "o"),
+                     config={"exposure": "b", "outcome": "a"}).summary
+    assert "暴露 b" in s and "结局 a" in s
+
+
+def test_diagnostic_truth_skips_treatment_named(tmp_path: Path) -> None:
+    # {score, exposed, disease}: truth (gold standard) is the DISEASE, not the treatment-named
+    # 'exposed' — the outcome resolver skips 'exposed' even though it comes first among binaries.
+    rng = np.random.default_rng(3)
+    n = 200
+    exposed = rng.binomial(1, 0.5, n)
+    disease = rng.binomial(1, 1 / (1 + np.exp(-(0.7 * exposed - 0.3))))
+    fp = profile_dataset(_csv(tmp_path, "d.csv", pd.DataFrame(
+        {"score": rng.normal(0, 1, n).round(3), "exposed": exposed, "disease": disease})))
+    s = run_analysis(fp, _entry("diagnostic_test_eval", "Diagnostic"),
+                     output_root=str(tmp_path / "o")).summary
+    assert "金标准 disease" in s
