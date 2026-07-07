@@ -44,7 +44,7 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
     # non-binding semantic role hints (do not change run-time defaults)
     from researchforge.profiler.roles import detect_roles
 
-    roles = detect_roles(columns)
+    roles = detect_roles(columns, df)
     fp.likely_outcome = roles["likely_outcome"]
     fp.likely_outcome_confidence = roles.get("likely_outcome_confidence", "")
     fp.likely_treatment = roles["likely_treatment"]

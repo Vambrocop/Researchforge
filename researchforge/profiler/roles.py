@@ -73,9 +73,98 @@ def is_treatment_named(name: str) -> bool:
     return bool(_TREATMENT_RE.search(str(name)))
 
 
-def detect_roles(columns) -> dict:
+def _structure_evidence(med_named, numeric, df):
+    """MEDIUM→HIGH promotion evidence (Wave H3). A domain outcome word (price/sales/
+    score…) is ambiguous by NAME alone — but data STRUCTURE can corroborate it:
+
+      • explained-R² (REQUIRED for promotion) — regressing each numeric column on the others, the candidate is
+        SIGNIFICANTLY (F-test, p<0.05 — n-aware, so a spurious R²≈0.10 at n≈25 doesn't
+        bind) and NON-TRIVIALLY (R²≥0.10) explained AND in the top tier (within 0.05 of
+        max). Tier, not strict max: on standardized data a single-predictor pair
+        (sales=3·adspend+ε) has essentially SYMMETRIC R² — the asymmetric NAME/POSITION
+        signals break the tie; R² only certifies "structurally outcome-like". Needs ≥3
+        numeric columns (with 2, R² is exactly symmetric and discriminates nothing).
+      • position (LAST numeric column) — NOT a promotion signal on its own (at small n it
+        flips on noise, cold-review S1); only annotates an R²-promoted column or breaks a
+        rare tie between two equally-R²-evidenced candidates.
+
+    Only CONTINUOUS candidates promote: a promoted HIGH outcome binds in the continuous
+    _regression family, so promoting a count column would make the run's "已自动选取"
+    nudge name a column the continuous regression then silently drops (cold-review M2).
+
+    Promotion (conservative — a wrong promotion silently models the wrong column
+    engine-wide): a SINGLE candidate promotes on either valid signal; with MULTIPLE
+    candidates only a uniquely-R²-evidenced one promotes (position alone can't break a
+    name tie). Any failure (missing df / small n / degenerate) → no promotion.
+    Returns (column_name, evidence_desc) or None."""
+    import numpy as np
+    import pandas as pd
+
+    cand = [c for c in med_named if getattr(c, "kind", None) == "continuous"]
+    if df is None or len(df) < 20 or len(numeric) < 3 or not cand:
+        return None
+    try:
+        from scipy.stats import f as _f
+
+        cols = [c.name for c in numeric]
+        X = df[cols].apply(pd.to_numeric, errors="coerce").dropna()
+        if len(X) > 1000:  # strided (not head) so a time-sorted CSV isn't one regime
+            X = X.iloc[np.linspace(0, len(X) - 1, 1000).astype(int)]
+        n = len(X)
+        if n < 20:
+            return None
+        std = X.std(ddof=0)
+        keep = [c for c in cols if std[c] > 0]
+        if len(keep) < 3:  # <3 non-constant cols → R² symmetric, discriminates nothing
+            return None
+        Z = (X[keep] - X[keep].mean()) / X[keep].std(ddof=0)
+        k = len(keep) - 1  # predictors when regressing one column on the others
+        r2: dict[str, float] = {}
+        sig: dict[str, bool] = {}
+        for c in keep:
+            others = [o for o in keep if o != c]
+            y = Z[c].to_numpy()
+            A = np.column_stack([Z[o].to_numpy() for o in others] + [np.ones(n)])
+            resid = y - A @ np.linalg.lstsq(A, y, rcond=None)[0]
+            sst = float((y**2).sum())
+            rr = 1.0 - float((resid**2).sum()) / sst if sst > 0 else 0.0
+            r2[c] = rr
+            if 0.0 < rr < 1.0 and n - k - 1 > 0:
+                fstat = (rr / k) / ((1 - rr) / (n - k - 1))
+                sig[c] = float(_f.sf(fstat, k, n - k - 1)) < 0.05
+            else:
+                sig[c] = rr >= 1.0
+
+        max_r2 = max(r2.values(), default=0.0)
+
+        def _struct_ok(name):  # significantly + non-trivially + top-tier explained
+            return r2.get(name, 0.0) >= 0.10 and sig.get(name, False) and r2[name] >= max_r2 - 0.05
+
+        # Promotion REQUIRES R² structure (significant + top-tier). Position alone never
+        # promotes — at small n / weak effects it's the only signal and flips on noise
+        # (cold-review S1), and a name+position bet with no data confirmation doesn't
+        # justify BINDING high confidence. Position only annotates / breaks an R² tie.
+        last_name = numeric[-1].name
+        r2_evidenced = [c.name for c in cand if _struct_ok(c.name)]
+        if len(r2_evidenced) == 1:
+            nm = r2_evidenced[0]
+            pos = "、末位数值列" if nm == last_name else ""
+            return nm, f"最高被解释R²={r2[nm]:.2f}{pos}"
+        if len(r2_evidenced) >= 2:  # rare tie among medium-named cols → position breaks it
+            last_evid = [nm for nm in r2_evidenced if nm == last_name]
+            if len(last_evid) == 1:
+                nm = last_evid[0]
+                return nm, f"最高被解释R²={r2[nm]:.2f}、末位数值列"
+        return None
+    except Exception:
+        return None
+
+
+def detect_roles(columns, df=None) -> dict:
     """Return {likely_outcome, likely_treatment, likely_time, reason} from a list
-    of ColumnInfo (in dataframe order). Any value may be None."""
+    of ColumnInfo (in dataframe order). Any value may be None. When ``df`` is given,
+    a MEDIUM name hint corroborated by data structure is promoted to HIGH (binding —
+    see _structure_evidence); without df, behavior is unchanged (name/position only)."""
     out: dict[str, object] = {
         "likely_outcome": None, "likely_outcome_confidence": "",
         "likely_treatment": None, "likely_time": None, "reason": "",
@@ -100,14 +189,25 @@ def detect_roles(columns) -> dict:
         out["likely_outcome"] = high_named[0].name
         out["likely_outcome_confidence"] = "high"
         out["reason"] = f"name '{high_named[0].name}' matches an unambiguous outcome pattern"
-    # 2. domain outcome-ish name → MEDIUM (often the DV, but could be a predictor; hint only)
+    # 2. domain outcome-ish name → MEDIUM (often the DV, but could be a predictor).
+    #    With data present, structural corroboration promotes it to HIGH (binding).
     elif med_named:
-        out["likely_outcome"] = med_named[0].name
-        out["likely_outcome_confidence"] = "medium"
-        out["reason"] = (
-            f"name '{med_named[0].name}' matches a domain outcome pattern "
-            f"(ambiguous — could be a predictor; verify before modeling)"
-        )
+        promoted = _structure_evidence(med_named, numeric, df)
+        if promoted is not None:
+            name, evidence = promoted
+            out["likely_outcome"] = name
+            out["likely_outcome_confidence"] = "high"
+            out["reason"] = (
+                f"name '{name}' matches a domain outcome pattern + structural evidence"
+                f"（{evidence}）— promoted to high confidence"
+            )
+        else:
+            out["likely_outcome"] = med_named[0].name
+            out["likely_outcome_confidence"] = "medium"
+            out["reason"] = (
+                f"name '{med_named[0].name}' matches a domain outcome pattern "
+                f"(ambiguous — could be a predictor; verify before modeling)"
+            )
     # 3. position fallback: the LAST numeric column, when there are >=2 numeric
     #    columns before it (the common ML convention that the target is last) and
     #    it isn't a time/id-looking column → LOW confidence

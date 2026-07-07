@@ -181,9 +181,11 @@ def test_regression_binds_high_confidence_outcome(tmp_path: Path):
     assert "target" not in rhs    # and not also a predictor
 
 
-def test_regression_medium_confidence_does_not_bind(tmp_path: Path):
-    # a MEDIUM domain word ('sales') must NOT override the first-continuous default (it could
-    # be a predictor) — safety: never model the wrong column on an ambiguous name.
+def test_regression_medium_with_structure_evidence_binds(tmp_path: Path):
+    # Wave H3: TWO medium domain words (price, sales) — name alone is ambiguous, but data
+    # structure corroborates 'sales' (last numeric + top explained-R² tier; note R² alone is
+    # SYMMETRIC between sales and its generator adspend, so the tier + asymmetric name/position
+    # signals decide) → promoted to HIGH and bound as the dependent variable.
     from researchforge.catalog.registry import Catalog
     from researchforge.executor.run import _regression
 
@@ -194,10 +196,118 @@ def test_regression_medium_confidence_does_not_bind(tmp_path: Path):
                        "sales": (3 * a + rng.normal(0, 1, n)).round(3)})
     csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
     fp = profile_dataset(csv)
+    assert fp.likely_outcome == "sales"
+    assert fp.likely_outcome_confidence == "high"  # promoted by structural evidence
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, rhs, _, _ = _regression(df, fp, entry, {})
+    assert y == "sales" and "sales" not in rhs
+
+
+def test_regression_medium_without_evidence_does_not_bind(tmp_path: Path):
+    # a MEDIUM domain word with NO structural corroboration (mid-position, independent of the
+    # other columns) must NOT bind — the old safety stands where evidence is absent.
+    from researchforge.catalog.registry import Catalog
+    from researchforge.executor.run import _regression
+
+    rng = np.random.default_rng(2)
+    n = 120
+    df = pd.DataFrame({"x1": rng.normal(0, 1, n).round(3),
+                       "price": rng.normal(0, 1, n).round(3),
+                       "x2": rng.normal(0, 1, n).round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
     assert fp.likely_outcome_confidence == "medium"
     entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
     y, _, _, _ = _regression(df, fp, entry, {})
-    assert y == "adspend"         # first continuous, NOT the medium 'sales' hint
+    assert y == "x1"              # first continuous, the unevidenced hint stays a hint
+
+
+def test_medium_conflict_with_position_only_stays_medium(tmp_path: Path):
+    # conservative: TWO medium names, evidence is position-only (no R² tier — all independent)
+    # → no promotion; a name tie needs the structure signal, position alone can't break it.
+    rng = np.random.default_rng(3)
+    n = 120
+    df = pd.DataFrame({"revenue": rng.normal(0, 1, n).round(3),
+                       "x": rng.normal(0, 1, n).round(3),
+                       "profit": rng.normal(0, 1, n).round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome_confidence == "medium"
+
+
+def test_two_column_medium_kept_by_treatment_veto(tmp_path: Path):
+    # with only 2 numeric columns there is no structural evidence (R² is exactly symmetric),
+    # so 'condition_score' stays MEDIUM — and the G1 outcome-signal veto (not promotion) is
+    # what keeps the treatment-worded DV from being skipped by the resolver.
+    from researchforge.executor.run import resolve_outcome
+
+    rng = np.random.default_rng(4)
+    n = 120
+    x = rng.normal(0, 1, n)
+    df = pd.DataFrame({"condition_score": (2 + 1.5 * x + rng.normal(0, .5, n)).round(3),
+                       "x": x.round(3)})
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "condition_score"
+    assert fp.likely_outcome_confidence == "medium"
+    cont = [c.name for c in fp.columns if c.kind == "continuous"]
+    assert resolve_outcome(fp, {}, cont) == "condition_score"
+
+
+def test_medium_not_promoted_when_r2_contradicts_position(tmp_path: Path):
+    # cold-review M1: a med-named NOISE column last in order must NOT bind while the true
+    # (unnamed) DV carries the explained variance. Promotion requires R² structure; position
+    # alone never promotes → 'price' stays medium (unbound) and the regression models the DV.
+    from researchforge.executor.run import _regression
+    from researchforge.catalog.registry import Catalog
+
+    rng = np.random.default_rng(11)
+    n = 150
+    tenure = rng.normal(0, 1, n); promo = rng.normal(0, 1, n)
+    df = pd.DataFrame({"satisfaction": (3 + 0.8 * tenure + 0.5 * promo + rng.normal(0, 0.5, n)).round(3),
+                       "tenure": tenure.round(3), "promo": promo.round(3),
+                       "price": rng.normal(20, 5, n).round(2)})  # noise, med-named, LAST
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome_confidence != "high"   # price NOT promoted (R² contradicts)
+    entry = {e.id: e for e in Catalog.load().all()}["ols_regression"]
+    y, _, _, _ = _regression(df, fp, entry, {})
+    assert y == "satisfaction"                        # the truly-explained DV, not the noise
+
+
+def test_count_medium_not_promoted(tmp_path: Path):
+    # cold-review M2 (honesty): a med-named COUNT column must not promote to HIGH — it would
+    # make the run nudge claim a column the continuous regression can't bind and drops.
+    rng = np.random.default_rng(12)
+    n = 150
+    a = rng.normal(0, 1, n)
+    df = pd.DataFrame({"adspend": a.round(3), "foot": rng.normal(0, 1, n).round(3),
+                       "sales": rng.poisson(np.exp(0.3 + 0.4 * a)).astype(int)})  # genuine count
+    csv = tmp_path / "m.csv"; df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.column("sales").kind == "count"
+    assert fp.likely_outcome_confidence == "medium"   # not promoted
+
+
+def test_medium_promotion_stable_on_weak_borderline_n():
+    # cold-review S1: pure-noise med column near the n-floor must NOT bind on sampling luck —
+    # the F-test controls false promotion (was a ~30% coin-flip with a fixed R²≥0.10 floor).
+    import numpy as np
+    import pandas as pd
+    import tempfile
+    from pathlib import Path
+    from researchforge.profiler import profile_dataset
+
+    d = Path(tempfile.mkdtemp())
+    promoted = 0
+    for s in range(40):
+        r = np.random.default_rng(500 + s)
+        m = 25
+        df = pd.DataFrame({"x1": r.normal(0, 1, m).round(3), "x2": r.normal(0, 1, m).round(3),
+                           "score": r.normal(0, 1, m).round(3)})  # score = pure noise
+        csv = d / f"s{s}.csv"; df.to_csv(csv, index=False)
+        promoted += profile_dataset(csv).likely_outcome_confidence == "high"
+    assert promoted <= 6  # ≈5% type-I on 40 nulls; far below the old coin-flip
 
 
 def test_config_outcome_overrides_detection(tmp_path: Path):
