@@ -7,7 +7,7 @@
 # NOTE: produces/biases MUST be YAML lists (- lines); only description uses >-.
 
 - id: partial_dependence
-  method: Partial dependence (PDP + ICE)
+  method: Partial dependence (PDP)
   domain: ml
   family: ml
   goal: explain

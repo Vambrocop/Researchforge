@@ -637,8 +637,12 @@ def _branch_join_count(ctx: Ctx) -> None:
         f"{entry.method} 完成：二值属性 {value}（1={n1}/0={n0}），k-NN={k} 对称邻接共 {J} 条边；"
         f"BB={bb}(期望 {bb_exp:.2f}, z={bb_z:.2f}) / WW={ww}(期望 {ww_exp:.2f}) / "
         f"BW={bw}(期望 {bw_exp:.2f}, z={bw_z:.2f})；{verdict}。"
-        f"⚠ 采用自由抽样(CSR)假定；权重来自 k-NN（k={k} 已披露，已对称化）；"
-        f"需属性两类皆出现；config 可设 value/x/y/knn_k。"
+        f"⚠ 采用自由抽样(free sampling)假定，即视两类各点数为独立同分布抽样；"
+        f"这比非自由抽样（固定类别总数下的无放回排列/置换检验）方差更小，"
+        f"z 检验偏乐观（更容易显著），尤其在小样本或类别不均衡时；"
+        f"需更保守推断可改用置换检验（打乱标签重算 BB/WW/BW 得经验零分布）。"
+        f"权重来自 k-NN（k={k} 已披露，已对称化）；需属性两类皆出现；"
+        f"config 可设 value/x/y/knn_k。"
     )
     code += [
         "import numpy as np  # join-count statistics for a binary spatial field",

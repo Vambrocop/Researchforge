@@ -51,9 +51,11 @@ def test_proportional_odds_logit_executor(tmp_path: Path) -> None:
 
     assert (out / "coefficients.csv").exists()
     assert (out / "summary.txt").exists()
-    # recovered slope signs match the data-generating process
-    assert res.estimates["x1"] > 0
-    assert res.estimates["x2"] < 0
+    # recovered slope signs match the data-generating process (per-predictor keys are
+    # namespaced "coef_<name>" so a predictor named e.g. "n"/"loglik" can't collide
+    # with the bookkeeping keys below)
+    assert res.estimates["coef_x1"] > 0
+    assert res.estimates["coef_x2"] < 0
     # estimates contract
     for k in ("loglik", "llr_p", "pseudo_r2", "n", "n_thresholds", "max_abs_or_log"):
         assert k in res.estimates
@@ -72,8 +74,25 @@ def test_proportional_odds_logit_config_outcome(tmp_path: Path) -> None:
         fp, _entry(), output_root=str(tmp_path / "o"),
         config={"outcome": "sat", "predictors": ["x1"]},
     )
-    assert "x1" in res.estimates
-    assert "x2" not in res.estimates  # excluded by config
+    assert "coef_x1" in res.estimates
+    assert "coef_x2" not in res.estimates  # excluded by config
+
+
+def test_proportional_odds_logit_predictor_named_n_no_key_collision(tmp_path: Path) -> None:
+    """A predictor literally named 'n' must not clobber the bookkeeping
+    estimates['n'] (sample size) — its coefficient lands in estimates['coef_n']."""
+    df = _proportional_data(seed=5).rename(columns={"x1": "n"})
+    csv = tmp_path / "likert_n.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(
+        fp, _entry(), output_root=str(tmp_path / "o"),
+        config={"outcome": "sat", "predictors": ["n", "x2"]},
+    )
+    assert res.estimates["n"] == float(len(df))  # bookkeeping sample size, not clobbered
+    assert "coef_n" in res.estimates
+    assert res.estimates["coef_n"] > 0  # same DGP sign as x1 (renamed to n)
 
 
 def test_proportional_odds_logit_precondition_unmet(tmp_path: Path) -> None:

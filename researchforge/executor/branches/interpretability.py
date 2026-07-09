@@ -2,9 +2,11 @@
 explainers for a fitted predictive model (sklearn / shap; no R). "Open the black
 box": which features drive the prediction, in what shape, and how strongly.
 
-  * partial_dependence        — Partial Dependence (PDP) + ICE curves for the most
-                                influential features (sklearn.inspection). Shows the
-                                marginal effect of a feature on the prediction.
+  * partial_dependence        — Partial Dependence (PDP) for the most influential
+                                features (sklearn.inspection, kind="average" only — no
+                                per-instance ICE curves are computed or plotted; PDP is
+                                the population-averaged marginal effect of a feature on
+                                the prediction).
   * shap_values               — SHAP (Shapley additive explanations) global feature
                                 attribution via TreeExplainer: mean(|SHAP|) importance
                                 + the sign of each feature's average effect.
@@ -119,7 +121,7 @@ def _predict_fn(info):
 
 
 # ---------------------------------------------------------------------------
-# 1. partial_dependence — PDP + ICE
+# 1. partial_dependence — PDP (average only; no ICE curves, see module docstring)
 # ---------------------------------------------------------------------------
 @register("partial_dependence")
 def _branch_partial_dependence(ctx: Ctx) -> None:
@@ -196,6 +198,13 @@ def _branch_partial_dependence(ctx: Ctx) -> None:
             f"边际效应最强（PD 跨度最大）的特征：{top}（跨度={pd_ranges.get(top, float('nan')):.4f}）。"
             " ⚠ PDP 假定被绘特征与其余特征**独立**——特征相关时会外推到不真实的组合而产生偏差"
             "（此时优先看 accumulated_local_effects / ALE）；PDP 展示关联性边际效应，非因果效应。"
+            + (" ⚠ 分类结果 + GBM 基模型下，sklearn 对 PDP 走 recursion/decision_function 缺省行为，"
+               "取**对数几率(log-odds)尺度**——与本引擎 accumulated_local_effects 恒用的**概率(0-1)尺度**"
+               "不同、数值不可直接比较（RF 基模型则两者都是概率尺度）；回归结果两者皆为原始预测尺度。"
+               if info["is_clf"] and info["model_name"] == "gbm" else
+               " ⚠ 当前 RF 基模型下 PDP 为**概率(0-1)尺度**，与 accumulated_local_effects 一致可比；"
+               "若改用 config model=gbm，分类 PDP 会转为对数几率(log-odds)尺度、不再可比。"
+               if info["is_clf"] else "")
         )
     except Exception as e:
         summary.append(f"部分依赖分析失败：{type(e).__name__}: {e}")
@@ -421,6 +430,9 @@ def _branch_accumulated_local_effects(ctx: Ctx) -> None:
             " ⚠ ALE 用**局部**（箱内）预测差分并累积，故对相关特征**比 PDP 更稳健**（不外推到不真实组合）；"
             "曲线已中心化（均值 0），读作相对平均预测的偏移；空箱（无观测的分位区间）按标准 ALEPlot 约定**跳过**"
             "（不贡献局部效应、不注入伪 0 斜率段）；仍是模型关联非因果。"
+            + (" ⚠ 分类结果下本 ALE 恒用 predict_proba 的**概率(0-1)尺度**——GBM 基模型下 "
+               "partial_dependence 分支的 PDP 走对数几率(log-odds)尺度，两者数值不可直接比较。"
+               if info["is_clf"] else "")
         )
     except Exception as e:
         summary.append(f"累积局部效应分析失败：{type(e).__name__}: {e}")
@@ -700,9 +712,10 @@ def _branch_surrogate_model(ctx: Ctx) -> None:
         summary.append(
             f"{entry.method}（深度≤{max_depth} 决策树代理 {info['model_name'].upper()} 黑箱，"
             f"{'分类' if is_clf else '回归'}）：结果={info['outcome']}，"
-            f"保真度（{fid_name}）={fidelity:.3f} —— {trust}。规则见 surrogate_tree_rules.txt。"
+            f"**样本内**保真度（{fid_name}）={fidelity:.3f} —— {trust}。规则见 surrogate_tree_rules.txt。"
             " ⚠ 代理树解释的是**黑箱模型**（非真实数据关系），且**仅在保真度高时**可信；"
-            "低保真说明黑箱含树无法捕捉的交互/非线性——勿用树过度简化解读。"
+            "低保真说明黑箱含树无法捕捉的交互/非线性——勿用树过度简化解读；"
+            "保真度在**训练用的同一批数据**上评估（非留出集），可能高估代理树对黑箱的泛化保真度。"
         )
     except Exception as e:
         summary.append(f"代理模型失败：{type(e).__name__}: {e}")

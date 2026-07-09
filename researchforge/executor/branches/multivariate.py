@@ -331,6 +331,9 @@ def _branch_discriminant_analysis(ctx: Ctx) -> None:
             f"较优={better}；判别轴解释比 {('LD1='+format(evr[0],'.3f')) if n_ld else '（二分类只有1轴）'}。"
             f"⚠ CV 准确率是诚实的性能估计（重代入 resubstitution 会高估，故未采用）；"
             f"LDA 假定各类协方差相等，QDA 放松此假定——已对比两者；每类需 n > 预测变量数。"
+            f"⚠ 准确率为单次 {k}-折 CV 的描述性估计，未做「显著优于基线」的正式检验"
+            f"（如置换检验/二项检定）；不同随机划分（random_state）下数值会波动，"
+            f"差异是否可信不能只看点估计与基线的差距。"
         )
         code += [
             "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis",
@@ -571,6 +574,23 @@ def _branch_hotelling_t2(ctx: Ctx) -> None:
         S1 = np.cov(g1, rowvar=False, ddof=1)
         S2 = np.cov(g2, rowvar=False, ddof=1)
         S_pooled = ((n1 - 1) * S1 + (n2 - 1) * S2) / (n1 + n2 - 2)
+
+        # Near-singularity guard: n1+n2-2 >= p only guarantees S_pooled is
+        # theoretically invertible, not that the inversion is numerically stable.
+        # A near-singular pooled covariance (high condition number / eigmin ~ 0,
+        # e.g. from near-collinear outcome variables) blows up S_inv and produces
+        # a garbage T^2/F/p — degrade honestly instead of reporting it. Threshold
+        # mirrors the project's existing near-collinearity guard (choice.py cond>1e10).
+        eigmin = float(np.linalg.eigvalsh(S_pooled).min())
+        cond = float(np.linalg.cond(S_pooled))
+        if not np.isfinite(cond) or eigmin <= 1e-10 or cond > 1e10:
+            summary.append(
+                f"Hotelling T² 跳过：合并协方差矩阵接近奇异/病态"
+                f"（条件数={cond:.3g}，最小特征值={eigmin:.3g}），求逆数值不稳定会给出"
+                f"虚假的 T²/F/p——通常是结果变量高度共线或近乎重复所致；"
+                f"请减少/剔除冗余结果变量，或改用单变量检验逐一比较。"
+            )
+            return
         S_inv = np.linalg.inv(S_pooled)
 
         # Two-sample Hotelling's T-squared:

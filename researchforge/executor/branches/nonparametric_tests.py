@@ -111,6 +111,7 @@ def _branch_kruskal_wallis(ctx: Ctx) -> None:
     # keep levels with >=2 observations (a 1-obs group has no within-group rank info)
     counts = sub[group_col].value_counts()
     levels = [lv for lv in counts.index.tolist() if counts[lv] >= 2]
+    dropped_levels = [lv for lv in counts.index.tolist() if counts[lv] < 2]
     # order levels by their first appearance for stable, readable labels
     seen, ordered = set(), []
     for lv in sub[group_col].tolist():
@@ -120,8 +121,12 @@ def _branch_kruskal_wallis(ctx: Ctx) -> None:
     levels = ordered
     k = len(levels)
     if k < 3:
+        dropped_note = (
+            f"（另有 {len(dropped_levels)} 个因样本量<2 被剔除的分组："
+            f"{', '.join(str(lv) for lv in dropped_levels)}）"
+        ) if dropped_levels else ""
         summary.append(
-            f"Kruskal-Wallis 跳过：有效分组（每组 ≥2 观测）少于 3 个（现 {k} 个，"
+            f"Kruskal-Wallis 跳过：有效分组（每组 ≥2 观测）少于 3 个（现 {k} 个{dropped_note}，"
             "n_groups<3 请改用 mann_whitney）。"
         )
         return
@@ -254,6 +259,11 @@ def _branch_kruskal_wallis(ctx: Ctx) -> None:
         "结存在时已做并列校正（scipy + Dunn 方差均含 tie 校正）；Dunn 事后用 Bonferroni 控制族错误率；"
         "结果是关联性的（非因果）。可用 config 指定 outcome/group。"
     )
+    if dropped_levels:
+        summary.append(
+            f"⚠ 已剔除 {len(dropped_levels)} 个样本量<2 的分组（无组内秩信息，无法纳入检验）："
+            f"{', '.join(str(lv) for lv in dropped_levels)}。"
+        )
 
     code += [
         "import numpy as np; from scipy import stats",
@@ -560,8 +570,10 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
 
     # ----- Hodges-Lehmann median shift (median of cross-group differences) --- #
     # HL = median over all n1*n2 pairwise (g1_i - g2_j). Distribution-free point
-    # estimate of the location shift. For tractable sizes also a Moses/Lehmann
-    # distribution-free CI via order statistics of the pairwise differences.
+    # estimate of the location shift. For tractable sizes also an APPROXIMATE
+    # Moses/Lehmann-style CI via order statistics of the pairwise differences —
+    # the order-statistic rank K is picked from a NORMAL APPROXIMATION to the
+    # Wilcoxon rank-sum distribution, so this CI is asymptotic, not exact.
     hl = float("nan")
     hl_lo = hl_hi = float("nan")
     max_pairs = int(cfg.get("hl_max_pairs", 4_000_000))
@@ -569,7 +581,7 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
         diffs = (g1[:, None] - g2[None, :]).ravel()
         diffs.sort()
         hl = float(np.median(diffs))
-        # distribution-free CI: the K-th and (n1*n2+1-K)-th order statistics of the
+        # approximate CI: the K-th and (n1*n2+1-K)-th order statistics of the
         # pairwise diffs, K = U_{alpha/2} from the Wilcoxon rank-sum (normal approx
         # with continuity + tie correction). Lehmann (1975), Hollander & Wolfe.
         try:
@@ -615,7 +627,7 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
 
     stats_tab = pd.DataFrame({
         "metric": ["U_stat", "p_value", "rank_biserial", "hodges_lehmann",
-                   "hl_ci_low", "hl_ci_high"],
+                   "hl_ci_low_approx", "hl_ci_high_approx"],
         "value": [round(U1, 3), round(p, 5), round(float(r_rb), 4),
                   round(float(hl), 4) if hl == hl else float("nan"),
                   round(float(hl_lo), 4) if hl_lo == hl_lo else float("nan"),
@@ -659,7 +671,7 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
         else "小/微效应"
     )
     ci_str = (
-        f"，95% CI=[{hl_lo:.4g}, {hl_hi:.4g}]" if hl_lo == hl_lo else "（CI 不可得）"
+        f"，95% CI（近似）=[{hl_lo:.4g}, {hl_hi:.4g}]" if hl_lo == hl_lo else "（CI 不可得）"
     )
     summary.append(
         f"{entry.method} 完成：{outcome} 在 {group_col} 两组（{levels[0]}:n={n1}，"
@@ -670,6 +682,7 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
         "⚠ Mann-Whitney 检验的是**随机优势**（stochastic dominance）——只有当两组分布形状相同时，"
         "才等价于中位数比较；报告了秩二列相关 r 作为效应量（符号指向方向）；"
         "本法仅用于**恰好 2 组**（≥3 组请用 kruskal_wallis）；结存在时已做并列校正；"
+        "Hodges-Lehmann 中位移的 95% CI 为**近似**（正态近似选取阶统计量秩次，非精确分布无 CI）；"
         "结果是关联性的。可用 config 指定 outcome/group。"
     )
 

@@ -393,7 +393,10 @@ def _branch_extreme_value(ctx: Ctx) -> None:
             f"EVT 尾部风险水平：{lvl_txt}（见 evt_return_levels.csv 与图）。"
             " ⚠ 阈值选择是关键敏感点（过低→偏差，过高→方差；均值超额图近线性段指引选取）；"
             "需足够超阈观测（≥~30）；EVT 向尾部数据之外外推，越深不确定性越大；"
-            "假定超阈值独立同分布（未做序列极值的去丛聚/declustering）。"
+            "假定超阈值独立同分布（未做序列极值的去丛聚/declustering）；"
+            "⚠ KS 拟合优度检验用的是**同一批数据拟合出的插入式(plug-in) ξ/σ**再检验拟合——"
+            "标准 KS 参考分布假定参数已知（非估计自样本），插入式参数会使检验统计量偏小，"
+            "故此处 p 值偏乐观（更不易拒绝，非保守），仅作粗略拟合优度参考，非严格检验。"
         )
         code += [
             "from scipy import stats; import numpy as np",

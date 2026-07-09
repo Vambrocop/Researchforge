@@ -274,13 +274,15 @@ def _branch_moderated_mediation(ctx: Ctx) -> None:
     summary.append(
         f"{method} 完成（PROCESS 模型 7，X->M 受 W 调节，M->Y 控制 X）：路径 "
         f"{x_col}->{m_col}->{y_col}，调节变量 W={w_col}。调节中介指数 a3*b={index_mm:.4f}"
-        f"（bootstrap 95% CI [{idx_lo:.4f}, {idx_hi:.4f}]）{sig}；a3={a3:.4f}、b={b:.4f}。"
+        f"（bootstrap 百分位(percentile) 95% CI [{idx_lo:.4f}, {idx_hi:.4f}]）{sig}；a3={a3:.4f}、b={b:.4f}。"
         f"条件间接效应：W=mean-SD 时 {ind_point['mean-SD']:.4f}（CI [{lvl_ci['mean-SD'][0]:.4f}, {lvl_ci['mean-SD'][1]:.4f}]）、"
         f"W=mean 时 {ind_point['mean']:.4f}（CI [{lvl_ci['mean'][0]:.4f}, {lvl_ci['mean'][1]:.4f}]）、"
         f"W=mean+SD 时 {ind_point['mean+SD']:.4f}（CI [{lvl_ci['mean+SD'][0]:.4f}, {lvl_ci['mean+SD'][1]:.4f}]）。"
         f"X、W 已中心化后构造 X*W（降低共线性）。" + auto_note +
         f"⚠ 因果解读需序贯可忽略性（X-M、M-Y、X-Y 均无未测混杂）——否则这是**关联性**分解而非因果；"
-        f"index CI 不含 0 即表明间接效应依赖 W；bootstrap B={_N_BOOT}、固定随机种子 seed={_SEED}（可复现）；"
+        f"index CI 不含 0 即表明间接效应依赖 W；CI 为**百分位法(percentile)** bootstrap 95% CI"
+        "（非 BCa——与 serial_mediation/parallel_mediation 用的 BCa 不同算法，两族区间宽度不直接可比）；"
+        f"bootstrap B={_N_BOOT}、固定随机种子 seed={_SEED}（可复现）；"
         f"可用 config x/m/y/w 指定角色。"
     )
 

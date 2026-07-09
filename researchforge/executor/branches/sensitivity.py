@@ -300,6 +300,7 @@ def _branch_evalue(ctx: Ctx) -> None:
 
         rr_kind = ""
         approx_note = ""
+        exposure_median_split = False
         if outcome_binary:
             # logistic outcome ~ exposure (+controls) -> OR -> RR (sqrt approx).
             X = sm.add_constant(sub[[exposure, *controls]].to_numpy(dtype=float))
@@ -333,6 +334,7 @@ def _branch_evalue(ctx: Ctx) -> None:
                 else:
                     med = float(sub[exposure].median())
                     sub[exposure] = (sub[exposure] > med).astype(int)
+                    exposure_median_split = True
             g1 = sub.loc[sub[exposure] == 1, outcome].to_numpy(dtype=float)
             g0 = sub.loc[sub[exposure] == 0, outcome].to_numpy(dtype=float)
             n1, n0 = g1.size, g0.size
@@ -361,6 +363,7 @@ def _branch_evalue(ctx: Ctx) -> None:
         estimates["evalue_point"] = round(e_point, 4)
         estimates["evalue_ci"] = round(e_ci, 4)
         estimates["n"] = float(len(sub))
+        estimates["exposure_median_split"] = bool(exposure_median_split)
 
         ci_crosses = rr_lo <= 1.0 <= rr_hi
         robust = "稳健" if e_ci > 2.0 else ("中等" if e_ci > 1.25 else "脆弱（近零或 CI 跨过无效）")
@@ -397,6 +400,12 @@ def _branch_evalue(ctx: Ctx) -> None:
         except Exception:
             pass
 
+        split_note = (
+            f"暴露 {exposure} 为连续变量，已按样本中位数二分为高/低两组以形成对照组"
+            "（中位分割是任意切点，标准化均差/E-value 对切点选择敏感，"
+            "结果会随切点变化而变化，非暴露的原生剂量-反应关系）；"
+            if exposure_median_split else ""
+        )
         (d / "evalue_summary.txt").write_text(
             "VanderWeele & Ding (2017) E-value（未观测混杂敏感性）\n"
             f"结果 {outcome}，暴露 {exposure}"
@@ -410,7 +419,7 @@ def _branch_evalue(ctx: Ctx) -> None:
             "解读：E-value 是「一个未观测混杂——同时与暴露、结果都关联——要把观测效应"
             "完全解释掉，所需的最小关联强度（RR 尺度）」。越大越稳健；"
             "CI 的 E-value 衡量把效应推到「统计不显著」所需的强度。\n"
-            f"⚠ {approx_note}；E-value 是必要强度的下界、非混杂存在性检验；"
+            f"⚠ {split_note}{approx_note}；E-value 是必要强度的下界、非混杂存在性检验；"
             "RR 转换为近似（已注明用哪种）；高 E-value 不等于无混杂、只是需要更强的混杂才能推翻。\n",
             encoding="utf-8",
         )
@@ -418,7 +427,7 @@ def _branch_evalue(ctx: Ctx) -> None:
         summary.append(
             f"{entry.method} 完成：暴露 {exposure} → {outcome}；{effect_txt}；"
             f"E-value 点={e_point:.3f}，CI={e_ci:.3f}；判语：{robust}。"
-            f" ⚠ {approx_note}；E-value 是「未观测混杂需同时与暴露+结果关联的最小强度（RR 尺度）」，"
+            f" ⚠ {split_note}{approx_note}；E-value 是「未观测混杂需同时与暴露+结果关联的最小强度（RR 尺度）」，"
             "是必要强度的界、非混杂存在性检验，RR 转换为近似（已注明）；越大越稳健。"
         )
         code += [

@@ -415,7 +415,10 @@ def _branch_local_moran(ctx: Ctx) -> None:
                 f"{entry.method} 完成：变量 {value}，显著局部簇 "
                 f"HH={int(np.sum(cluster=='HH'))} LL={int(np.sum(cluster=='LL'))} "
                 f"HL={int(np.sum(cluster=='HL'))} LH={int(np.sum(cluster=='LH'))}"
-                f"（p<0.05，999→{R} 条件置换，k-NN={k}）；HH/LL=聚集，HL/LH=空间离群"
+                f"（p<0.05，999→{R} 条件置换，k-NN={k}）；HH/LL=聚集，HL/LH=空间离群。"
+                f"⚠ 对全部 {n} 个位点各做一次局部检验，多重比较未校正——"
+                f"按 p<0.05 逐点判定期望约 {0.05 * n:.0f} 个假阳性；"
+                f"更严格的结论建议做 FDR 校正（如 Benjamini-Hochberg）或只关注高置信簇核心。"
             )
             code += [
                 "import numpy as np  # Local Moran's I (LISA, Anselin 1995)",

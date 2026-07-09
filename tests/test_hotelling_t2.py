@@ -139,6 +139,31 @@ def test_hotelling_one_outcome_skips(tmp_path):
     assert "跳过" in res.summary
 
 
+def test_hotelling_near_singular_covariance_degrades_honestly(tmp_path):
+    """Near-perfectly collinear outcomes -> near-singular pooled covariance.
+
+    Inverting it would blow up into a garbage T2/F/p; the branch must instead
+    degrade honestly (skip with an explanation) rather than report a number.
+    """
+    rng = np.random.default_rng(0)
+    n_per = 30
+    rows = []
+    for g, shift in [("A", 0.0), ("B", 0.01)]:
+        o1 = rng.normal(shift, 1.0, n_per)
+        o2 = o1 + rng.normal(0.0, 1e-8, n_per)  # near-perfect collinearity with o1
+        for i in range(n_per):
+            rows.append({"o1": o1[i], "o2": o2[i], "grp": g})
+    csv = tmp_path / "collinear.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "out"),
+                       config={"outcomes": ["o1", "o2"], "group": "grp"})
+    assert "T2" not in res.estimates
+    assert "跳过" in res.summary
+    assert "奇异" in res.summary or "病态" in res.summary
+
+
 def test_hotelling_three_groups_skips(tmp_path):
     rng = np.random.default_rng(2)
     rows = []

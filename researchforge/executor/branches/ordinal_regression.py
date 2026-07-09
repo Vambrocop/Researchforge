@@ -270,8 +270,10 @@ def _branch_proportional_odds_logit(ctx: Ctx) -> None:
         estimates["n"] = float(n)
         estimates["n_thresholds"] = float(len(thresh_idx))
         estimates["max_abs_or_log"] = max_abs_or_log
+        # namespaced with a "coef_" prefix so a predictor literally named e.g. "n" or
+        # "loglik" cannot collide with (overwrite) the bookkeeping keys above.
         for v in slope_idx:  # per-predictor log-odds for downstream/sign checks
-            estimates[v] = float(params[v])
+            estimates[f"coef_{v}"] = float(params[v])
 
         is_text = df[outcome].dtype == object or str(df[outcome].dtype) == "string"
         lvl_note = f"（等级顺序按排序取为 {levels}）" if is_text else "（等级按排序取序）"
@@ -400,8 +402,10 @@ def _branch_ordered_probit(ctx: Ctx) -> None:
         estimates["n"] = float(n)
         estimates["n_thresholds"] = float(len(thresh_idx))
         estimates["max_abs_coef"] = max_abs_coef
+        # namespaced with a "coef_" prefix so a predictor literally named e.g. "n" or
+        # "loglik" cannot collide with (overwrite) the bookkeeping keys above.
         for v in slope_idx:
-            estimates[v] = float(params[v])
+            estimates[f"coef_{v}"] = float(params[v])
 
         key = ""
         if slope_idx:

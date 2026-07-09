@@ -45,13 +45,40 @@ def _resolve_continuous(ctx: Ctx, min_cont: int, label: str):
 
 
 def _pick(cfg_val, cont, used):
-    """Use cfg_val if a valid unused continuous col, else first unused col."""
+    """Use cfg_val if a valid unused continuous col, else first unused col.
+    Returns (name, auto) where auto=True means the role was NOT satisfied by an
+    explicit config value (i.e. picked automatically by column order) — callers
+    that disclose auto-assignment to the user need this flag."""
     if cfg_val and cfg_val in cont and cfg_val not in used:
-        return cfg_val
+        return cfg_val, False
     for c in cont:
         if c not in used:
-            return c
-    return None
+            return c, True
+    return None, True
+
+
+def _constant_guard(sub, cols, label, summary):
+    """Honest degrade for a constant (zero-variance) column: bootstrap/jackknife
+    acceleration and OLS design matrices go degenerate on a constant regressor
+    (singular fit or a silently-meaningless a/b path), so catch it explicitly
+    before fitting rather than surfacing a raw exception or NaNs. Returns True
+    (and appends a skip message) if any of `cols` is constant/near-constant.
+
+    Checks exact-value distinctness (nunique<=1) first — pandas' two-pass std()
+    formula can report a tiny NONZERO value for an exactly-constant float column
+    (catastrophic cancellation), so a bare `std() == 0` check is not reliable —
+    then falls back to a magnitude-scaled std threshold for near-constant cols."""
+    for c in cols:
+        col = sub[c]
+        if col.nunique(dropna=True) <= 1:
+            summary.append(f"{label}跳过：列 {c} 为常数/无方差。")
+            return True
+        sd = col.std(ddof=1)
+        scale = float(col.abs().max())
+        if sd != sd or sd <= 1e-9 * max(scale, 1.0):  # sd!=sd catches NaN
+            summary.append(f"{label}跳过：列 {c} 为常数/无方差。")
+            return True
+    return False
 
 
 def _ci(arr, lo=2.5, hi=97.5):
@@ -146,10 +173,10 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y = _pick(cfg.get("y"), cont, used); used.append(y)
-    x = _pick(cfg.get("x"), cont, used); used.append(x)
-    m1 = _pick(cfg.get("m1"), cont, used); used.append(m1)
-    m2 = _pick(cfg.get("m2"), cont, used); used.append(m2)
+    y, y_auto = _pick(cfg.get("y"), cont, used); used.append(y)
+    x, x_auto = _pick(cfg.get("x"), cont, used); used.append(x)
+    m1, m1_auto = _pick(cfg.get("m1"), cont, used); used.append(m1)
+    m2, m2_auto = _pick(cfg.get("m2"), cont, used); used.append(m2)
     if None in (y, x, m1, m2) or len({y, x, m1, m2}) < 4:
         summary.append("序列中介分析跳过：需 4 个不同连续列 X/M1/M2/Y。"
                         'config={"x":..,"m1":..,"m2":..,"y":..} 指定。')
@@ -164,6 +191,8 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
     n = len(sub)
     if n < 30:
         summary.append(f"序列中介分析跳过：有效行 {n} < 30，bootstrap 不可靠。")
+        return
+    if _constant_guard(sub, (y, x, m1, m2), "序列中介分析", summary):
         return
 
     try:
@@ -287,13 +316,20 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
             "# M1~X; M2~X+M1; Y~X+M1+M2 ; serial indirect = a1*d21*b2",
             "# CI = bootstrap BCa (z0 from #{boot<obs}/B; accel a from jackknife LOO refits)",
         ]
+        auto_note = ""
+        if any([y_auto, x_auto, m1_auto, m2_auto]):
+            auto_note = (
+                f"⚠ 角色按列序自动指派（首连续列=Y，其后依次为 X、M1、M2）：Y={y}、X={x}、"
+                f"M1={m1}、M2={m2}——**顺序很重要**（换一组指派就是另一模型），"
+                'config={"x":..,"m1":..,"m2":..,"y":..} 可核对你的理论路径。 '
+            )
         summary.append(
             f"{entry.method}（PROCESS model 6）：X={x} → M1={m1} → M2={m2} → Y={y}（n={n}）。"
             f"特定间接：经 M1 (a1·b1)={ind_m1:.4f}（{_sig(ci_m1)}，CI[{ci_m1[0]:.4f},{ci_m1[1]:.4f}]）；"
             f"经 M2 (a2·b2)={ind_m2:.4f}（{_sig(ci_m2)}）；**序列 (a1·d21·b2)={ind_serial:.4f}**"
             f"（{_sig(ci_ser)}，CI[{ci_ser[0]:.4f},{ci_ser[1]:.4f}]）。总间接={total_ind:.4f}"
             f"（{_sig(ci_tot)}），直接 c'={cprime:.4f}。bootstrap BCa 95% CI（B={_N_BOOT}、seed={_SEED}、"
-            "jackknife 加速度校正）。"
+            "jackknife 加速度校正）。" + auto_note +
             " ⚠ 中介=**相关性分解非因果证明**，需 X 时序先于 M、M 先于 Y 且无未测混杂（强假定）；"
             "序列方向 M1→M2 由你设定，反向需重设 config；CI 为偏差校正+加速度(BCa)的 bootstrap 95% CI，"
             "不含 0 即显著（优于朴素百分位法）。"
@@ -315,9 +351,10 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y = _pick(cfg.get("y"), cont, used); used.append(y)
-    x = _pick(cfg.get("x"), cont, used); used.append(x)
+    y, y_auto = _pick(cfg.get("y"), cont, used); used.append(y)
+    x, x_auto = _pick(cfg.get("x"), cont, used); used.append(x)
     cfg_meds = cfg.get("mediators")
+    meds_auto = not isinstance(cfg_meds, (list, tuple))
     if isinstance(cfg_meds, (list, tuple)):
         meds = [m for m in cfg_meds if m in cont and m not in used]
     else:
@@ -336,6 +373,8 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
     n, k = len(sub), len(meds)
     if n < 30:
         summary.append(f"并行中介分析跳过：有效行 {n} < 30，bootstrap 不可靠。")
+        return
+    if _constant_guard(sub, [y, x] + meds, "并行中介分析", summary):
         return
 
     try:
@@ -449,11 +488,19 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
             "# CI = bootstrap BCa (z0 from #{boot<obs}/B; accel a from jackknife LOO refits)",
         ]
         sig_meds = [r["mediator"] for r in rows if r["sig"] == "显著"]
+        auto_note = ""
+        if any([y_auto, x_auto, meds_auto]):
+            auto_note = (
+                f"⚠ 角色按列序自动指派（首连续列=Y，其后为 X，其余连续列为并行中介）：Y={y}、X={x}、"
+                f"中介={'、'.join(meds)}——**顺序很重要**，"
+                'config={"x":..,"y":..,"mediators":[..]} 可核对你的理论路径。 '
+            )
         summary.append(
             f"{entry.method}（PROCESS model 4，{k} 个并行中介）：X={x} → Y={y}，中介={'、'.join(meds)}（n={n}）。"
             f"总间接={total_ind:.4f}（{_sig(ci_tot[0], ci_tot[1])}，CI[{ci_tot[0]:.4f},{ci_tot[1]:.4f}]），"
             f"直接 c'={cprime:.4f}。显著的特定中介：{('、'.join(sig_meds)) if sig_meds else '无'}。"
             f"成对对比见 contrasts.csv。bootstrap BCa 95% CI（B={_N_BOOT}、seed={_SEED}、jackknife 加速度校正）。"
+            + auto_note +
             " ⚠ 中介=相关分解非因果；并行中介**相互控制**（每个 b_i 已偏其余中介），"
             "故并行结果与各自单中介模型可不同；需无未测混杂、X 先于 M 先于 Y；"
             "CI 为偏差校正+加速度(BCa)的 bootstrap 95% CI，不含 0 即显著。"
@@ -475,10 +522,10 @@ def _branch_moderated_moderation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y = _pick(cfg.get("y"), cont, used); used.append(y)
-    x = _pick(cfg.get("x"), cont, used); used.append(x)
-    w = _pick(cfg.get("w"), cont, used); used.append(w)
-    z = _pick(cfg.get("z"), cont, used); used.append(z)
+    y, _ = _pick(cfg.get("y"), cont, used); used.append(y)
+    x, _ = _pick(cfg.get("x"), cont, used); used.append(x)
+    w, _ = _pick(cfg.get("w"), cont, used); used.append(w)
+    z, _ = _pick(cfg.get("z"), cont, used); used.append(z)
     if None in (y, x, w, z) or len({y, x, w, z}) < 4:
         summary.append("调节的调节分析跳过：需 4 个不同连续列 X/W/Z/Y。"
                        'config={"x":..,"w":..,"z":..,"y":..} 指定。')

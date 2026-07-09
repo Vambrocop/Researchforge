@@ -258,6 +258,7 @@ def _branch_time_varying_cox(ctx: Ctx) -> None:
                 f"协变量 {len(covariates)} 个，模型不稳。{EXPECTED}"
             )
             return
+        epv = n_events / len(covariates) if covariates else float("nan")
 
         ctv = CoxTimeVaryingFitter()
         ctv.fit(
@@ -294,6 +295,7 @@ def _branch_time_varying_cox(ctx: Ctx) -> None:
         estimates["n_intervals"] = float(n_intervals)
         estimates["max_abs_hr"] = round(max_hr_natural, 4) if np.isfinite(max_hr_natural) else float("nan")
         estimates["n_subjects"] = float(n_subjects)
+        estimates["epv"] = round(epv, 2) if np.isfinite(epv) else float("nan")
         if np.isfinite(concord):
             estimates["concordance"] = round(concord, 4)
 
@@ -317,7 +319,13 @@ def _branch_time_varying_cox(ctx: Ctx) -> None:
             + (f"；显著协变量：{sig}" if sig else "；无显著协变量")
             + "。⚠ 需计数过程(start,stop,event)长表——若数据不是该形状结果无效；"
             "时变协变量须为「外生」(其取值不被事件风险反向影响)，否则系数有偏；"
-            "PH 假定仍对时变协变量成立；事件须 0/1(仅事件区间=1)。"
+            "PH 假定仍对时变协变量成立；事件须 0/1(仅事件区间=1)；"
+            "并列失效时间(ties)用 Efron 法处理（lifelines 默认且唯一实现，比 Breslow 近似更精确）。"
+            + (
+                f" ⚠ 每变量事件数(EPV)={epv:.1f}（events/covariate，<10 时系数估计易不稳/"
+                "标准误偏小，经验法则建议 EPV≥10，请谨慎解读）；"
+                if np.isfinite(epv) and epv < 10 else ""
+            )
         )
         code += [
             "from lifelines import CoxTimeVaryingFitter  # 时变协变量 Cox（计数过程长表）",
@@ -419,6 +427,7 @@ def _branch_stratified_cox(ctx: Ctx) -> None:
                 f"协变量 {len(covariates)} 个，模型不稳。"
             )
             return
+        epv = n_ev / len(covariates) if covariates else float("nan")
 
         cph = CoxPHFitter()
         cph.fit(sub[[dur_col, event_col, stratum, *covariates]], dur_col, event_col, strata=[stratum])
@@ -447,6 +456,7 @@ def _branch_stratified_cox(ctx: Ctx) -> None:
         estimates["n_covariates"] = float(len(covariates))
         estimates["max_abs_hr"] = round(max_hr_natural, 4) if np.isfinite(max_hr_natural) else float("nan")
         estimates["n_events"] = float(n_ev)
+        estimates["epv"] = round(epv, 2) if np.isfinite(epv) else float("nan")
 
         try:
             _hr_forest_plot(
@@ -466,7 +476,13 @@ def _branch_stratified_cox(ctx: Ctx) -> None:
             + (f"；显著协变量：{sig}" if sig else "；无显著协变量")
             + f"。⚠ 分层让基线风险在各层(by {stratum})自由不同（非参数地控制该分类混杂），"
             "但假定各层协变量系数相同——不估计 层×协变量 交互；若交互重要，应改建交互模型；"
-            "事件须 0/1（1=事件,0=删失），删失假定随机非信息。"
+            "事件须 0/1（1=事件,0=删失），删失假定随机非信息；"
+            "并列失效时间(ties)用 Efron 法处理（lifelines 默认且唯一实现，比 Breslow 近似更精确）。"
+            + (
+                f" ⚠ 每变量事件数(EPV)={epv:.1f}（events/covariate，<10 时系数估计易不稳/"
+                "标准误偏小，经验法则建议 EPV≥10，请谨慎解读）；"
+                if np.isfinite(epv) and epv < 10 else ""
+            )
         )
         code += [
             "from lifelines import CoxPHFitter  # 分层 Cox（每层独立基线风险，系数共享）",
