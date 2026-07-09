@@ -33,7 +33,7 @@ matplotlib Agg, English labels) are best-effort in try/except.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_predictors
 
 # default sampler settings — modest but enough for screening; config-overridable
 _DRAWS, _TUNE, _CHAINS, _SEED, _HDI = 1000, 1000, 2, 42, 0.94
@@ -108,15 +108,9 @@ def _resolve_reg(ctx: Ctx, method: str, *, binary_outcome: bool):
     else:
         return None, [], f"{method} 跳过：未找到连续结果变量（需 1 个连续列）。"
 
-    forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != outcome]
-    if forced:
-        preds = forced[:20]
-    else:
-        preds = [
-            c.name for c in fp.columns
-            if c.kind in {"continuous", "count", "binary"}
-            and c.name not in {outcome, fp.unit_col, fp.time_col}
-        ][:20]
+    preds = resolve_predictors(
+        fp, cfg, outcome, kinds=("continuous", "count", "binary"), cap=20, df=df
+    )
     preds = [c for c in preds if pd.to_numeric(df[c], errors="coerce").notna().any()]
     if not preds:
         return None, [], f"{method} 跳过：未找到可用的数值预测变量（≥1 个）。"

@@ -20,7 +20,7 @@ ending with ⚠ disclosures. Failures degrade honestly ("<method>失败：<reaso
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_predictors
 
 
 # ---------------------------------------------------------------------------
@@ -47,19 +47,9 @@ def _resolve_count_outcome(fp, df, cfg):
 
 
 def _resolve_predictors(fp, df, cfg, outcome):
-    """Continuous/binary predictors, with a config['predictors'] override."""
-    exclude = {outcome, fp.unit_col, fp.time_col}
-    auto = [
-        c.name
-        for c in fp.columns
-        if c.kind in {"continuous", "binary"} and c.name not in exclude
-    ]
-    forced = cfg.get("predictors")
-    if forced:
-        preds = [c for c in forced if c in df.columns and c != outcome]
-    else:
-        preds = auto
-    return preds[:5]
+    """Continuous/binary predictors, with a config['predictors'] override.
+    Thin wrapper over the shared resolve_predictors (see CLAUDE.md「引擎约定」)."""
+    return resolve_predictors(fp, cfg, outcome, kinds=("continuous", "binary"), cap=5, df=df)
 
 
 def _ambiguity_note(count_cols, outcome):

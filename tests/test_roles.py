@@ -351,6 +351,62 @@ def test_resolve_outcome_skips_treatment_named():
     assert resolve_outcome(fp, {"outcome": "treated"}, ["treated", "died"]) == "treated"  # config wins
 
 
+def _rp_fp(**overrides):
+    cols = [
+        ColumnInfo(name="unit", kind="id", dtype="object", n_missing=0, n_unique=20),
+        ColumnInfo(name="time", kind="datetime", dtype="object", n_missing=0, n_unique=5),
+        ColumnInfo(name="y", kind="continuous", dtype="float64", n_missing=0, n_unique=50),
+        ColumnInfo(name="x1", kind="continuous", dtype="float64", n_missing=0, n_unique=50),
+        ColumnInfo(name="x2", kind="count", dtype="int64", n_missing=0, n_unique=10),
+        ColumnInfo(name="x3", kind="binary", dtype="int64", n_missing=0, n_unique=2),
+        ColumnInfo(name="x4", kind="categorical", dtype="object", n_missing=0, n_unique=4),
+    ]
+    kwargs = dict(path="x", n_rows=100, n_cols=len(cols), columns=cols,
+                  unit_col="unit", time_col="time")
+    kwargs.update(overrides)
+    from researchforge.profiler.fingerprint import DataFingerprint
+
+    return DataFingerprint(**kwargs)
+
+
+def test_resolve_predictors_forced_wins_and_filters():
+    # explicit config["predictors"] wins over auto-selection; filtered to columns that
+    # actually exist and excludes the outcome even if the user listed it by mistake.
+    from researchforge.executor.run import resolve_predictors
+
+    fp = _rp_fp()
+    df_cols = ["unit", "time", "y", "x1", "x2", "x3", "x4"]
+    preds = resolve_predictors(
+        fp, {"predictors": ["x3", "y", "bogus", "x1"]}, "y", df=pd.DataFrame(columns=df_cols)
+    )
+    assert preds == ["x3", "x1"]   # 'y' (outcome) and 'bogus' (not a real column) dropped
+
+
+def test_resolve_predictors_auto_excludes_outcome_and_unit_time():
+    # with no config override, predictors = numeric/binary columns in fp order, excluding
+    # the outcome and unit/time role columns (never modeled as predictors).
+    from researchforge.executor.run import resolve_predictors
+
+    fp = _rp_fp()
+    preds = resolve_predictors(fp, {}, "y")
+    assert preds == ["x1", "x2", "x3"]   # unit/time/y excluded; categorical x4 not in kinds
+
+
+def test_resolve_predictors_cap_honored():
+    # cap truncates both the forced and the auto path (regression's own convention: forced
+    # up to 8, auto up to 5 — this test exercises the generic `cap` knob directly).
+    from researchforge.executor.run import resolve_predictors
+
+    fp = _rp_fp()
+    assert resolve_predictors(fp, {}, "y", cap=2) == ["x1", "x2"]
+    df_cols = ["unit", "time", "y", "x1", "x2", "x3", "x4"]
+    forced_preds = resolve_predictors(
+        fp, {"predictors": ["x1", "x2", "x3"]}, "y", cap=5, forced_cap=2,
+        df=pd.DataFrame(columns=df_cols),
+    )
+    assert forced_preds == ["x1", "x2"]
+
+
 def test_logistic_binds_event_outcome_over_leading_treatment(tmp_path: Path):
     # {treated, age, dose, died}: 'died' is the high-confidence binary outcome; the leading
     # 'treated' flag must NOT be modeled as the dependent variable (the old first-binary grab).

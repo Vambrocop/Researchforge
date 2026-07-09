@@ -5,11 +5,14 @@ to outputs/<timestamp>_<analysis>/. Reuses the empirical-analysis-python stack
 from __future__ import annotations
 
 import datetime
+import hashlib
+import json
 import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from researchforge import __version__
 from researchforge.catalog.schema import AnalysisEntry
 from researchforge.executor._branch_api import BRANCH_REGISTRY, Ctx
 from researchforge.profiler.fingerprint import DataFingerprint
@@ -63,6 +66,7 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _resid_plot,
     _run_dir,
     resolve_outcome,
+    resolve_predictors,
     _sem_latents,
     _silhouette_plot,
     _synthetic_control,
@@ -166,6 +170,35 @@ def run_analysis(
     (d / "report.md").write_text(
         _report(entry, fp, summary, files, override, estimates), encoding="utf-8")
     files.append("report.md")
+
+    # Reproducibility manifest — best-effort, mirrors the figure-writing pattern:
+    # a manifest failure must never break the run.
+    try:
+        try:
+            h = hashlib.sha256()
+            with open(fp.path, "rb") as _f:
+                for _chunk in iter(lambda: _f.read(1 << 20), b""):
+                    h.update(_chunk)
+            data_sha256 = h.hexdigest()
+        except OSError:
+            data_sha256 = "unavailable"
+        meta = {
+            "engine_version": __version__,
+            "analysis_id": entry.id,
+            "method": entry.method,
+            "data_path": str(fp.path),
+            "data_sha256": data_sha256,
+            "n_rows": fp.n_rows,
+            "n_cols": fp.n_cols,
+            "config": cfg,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "files": list(files),
+        }
+        (d / "run_meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        files.append("run_meta.json")
+    except Exception:  # noqa: BLE001 — reproducibility metadata is never load-bearing
+        pass
 
     return RunResult(
         analysis_id=entry.id,
