@@ -23,6 +23,7 @@ See executor/_branch_api.py and CLAUDE.md.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 # Likert/integer-coded grouping factors profile as count/id, not categorical (profiler
 # "id" trap) — accept those kinds so a config-free run can still pick a group factor.
@@ -63,7 +64,7 @@ def _branch_anova_oneway(ctx: Ctx) -> None:
     import numpy as np
 
     cont = _continuous(fp)
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    y = cfg["outcome"] if cfg.get("outcome") in cont else (resolve_outcome(fp, cfg, cont) if cont else None)
     # config group override accepts ANY column (a factor may profile as count/id)
     group = cfg.get("group") if cfg.get("group") in df.columns else None
     guessed = group is None
@@ -253,7 +254,7 @@ def _branch_ancova(ctx: Ctx) -> None:
     import numpy as np
 
     cont = _continuous(fp)
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    y = cfg["outcome"] if cfg.get("outcome") in cont else (resolve_outcome(fp, cfg, cont) if cont else None)
     group = cfg.get("group") if cfg.get("group") in df.columns else None
     guessed_g = group is None
     if group is None:
@@ -450,7 +451,7 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
     subject = cfg.get("subject") if cfg.get("subject") in df.columns else None
     within = cfg.get("within") if cfg.get("within") in df.columns else None
     cont = _continuous(fp)
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
 
     long_df, n_subj, n_cond, wide_used = None, 0, 0, False
 

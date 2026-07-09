@@ -96,6 +96,29 @@ def test_vif_config_override(tmp_path: Path) -> None:
     assert res.estimates["max_vif"] > 10  # x1/x2 collinear
 
 
+def test_vif_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER the first continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont_cols[0]) — 'target' should end up excluded from the predictor set."""
+    rng = np.random.default_rng(4)
+    n = 60
+    x1 = rng.normal(0, 1, n)
+    x2 = x1 + rng.normal(0, 0.02, n)
+    x3 = rng.normal(0, 1, n)
+    target = 1.0 * x1 + 0.5 * x3 + rng.normal(0, 0.5, n)
+    # 'x1' is the first continuous column, but 'target' is a high-confidence outcome name
+    df = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "target": target})
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+    tab = pd.read_csv(out / "vif.csv")
+    assert set(tab["predictor"]) == {"x1", "x2", "x3"}
+
+
 def test_vif_degrade_single_predictor(tmp_path: Path) -> None:
     # only one continuous predictor (plus outcome) -> VIF needs >=2 -> skip
     rng = np.random.default_rng(3)

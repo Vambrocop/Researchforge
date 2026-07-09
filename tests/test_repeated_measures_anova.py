@@ -85,6 +85,27 @@ def test_rm_wide_format_melts(tmp_path: Path) -> None:
     assert res.estimates["n_conditions"] == 3.0
 
 
+def test_rm_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """A decoy continuous column ('other_metric', no within-subject effect) is
+    placed BEFORE 'y' — the shared resolver must still pick 'y', not cont[0]."""
+    rng = np.random.default_rng(23)
+    rows = []
+    for s in range(24):
+        base = rng.normal(0, 2.0)
+        for ci, cond in enumerate(["pre", "mid", "post"]):
+            rows.append({
+                "other_metric": rng.normal(0, 1.0),
+                "subj": s, "cond": cond,
+                "y": base + ci * 4.0 + rng.normal(0, 1.0),
+            })
+    df = pd.DataFrame(rows)
+    res = _run(tmp_path, df, {"subject": "subj", "within": "cond"})  # no "outcome" in config
+    assert "完成" in res.summary
+    # real y has a huge monotone within-effect -> tiny p; other_metric has none, so a
+    # wrong (positional) pick would fail to reject.
+    assert res.estimates["p_value"] < 1e-6
+
+
 def test_rm_single_condition_degrades(tmp_path: Path) -> None:
     df = pd.DataFrame({"subj": [1, 2, 3, 4, 5, 6],
                        "cond": ["a"] * 6,

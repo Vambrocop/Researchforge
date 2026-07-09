@@ -146,6 +146,31 @@ def test_pls_too_few_rows_skips(tmp_path):
     assert "跳过" in res.summary
 
 
+def test_pls_resolver_picks_named_outcome_not_first(tmp_path):
+    """A decoy continuous column ('other_metric', unrelated to the latent signal) is
+    placed BEFORE 'y' — the shared resolver must still pick 'y', not cont[0]."""
+    rng = np.random.default_rng(9)
+    n = 120
+    z = rng.normal(0, 1, n)
+    x1 = z + rng.normal(0, 0.15, n)
+    x2 = z + rng.normal(0, 0.15, n)
+    x3 = z + rng.normal(0, 0.15, n)
+    x4 = z + rng.normal(0, 0.15, n)
+    y = 3.0 * z + rng.normal(0, 0.3, n)
+    other_metric = rng.normal(0, 1, n)  # decoy, unrelated, FIRST column
+    df = pd.DataFrame({
+        "other_metric": other_metric, "x1": x1, "x2": x2, "x3": x3, "x4": x4, "y": y,
+    })
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "out"))  # no config outcome
+    # latent signal is strong -> high cv_r2; a wrong (positional) pick of the unrelated
+    # other_metric column as outcome would produce near-zero cv_r2.
+    assert res.estimates.get("cv_r2", 0) > 0.85, res.estimates
+
+
 def test_pls_config_override(tmp_path):
     """config predictors restricts the predictor set; n_components fixes k."""
     csv = _latent_csv(tmp_path)

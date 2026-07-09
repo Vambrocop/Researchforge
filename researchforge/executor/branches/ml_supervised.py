@@ -33,6 +33,7 @@ from __future__ import annotations
 import importlib.util
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 _SEED = 0  # fixed random_state, disclosed in every summary
 
@@ -67,9 +68,9 @@ def _resolve_xy(ctx: Ctx, method: str, min_rows: int):
         outcome = forced_y
         is_clf = forced_y not in cont
     elif cont:
-        outcome, is_clf = cont[0], False
+        outcome, is_clf = resolve_outcome(fp, cfg, cont), False
     elif cat:
-        outcome, is_clf = cat[0], True
+        outcome, is_clf = resolve_outcome(fp, cfg, cat), True
     else:
         return None, False, [], f"{method}跳过：未找到结果变量（需要 1 个连续列做回归，或二值/分类列做分类）。"
 

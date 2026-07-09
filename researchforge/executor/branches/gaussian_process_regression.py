@@ -28,6 +28,7 @@ predictor / < 20 rows) — never crashes / fabricates.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 _MAX_PREDICTORS = 8  # GP scales O(n^3) in rows; keep the input dimension modest too
 
@@ -51,7 +52,7 @@ def _resolve_outcome_predictors(ctx: Ctx):
     if forced_y in df.columns:
         outcome = forced_y
     elif cont:
-        outcome = cont[0]
+        outcome = resolve_outcome(fp, cfg, cont)
     else:
         return None, [], "高斯过程回归 跳过：未找到连续结果变量（需 ≥1 个连续列）。"
 

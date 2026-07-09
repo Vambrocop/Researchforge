@@ -112,6 +112,30 @@ def test_bayesian_hierarchical_partial_pooling(tmp_path: Path):
     assert "部分汇集" in res.summary or "ICC" in res.summary
 
 
+def test_bayesian_hierarchical_resolver_picks_named_outcome_not_first(tmp_path: Path):
+    """A decoy continuous column ('noise_col', no between-group structure) is placed
+    BEFORE 'y' — the shared resolver must still pick 'y', not cont[0]='noise_col'."""
+    rng = np.random.default_rng(13)
+    n_groups = 6
+    offsets = rng.normal(0, 5.0, n_groups)  # real between-group variation lives in y
+    rows = []
+    for g in range(n_groups):
+        for _ in range(rng.integers(8, 16)):
+            rows.append({
+                "noise_col": rng.normal(0, 1.0),
+                "grp": f"g{g}",
+                "y": 50.0 + offsets[g] + rng.normal(0, 2.0),
+            })
+    df = pd.DataFrame(rows)
+    res = _run(tmp_path, "hier_resolver.csv", df, "bayesian_hierarchical",
+               "Bayesian hierarchical model", {"group": "grp"})  # no "outcome" in config
+    e = res.estimates
+    assert e["between_group_sd"] > 0 and e["within_group_sd"] > 0
+    # strong between-group signal (sd=5) only lives in 'y', not noise_col -> high ICC
+    # confirms 'y' (not the positional cont[0]='noise_col') was modeled.
+    assert e["icc"] > 0.5, e
+
+
 # --------------------------------------------------------------------------- #
 # 4) honest degrade when PyMC is unavailable
 # --------------------------------------------------------------------------- #

@@ -21,6 +21,7 @@ disclosed in the summary. Pure Python (scipy/numpy/statsmodels) — no R.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 # Hard cap on resampling iterations so a stray config can't wedge the engine.
 _MAX_RESAMPLES = 200_000
@@ -50,7 +51,7 @@ def _branch_permutation_test(ctx: Ctx) -> None:
     cont_cols = _continuous(fp, df)
 
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont_cols[0] if cont_cols else None
+        resolve_outcome(fp, cfg, cont_cols) if cont_cols else None
     )
     group_col = cfg.get("group") if cfg.get("group") in df.columns else (
         group_candidates[0] if group_candidates else None
@@ -414,7 +415,7 @@ def _branch_robust_regression(ctx: Ctx) -> None:
     excl = {fp.unit_col, fp.time_col}
     cont_cols = _continuous(fp, df)
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont_cols[0] if cont_cols else None
+        resolve_outcome(fp, cfg, cont_cols) if cont_cols else None
     )
     if outcome is None:
         summary.append("稳健回归失败：未找到连续型结果变量。")

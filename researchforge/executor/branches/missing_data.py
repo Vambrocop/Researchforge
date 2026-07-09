@@ -40,6 +40,7 @@ NOTES on the two ambiguous choices (per STOP-AND-REPORT):
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # --------------------------------------------------------------------------- #
@@ -133,7 +134,7 @@ def _branch_mice_imputation(ctx: Ctx) -> None:
     # outcome = first continuous column (config outcome override); predictors =
     # remaining numeric columns (config predictors override).
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name in names]
-    outcome = cfg.get("outcome") if cfg.get("outcome") in names else (cont[0] if cont else names[0])
+    outcome = cfg.get("outcome") if cfg.get("outcome") in names else (resolve_outcome(fp, cfg, cont) if cont else names[0])
     forced = [c for c in (cfg.get("predictors") or []) if c in names and c != outcome]
     if forced:
         predictors = forced[:12]

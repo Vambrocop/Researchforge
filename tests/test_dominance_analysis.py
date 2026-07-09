@@ -69,6 +69,25 @@ def test_dominance_recovers_ordering_and_sums_to_r2(tmp_path: Path) -> None:
     assert abs(float(tab["pct_of_R2"].sum()) - 100.0) < 0.5
 
 
+def test_dominance_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER the predictor columns
+    must still be resolved as the outcome (shared resolve_outcome, not raw cont[0])."""
+    df = _make_df(seed=9).rename(columns={"y": "target"})
+    df = df[["x1", "x2", "x3", "target"]]  # predictors first, outcome last
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+    tab = pd.read_csv(out / "dominance.csv")
+    # predictors must be {x1, x2, x3} -> 'target' was resolved as outcome, not a predictor
+    assert set(tab["predictor"]) == {"x1", "x2", "x3"}
+    dom = dict(zip(tab["predictor"], tab["general_dominance"]))
+    assert dom["x1"] > dom["x2"] > dom["x3"]
+
+
 def test_dominance_degrades_with_one_predictor(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     n = 50

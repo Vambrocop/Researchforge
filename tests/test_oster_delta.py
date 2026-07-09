@@ -84,6 +84,25 @@ def test_oster_rmax_config_override(tmp_path: Path) -> None:
     assert "oster_delta.csv" in res.files
 
 
+def test_oster_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """'treat'/'c1'/'c2' (all continuous) come BEFORE 'y' — the shared resolver must
+    still pick 'y' (high-confidence outcome name) via name signal, not cont[0]."""
+    rng = np.random.default_rng(5)
+    n = 600
+    treat = rng.normal(0, 1, n)
+    c1, c2 = rng.normal(0, 1, n), rng.normal(0, 1, n)
+    y = 2.0 * treat + 0.4 * c1 + 0.3 * c2 + rng.normal(0, 1, n)
+    csv = tmp_path / "resolver.csv"
+    pd.DataFrame({"treat": treat, "c1": c1, "c2": c2, "y": y}).to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"treatment": "treat", "controls": ["c1", "c2"]})  # no outcome
+    assert "完成" in res.summary
+    assert abs(res.estimates["beta_short"] - res.estimates["beta_long"]) < 0.15
+    assert abs(res.estimates["delta"]) > 5.0
+
+
 def test_oster_needs_treatment_and_controls(tmp_path: Path) -> None:
     df = pd.DataFrame({"y": np.random.default_rng(3).normal(0, 1, 30)})  # only an outcome
     csv = tmp_path / "x.csv"

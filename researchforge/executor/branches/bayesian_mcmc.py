@@ -33,6 +33,7 @@ matplotlib Agg, English labels) are best-effort in try/except.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 # default sampler settings — modest but enough for screening; config-overridable
 _DRAWS, _TUNE, _CHAINS, _SEED, _HDI = 1000, 1000, 2, 42, 0.94
@@ -485,7 +486,7 @@ def _branch_bayesian_hierarchical(ctx: Ctx) -> None:
         summary.append(f"{method} 跳过：未找到分组变量（需 1 个分组列，如个体/班级/地区）。")
         return
 
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
     if not outcome:
         summary.append(f"{method} 跳过：未找到连续结果变量。")
         return
@@ -620,7 +621,7 @@ def _branch_bayesian_random_slopes(ctx: Ctx) -> None:
         summary.append(f"{method} 跳过：未找到分组变量（需 1 个分组列，如个体/班级/地区）。")
         return
 
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
     if not outcome:
         summary.append(f"{method} 跳过：未找到连续结果变量。")
         return

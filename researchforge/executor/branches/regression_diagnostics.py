@@ -23,6 +23,7 @@ Pure Python (statsmodels / numpy / scipy) — no R.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ----------------------------------------------------------------------------- #
@@ -39,7 +40,7 @@ def _fit_ols(ctx: Ctx, label: str, min_predictors: int = 1):
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in excl]
 
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont_cols[0] if cont_cols else None
+        resolve_outcome(fp, cfg, cont_cols) if cont_cols else None
     )
     if outcome is None:
         return {"error": f"{label}跳过：未找到连续型结果变量。"}

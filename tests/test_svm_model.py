@@ -85,6 +85,33 @@ def test_regression_positive_r2(tmp_path: Path) -> None:
     assert "cv_accuracy" not in res.estimates  # regression path, not classification
 
 
+def test_resolver_picks_named_outcome_not_first_no_continuous(tmp_path: Path) -> None:
+    """When there is NO continuous column, ml_supervised._resolve_xy falls into the
+    binary/categorical tier (`elif cat: ... resolve_outcome(fp, cfg, cat)`). Put a
+    decoy binary column ('indicator1', no outcome-name signal) BEFORE 'approved'
+    (a high-confidence binary outcome name) — the resolver must still pick
+    'approved', not cat[0]='indicator1'. 'approved' is string-labelled so if the
+    (buggy) positional pick were used instead, 'approved' would end up as an
+    unusable non-numeric predictor and accuracy would collapse toward chance."""
+    rng = np.random.default_rng(9)
+    n = 150
+    indicator1 = rng.integers(0, 2, n)
+    extra = rng.integers(0, 2, n)  # independent noise predictor
+    noise_flip = rng.random(n) < 0.05
+    approved = np.where((indicator1 == 1) ^ noise_flip, "yes", "no")
+    df = pd.DataFrame({"indicator1": indicator1, "extra": extra, "approved": approved})
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "approved" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))  # no config outcome
+    assert "完成" in res.summary
+    assert res.estimates["n_classes"] == 2
+    # indicator1 near-deterministically predicts approved -> high accuracy confirms
+    # 'approved' (not the positional cat[0]='indicator1') was modeled.
+    assert res.estimates["cv_accuracy"] > 0.85, res.estimates
+
+
 def test_config_kernel_linear(tmp_path: Path) -> None:
     fp = profile_dataset(_separable_two_class(tmp_path))
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),

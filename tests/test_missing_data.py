@@ -81,6 +81,34 @@ def test_mice_recovers_truth_with_mar_missingness(tmp_path: Path) -> None:
     assert "多重插补" in res.summary
 
 
+def test_mice_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """A decoy continuous column ('decoy', unrelated, complete) is placed BEFORE
+    'y' — the shared resolver must still pick 'y', not cont[0]='decoy'."""
+    rng = np.random.RandomState(43)
+    n = 400
+    decoy = rng.normal(0, 1, n)  # unrelated to x1/x2/y, no missingness
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(0, 1, n)
+    y = 2.0 + 3.0 * x1 - 1.5 * x2 + rng.normal(0, 0.5, n)
+    df = pd.DataFrame({"decoy": decoy, "y": y, "x1": x1, "x2": x2})
+    p_miss = 1.0 / (1.0 + np.exp(-(x2 - 0.3)))
+    miss_mask = rng.uniform(size=n) < (0.45 * p_miss)
+    df.loc[miss_mask, "x1"] = np.nan
+
+    csv = _csv(tmp_path, "resolver.csv", df)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(
+        fp, _entry("mice_imputation", "MICE"),
+        output_root=str(tmp_path / "o"),
+        config={"m_imputations": 10, "seed": 7},  # no "outcome"/"predictors" -> auto
+    )
+    e = res.estimates
+    # pooled coefficients recover the truth -> confirms 'y' (not 'decoy') was modeled.
+    assert math.isclose(e["coef__x1"], 3.0, abs_tol=0.4), e
+    assert math.isclose(e["coef__x2"], -1.5, abs_tol=0.4), e
+
+
 def test_mice_degrade_on_complete_data(tmp_path: Path) -> None:
     """No missing values -> honest 跳过 (points the user to ols_regression)."""
     rng = np.random.RandomState(0)

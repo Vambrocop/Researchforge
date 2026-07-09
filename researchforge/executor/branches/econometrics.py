@@ -11,6 +11,7 @@ from researchforge.executor.run import (
     _dynamic_gmm_via_r,
     _gmm_lags,
     _knn_k,
+    resolve_outcome,
 )
 
 
@@ -476,7 +477,7 @@ def _branch_spatial_panel(ctx: Ctx) -> None:
     )
     _exc = {unit, time, lon, lat}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc]
-    outcome = cfg.get("outcome") or (cont[0] if cont else None)
+    outcome = cfg.get("outcome") or (resolve_outcome(fp, cfg, cont) if cont else None)
     predictors = cfg.get("predictors") or [
         c.name for c in fp.columns
         if c.kind in {"continuous", "binary"} and c.name not in _exc and c.name != outcome

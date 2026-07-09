@@ -19,6 +19,7 @@ lon/lat Euclidean distance is only an approximation of true planar distance.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # --------------------------------------------------------------------------- #
@@ -173,7 +174,9 @@ def _branch_gwr(ctx: Ctx) -> None:
         for c in fp.columns
         if c.kind in {"continuous", "binary"} and c.name not in _exc
     ]
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (
+        resolve_outcome(fp, cfg, cont) if cont else None
+    )
     forced_pred = [
         c
         for c in (cfg.get("predictors") or [])

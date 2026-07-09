@@ -140,6 +140,27 @@ def test_permutation_reproducible(tmp_path: Path) -> None:
     assert r1.estimates["p_value"] == r2.estimates["p_value"]
 
 
+def test_permutation_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER a decoy continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont_cols[0])."""
+    rng = np.random.default_rng(9)
+    n = 50
+    decoy = rng.normal(0, 1, 2 * n)  # first continuous column, unrelated to grouping
+    target = np.concatenate([rng.normal(0, 1, n), rng.normal(5, 1, n)])  # true signal
+    g = np.array(["A"] * n + ["B"] * n)
+    df = pd.DataFrame({"decoy": decoy, "target": target, "grp": g})
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"n_perm": 999, "seed": 0})
+    # only true if 'target' (the separated signal) was modeled, not 'decoy'
+    assert res.estimates["p_value"] < 0.01
+
+
 def test_permutation_degrade_no_group(tmp_path: Path) -> None:
     # only a continuous column, no group -> honest failure, no crash
     df = pd.DataFrame({"y": np.arange(20, dtype=float)})

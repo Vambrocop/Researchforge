@@ -30,6 +30,7 @@ from __future__ import annotations
 from itertools import combinations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,8 +49,8 @@ def _resolve_design(ctx: Ctx, label: str, max_p: int):
     if not cont:
         return None, None, None, None, f"{label}跳过：没有连续型结果变量（outcome），无法做方差分解。"
 
-    # outcome: config override (must be continuous) else first continuous
-    y_name = cfg["outcome"] if cfg.get("outcome") in cont else cont[0]
+    # outcome: config override (must be continuous) else shared resolver
+    y_name = cfg["outcome"] if cfg.get("outcome") in cont else resolve_outcome(fp, cfg, cont)
 
     # predictors: config override (numeric, != outcome) else continuous/binary/count cols
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y_name]

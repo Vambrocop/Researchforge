@@ -69,6 +69,25 @@ def test_gpr_fits_smooth_signal_and_calibrated(tmp_path: Path) -> None:
     assert all(isinstance(v, float) for v in est.values())
 
 
+def test_gpr_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER a decoy continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont[0]) — no config override this time, so the resolver alone must fire."""
+    df = _smooth_nonlinear(seed=9).rename(columns={"y": "target"})
+    decoy = pd.Series(np.random.default_rng(10).normal(0, 1, len(df)), name="decoy")
+    df = pd.concat([decoy, df[["target", "x"]]], axis=1)
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    est = res.estimates
+    assert "r2_heldout" in est
+    # only true if 'target' (the smooth nonlinear signal) was modeled, not 'decoy'
+    assert est["r2_heldout"] > 0.3
+
+
 def test_gpr_skips_too_few_rows(tmp_path: Path) -> None:
     """Fewer than 20 rows → honest Chinese skip, no crash, no estimates."""
     rng = np.random.default_rng(1)

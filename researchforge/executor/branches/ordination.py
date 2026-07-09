@@ -22,6 +22,7 @@ family file is auto-registered by branches/__init__.py (pkgutil.walk_packages).
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +489,7 @@ def _branch_pls_regression(ctx: Ctx) -> None:
     import importlib.util
 
     cont = _continuous_cols(fp)
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (resolve_outcome(fp, cfg, cont) if cont else None)
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != outcome]
     if forced:
         predictors = forced

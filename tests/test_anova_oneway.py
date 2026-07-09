@@ -63,6 +63,24 @@ def test_oneway_null_negative_control(tmp_path: Path) -> None:
     assert res.estimates["eta_squared"] < 0.1
 
 
+def test_oneway_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """A decoy continuous column ('noise_metric', no group effect) is placed BEFORE
+    'y' (the real, high-confidence-named outcome) — the shared resolver must still
+    pick 'y', not cont[0]='noise_metric'."""
+    rng = np.random.default_rng(21)
+    rows = []
+    for g, mu in [("A", 10.0), ("C", 20.0)]:
+        rows += [
+            {"noise_metric": rng.normal(0, 1.0), "grp": g, "y": mu + rng.normal(0, 1.0)}
+            for _ in range(30)
+        ]
+    res = _run(tmp_path, rows, config={"group": "grp"})  # no "outcome" in config
+    assert "完成" in res.summary
+    # real y has a huge group gap (10 vs 20) -> tiny p; noise_metric has none, so a
+    # wrong (positional) pick would fail to reject.
+    assert res.estimates["p_value"] < 0.001
+
+
 def test_oneway_too_few_groups_degrades(tmp_path: Path) -> None:
     rows = [{"y": v, "grp": "only"} for v in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]]
     res = _run(tmp_path, rows, config={"outcome": "y", "group": "grp"})

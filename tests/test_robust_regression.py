@@ -131,6 +131,29 @@ def test_robust_config_override(tmp_path: Path) -> None:
     assert "theilsen_slope" in comp.columns  # single chosen predictor
 
 
+def test_robust_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER a decoy continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont_cols[0])."""
+    rng = np.random.default_rng(9)
+    n = 150
+    decoy = rng.normal(0, 1, n)  # first continuous column, unrelated noise
+    x = rng.normal(0, 1, n)
+    target = 3.0 * x + rng.normal(0, 0.5, n)
+    df = pd.DataFrame({"decoy": decoy, "target": target, "x": x})
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+    comp = pd.read_csv(out / "robust_vs_ols.csv")
+    row = comp[comp["term"] == "x"].iloc[0]
+    # only true if 'target' (linear in x) was modeled, not 'decoy'
+    assert abs(float(row["robust_coef"]) - 3.0) < 0.4
+
+
 def test_robust_degrade_no_predictor(tmp_path: Path) -> None:
     # single continuous column -> no predictor -> honest failure
     df = pd.DataFrame({"y": np.arange(30, dtype=float)})

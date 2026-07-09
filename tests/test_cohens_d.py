@@ -116,6 +116,29 @@ def test_cohens_d_glass_delta_reported(tmp_path: Path) -> None:
     assert abs(glass - glass_indep) < 1e-3
 
 
+def test_cohens_d_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER a decoy continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont_cols[0])."""
+    rng = np.random.default_rng(9)
+    n = 80
+    decoy = rng.normal(0, 1, 2 * n)  # first continuous column, no group signal
+    a = rng.normal(5.0, 1.0, n)
+    b = rng.normal(4.0, 1.0, n)
+    target = np.concatenate([a, b])
+    g = np.array(["A"] * n + ["B"] * n)
+    df = pd.DataFrame({"decoy": decoy, "target": target, "grp": g})
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    d = res.estimates["cohens_d"]
+    # only true if 'target' (~1 SD shift) was modeled, not 'decoy' (no shift)
+    assert 0.6 < d < 1.4
+
+
 def test_cohens_d_degrade_three_groups(tmp_path: Path) -> None:
     # three groups -> not a two-group effect size -> honest skip, no crash
     rng = np.random.default_rng(5)

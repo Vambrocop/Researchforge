@@ -171,6 +171,29 @@ def test_gwr_config_outcome_predictor_override(tmp_path: Path) -> None:
     assert "beta_x_median" in res.estimates
 
 
+def test_gwr_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path) -> None:
+    """A high-confidence-named outcome ('target') placed AFTER a decoy continuous
+    column must still be resolved as the outcome (shared resolve_outcome, not raw
+    cont[0]) — picking the decoy (pure noise) would show no spatial gradient."""
+    df = _spatially_varying_df(n=130, seed=8).rename(columns={"yield_": "target"})
+    decoy = pd.Series(
+        np.random.default_rng(9).normal(0, 1, len(df)), name="decoy", index=df.index
+    )
+    df = pd.concat([df[["latitude", "longitude"]], decoy, df[["target", "x"]]], axis=1)
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+    coef = pd.read_csv(out / "gwr_coefficients.csv")
+    assert "beta_x" in coef.columns
+    r = np.corrcoef(coef["longitude"], coef["beta_x"])[0, 1]
+    # only true if 'target' (spatially-varying signal) was modeled, not 'decoy'
+    assert r > 0.5, f"resolver must have picked 'target', corr={r:.2f}"
+
+
 def test_gwr_precondition_unmet_no_geo(tmp_path: Path) -> None:
     rng = np.random.default_rng(6)
     df = pd.DataFrame({"a": rng.normal(0, 1, 40), "b": rng.normal(0, 1, 40)})  # no geo

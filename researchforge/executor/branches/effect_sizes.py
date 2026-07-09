@@ -28,6 +28,7 @@ labels) are wrapped in try/except. Pure Python (numpy/scipy/pandas) — no R.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ def _resolve_two_groups(ctx: Ctx, label: str):
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in excl]
 
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont_cols[0] if cont_cols else None
+        resolve_outcome(fp, cfg, cont_cols) if cont_cols else None
     )
     group_col = cfg.get("group") if cfg.get("group") in df.columns else (
         group_candidates[0] if group_candidates else None

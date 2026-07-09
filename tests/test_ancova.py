@@ -70,6 +70,27 @@ def test_ancova_detects_heterogeneous_slopes(tmp_path: Path) -> None:
     assert "斜率假定被违反" in res.summary
 
 
+def test_ancova_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """A decoy continuous column ('noise_metric', unrelated to x/group) is placed
+    BEFORE 'y' — the shared resolver must still pick 'y', not cont[0]='noise_metric'."""
+    rng = np.random.default_rng(22)
+    rows = []
+    for g, x_center, trt in [("A", 0.0, 0.0), ("B", 5.0, 2.0)]:
+        for _ in range(40):
+            x = x_center + rng.normal(0, 1.0)
+            rows.append({
+                "noise_metric": rng.normal(0, 1.0),
+                "grp": g, "x": x,
+                "y": 1.0 + 2.0 * x + trt + rng.normal(0, 1.0),
+            })
+    df = pd.DataFrame(rows)
+    res = _run(tmp_path, df, {"group": "grp", "covariates": ["x"]})  # no "outcome" in config
+    assert "完成" in res.summary
+    # covariate x truly drives y -> tiny covariate_p; a wrong (positional) pick of the
+    # unrelated noise_metric column would NOT show this strong covariate signal.
+    assert res.estimates["covariate_p"] < 1e-6
+
+
 def test_ancova_needs_covariate(tmp_path: Path) -> None:
     df = pd.DataFrame({"y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
                        "grp": ["A", "A", "A", "A", "B", "B", "B", "B"]})

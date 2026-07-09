@@ -109,6 +109,37 @@ def test_random_slopes_recovers_population_slope(tmp_path: Path):
     assert "HDI" in res.summary
 
 
+def test_random_slopes_resolver_picks_named_outcome_not_first(tmp_path: Path):
+    """A decoy continuous column ('noise_col', no group/slope structure) is placed
+    BEFORE 'y' — the shared resolver must still pick 'y' as outcome. 'predictor' is
+    pinned via config to isolate the (untouched) predictor pick from this outcome
+    resolution check."""
+    rng = np.random.default_rng(17)
+    n_groups = 10
+    mu_b, tau = 4.0, 1.5
+    a = 50.0 + rng.normal(0, 5.0, n_groups)
+    b = mu_b + rng.normal(0, tau, n_groups)
+    rows = []
+    for g in range(n_groups):
+        for _ in range(rng.integers(12, 20)):
+            x = rng.normal(0, 1.0)
+            rows.append({
+                "noise_col": rng.normal(0, 1.0),
+                "grp": f"g{g}", "x": x,
+                "y": a[g] + b[g] * x + rng.normal(0, 2.0),
+            })
+    df = pd.DataFrame(rows)
+    res = _run(tmp_path, "rs_resolver.csv", df, "bayesian_random_slopes",
+               "Bayesian random-slopes multilevel model",
+               {"group": "grp", "predictor": "x"})  # no "outcome" in config
+    e = res.estimates
+    # real slope structure (mu_b=4.0, tau=1.5) only lives in y~x; a wrong (positional)
+    # pick of noise_col as outcome would show ~0 slope and an HDI including 0.
+    assert e["slope_sd"] > 0.0
+    excludes0 = e["population_slope_hdi_low"] > 0
+    assert excludes0 or e["population_slope_std"] > 1.0
+
+
 # --------------------------------------------------------------------------- #
 # 2) honest skip when only ONE continuous column (no slope covariate)
 # --------------------------------------------------------------------------- #

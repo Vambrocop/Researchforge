@@ -191,6 +191,26 @@ def test_spatial_panel_degrades_without_splm(tmp_path: Path) -> None:
         assert "spatial_coef" in res.estimates
 
 
+def test_spatial_panel_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """'x' (the predictor) is placed BEFORE 'y' (the high-confidence named outcome) —
+    the shared resolver must still pick 'y', not cont[0]='x'. Regression guard: the
+    old `cont[0]` default would have modeled the unrelated 'x' column instead."""
+    if not (rbridge.r_available() and rbridge.r_package_available("splm")):
+        pytest.skip("R splm package not available")
+
+    df = _make_spatial_panel(rho=0.5)
+    df = df[["region", "year", "lon", "lat", "x", "y"]]  # x BEFORE y in column order
+    csv = tmp_path / "reordered.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    rho_hat = res.estimates.get("spatial_coef")
+    assert rho_hat is not None
+    assert rho_hat > 0.15, f"resolver picked the wrong outcome column: rho={rho_hat}"
+
+
 def test_spatial_panel_precondition_unmet_not_panel(tmp_path: Path) -> None:
     rng = np.random.default_rng(2)
     # cross-section with geo but no panel structure -> precondition fails

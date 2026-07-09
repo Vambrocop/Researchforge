@@ -89,6 +89,28 @@ def test_config_outcome_predictors(tmp_path: Path) -> None:
     assert res.estimates["cv_r2"] > 0.5
 
 
+def test_resolver_picks_named_outcome_not_first(tmp_path: Path) -> None:
+    """A decoy continuous column ('decoy0', pure noise) is placed BEFORE 'y' — the
+    shared resolver (ml_supervised._resolve_xy's continuous tier) must still pick
+    'y', not cont[0]='decoy0'."""
+    rng = np.random.default_rng(31)
+    n = 200
+    decoy0 = rng.normal(0, 1, n)
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(0, 1, n)
+    x3 = rng.normal(0, 1, n)
+    y = 3.0 * x1 - 2.0 * x2 + 1.5 * x3 + rng.normal(0, 0.5, n)
+    df = pd.DataFrame({"decoy0": decoy0, "x1": x1, "x2": x2, "x3": x3, "y": y}).round(5)
+    csv = tmp_path / "resolver.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "y" and fp.likely_outcome_confidence == "high"
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"), config={"method": "lasso"})
+    assert "完成" in res.summary
+    # strong signal recovered -> confirms 'y' (not the unrelated decoy0) was modeled.
+    assert res.estimates["cv_r2"] > 0.5
+
+
 def test_degrade_too_few_rows(tmp_path: Path) -> None:
     rng = np.random.default_rng(1)
     df = pd.DataFrame({"y": rng.normal(0, 1, 10), "x1": rng.normal(0, 1, 10), "x2": rng.normal(0, 1, 10)})

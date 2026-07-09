@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ def _branch_oster_delta(ctx: Ctx) -> None:
     ]
     # outcome: config, else first continuous; treatment: config, else a binary, else
     # the first numeric column that isn't the outcome.
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
     treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
     if treatment is None:
         treatment = next((c for c in bins if c != outcome), None)
