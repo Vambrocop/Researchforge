@@ -184,3 +184,18 @@ def run_for_path(
         "report": report_text,
         "estimates": res.estimates,
     }
+
+
+def study_for_path(
+    path: str | Path,
+    goal: str | None = None,
+    top: int = 3,
+    clean: bool = False,
+    config: dict | None = None,
+) -> dict:
+    """Thin wrapper over ``researchforge.study.run_study`` for the web layer (mirrors
+    ``run_for_path`` above). Returns {study_dir, report_path, report_text,
+    methods_run, meta} — see study.run_study's docstring for the full contract."""
+    from researchforge.study import run_study
+
+    return run_study(str(path), goal=goal, top=top, clean=clean, config=config)

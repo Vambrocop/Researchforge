@@ -241,6 +241,38 @@ def _cmd_run(path: str, analysis_id: str, config: str | None = None, clean_first
     return 0
 
 
+def _cmd_study(
+    path: str,
+    goal: str | None = None,
+    top: int = 3,
+    clean_first: bool = False,
+    config: str | None = None,
+) -> int:
+    """`study`：一次编排出一份合并研究报告——profile → 挑一手多样化的方法 → 逐个跑
+    → 汇总。零改 run_analysis，只编排既有调用（researchforge/study.py）。"""
+    import json
+
+    from researchforge.study import run_study
+
+    cfg = None
+    if config:
+        try:
+            cfg = json.loads(config)
+        except json.JSONDecodeError as err:
+            print(f"--config 不是合法 JSON：{err}")
+            return 1
+    result = run_study(path, goal=goal, top=top, clean=clean_first, config=cfg)
+    n_run = len(result["methods_run"])
+    n_req = result["meta"]["top_requested"]
+    print(f"研究目录：{result['study_dir']}")
+    print(f"报告：{result['report_path']}")
+    print(f"已跑方法（{n_run}/{n_req}）：" + ("、".join(result["methods_run"]) if result["methods_run"] else "（无）"))
+    if n_run == 0:
+        print("⚠ 全部实质方法执行失败，报告仍已写出（各节含失败原因，可据此排查）。")
+        return 1
+    return 0
+
+
 def _cmd_clean(
     path: str, apply_changes: bool = False, out: str | None = None, rare_threshold: float = 0.01
 ) -> int:
@@ -547,6 +579,25 @@ def main(argv: list[str] | None = None) -> int:
         help="auto-clean (apply the diagnosed plan) before running, if it has real "
              "(non-advisory) steps; default off — clean/--apply stays opt-in",
     )
+    study_p = sub.add_parser(
+        "study",
+        help="run a full merged study: profile -> pick a diverse handful of methods -> "
+             "run each -> one honest merged report",
+    )
+    study_p.add_argument("path", help="path to a CSV/Excel file")
+    study_p.add_argument("--goal", default=None, help="research goal to focus on (optional)")
+    study_p.add_argument(
+        "--top", type=int, default=3,
+        help="how many substantive methods to run (default 3; excludes the §0 descriptive baseline)",
+    )
+    study_p.add_argument(
+        "--clean", action="store_true", dest="clean_first",
+        help="auto-clean (apply the diagnosed plan) before running, same semantics as `run --clean`",
+    )
+    study_p.add_argument(
+        "--config", default=None,
+        help='JSON of substantive overrides applied to every method, e.g. \'{"outcome":"y"}\'',
+    )
     cln = sub.add_parser("clean", help="preview (or --apply) a data-cleaning plan from quality diagnostics")
     cln.add_argument("path", help="path to a CSV/Excel file")
     cln.add_argument("--apply", action="store_true", dest="apply_changes",
@@ -594,6 +645,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_pick(args.path, args.goal)
     if args.command == "run":
         return _cmd_run(args.path, args.analysis, args.config, args.clean_first)
+    if args.command == "study":
+        return _cmd_study(args.path, args.goal, args.top, args.clean_first, args.config)
     if args.command == "clean":
         return _cmd_clean(args.path, args.apply_changes, args.out, args.rare_threshold)
     if args.command == "params":

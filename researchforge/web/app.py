@@ -4,6 +4,7 @@ Endpoints:
   GET  /                                     -> serve index.html
   POST /api/analyze                          -> upload CSV, profile + recommend
   POST /api/run                              -> run a chosen analysis
+  POST /api/study                            -> run a full merged study (study mode)
   GET  /api/runs                             -> list previous runs (newest-first)
   GET  /api/runs/{run_name}/file/{filename}  -> serve one artifact (traversal-safe)
   GET  /api/download/{run_name}              -> zip and download an outputs/<run_name> dir
@@ -142,6 +143,17 @@ class FileRequest(BaseModel):
     file_id: str
 
 
+class StudyRequest(BaseModel):
+    file_id: str
+    goal: str | None = None
+    top: int = 3
+    clean: bool = False
+    # optional user overrides for the engine's substantive defaults, applied to
+    # EVERY method in the study (v1: no per-method config — see
+    # docs/design-study-mode.md §1)
+    config: dict | None = None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -250,6 +262,20 @@ def api_run(body: RunRequest) -> JSONResponse:
     )
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
+    return JSONResponse(result)
+
+
+@app.post("/api/study")
+def api_study(body: StudyRequest) -> JSONResponse:
+    """Run a full merged study (profile -> diverse handful of methods -> one
+    honest report) on a previously uploaded file. See docs/design-study-mode.md."""
+    dest = _resolve_upload(body.file_id)
+
+    from researchforge.web.service import study_for_path
+
+    result = study_for_path(
+        dest, goal=body.goal, top=body.top, clean=body.clean, config=body.config
+    )
     return JSONResponse(result)
 
 
