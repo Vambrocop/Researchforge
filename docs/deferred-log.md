@@ -382,5 +382,13 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **spatial_panel 的 W 仅 k-NN**：默认行标准化 k-NN（k=6，欧氏经纬度）。**待优化**：可配距离阈值/contiguity/反距离权重，以及真测地距离（与截面 spatial_regression 同一 backlog 第 6 条）。
 - **spatial_panel FE 仅个体（within, individual）**：未做双向（个体+时间）或随机效应空间面板，也未自动跑 Hausman 选 FE/RE-spatial。**补全**：接 `effect="twoways"` 与 `spml` 的 RE 变体 + `sphtest`（空间 Hausman）。
 
+**流行病学队列 dogfood 发现（2026-07-10，cohort.csv: disease/smoking/age/sex/bmi）—— recommender 漏荐二值结局家族：**
+- **现象**：一份教科书式队列（二值结局 `disease` + 二值暴露 `smoking` + 混杂 age/sex/bmi），`recommend`/`pick`/`recommend --goal relate`/`--goal causal` **全程没有把 `logistic_regression` 或 `epi_risk_measures` 排进 top6**。`pick` 的头名是 **negative_binomial_regression on `age`**——因为「回归族取第一个连续列为 outcome」+ profiler 把整数 `age` 判成 count/过离散（φ=6.04），于是把一份因果流行病学数据误路由成「对年龄做计数回归」。目标 `causal` 只给了 DML/因果森林/PSM/IPW/Oster/E-value（处理效应家族），仍**没有** OR/RR 的经典入口。
+- **影响**：懂方法的流行病学者能自己 `run logistic_regression`/`epi_risk_measures`（引擎其实**都有**，且质量好），但**推荐器不会把新手引到正确方法**——北极星是「自动选模型越聪明」，这里选模型把二值结局家族整个漏了，是真缺口。
+- **根因**：outcome 解析在「关系/回归」目标下仍是「第一个连续列」；binary 列即便是明显的疾病结局也不参与 outcome 竞争，profiler 又把整数暴露/协变量按 count 算离散度，叠加放大了 NB 的契合分。
+- **补全建议**：① recommender 在存在**二值列**时，把 `logistic_regression`（调整 OR）与 `epi_risk_measures`（2×2 RR/OR）纳入 `relate`/`explain`/`causal` 候选，并给「疾病名/结局名」命名信号加权（disease/case/died/event…）；② outcome 解析对「整数但取值域大」的列（age）别默认当 count outcome——加「不像结局」的负向信号（连续协变量常见）；③ 可加一个 `--goal epi` 或识别「二值结局+二值暴露」直接推 epi 诊断三角（epi_risk_measures + logistic_regression + evalue）。
+- **附带小摩擦**：E-value 的 id 是 `evalue`（非 `e_value`，`params e_value` 报「未知分析 id」）；`logistic_regression` 未声明机器可读 params（`params logistic_regression` 无参数规格，靠 loop-decisions 才知 outcome/predictors 键）；且其 predictors **默认只取 continuous/count 列**，会把二值暴露 `smoking` 和二值混杂 `sex` 丢出模型——流行病学者必须手动 `--config predictors=[smoking,age,sex,bmi]` 才能得到正确的调整模型（默认模型会漏掉主暴露！这条比 recommender 更该修：logistic 的默认 predictors 应纳入二值协变量）。
+- **正面**：`epi_risk_measures`/`logistic_regression`/`evalue` 三者跑通、口径专业（Woolf/Wilson CI、Haldane 校正、AR%/PAR%、OR→RR 常见结局 √OR 近似、E-value 点+CI 判语），图表与中文披露到位。分析层没问题，缺口在**推荐层的选模路由**。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
