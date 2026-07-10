@@ -38,6 +38,27 @@
 > ⚠ 6-10 是 P3 新增、Fable 的 Wave K 规划成于 P1/P2 之前——**这几条需 Fable 参谋长回炉折进 Wave K 优先级**
 > （7/8 是"面板感知"一族、便宜高价值；6 是 pick/nudge 层；9 接 Wave I methods_run 根治）。
 
+## P4 补充（农学/RCBD，角色层——中文列名 + 分类因子，新主题）
+11. **角色检测在中文列名上静默反转（阻断级）**：`run rcbd` 不带 config 把 **区组当 treatment、处理当 block**——
+    `_BLOCK_HINTS`/`_TRT_HINTS`(`experimental_design/_shared.py`、`field_trials.py` 两处独立定义)只认英文子串，
+    都不中时按列声明顺序兜底、**无披露**；真处理效应 F=46,p≈1e-21 被埋没。
+12. **`group_comparison` 反语义挑分组（阻断级·最危险单点）**：`cat_cols.sort(key=nunique)`(`statistics.py:547`)
+    纯按类别数最少取首个 → 选区组(4级)而非处理(5级)→ 假阴性 p=0.156(真 p≈1e-21)，**无"角色自动猜测"披露**。
+13. **`mixed_effects` 吞掉多水平分类固定效应（阻断级）**：predictors 过滤器只收 continuous/count/binary，
+    categorical 处理因子被丢 → 退化纯截距、照打"完成"(`branches/statistics.py:711`)。→ 退化到零预测变量必须报错。
+14. **分类预测变量不自动哑变量化**（与 P1 finding #5、K2⑤同根）：proportional_odds/logistic 等遇分类协变量
+    直接"含非数值无法转矩阵"跳过——性别/处理这类协变量是刚需。
+15. RCBD 双实现、config key 不一(`rcbd` 用 outcome / `rcbd_anova` 用 response)；pick/recommend(含 `--goal design`)
+    从不把 rcbd 排第一，即便数据是其教科书场景。
+> ⚠ **11-14 是新根因层（角色检测=英文-only + 反语义启发式 + 分类因子被丢），与 count 桶(K0/K1)平行、同等重要。**
+> 中文命名是本项目核心用户群（CLAUDE.md 自承 Windows 中文研究者），角色层英文-only 是系统性失败。
+
+## 待办：Wave K 需 Fable 回炉定稿
+Fable 的下方 Wave K 规划成于 P1/P2，**未含 P3(6-10 面板/推断质量) 与 P4(11-15 中文角色/分类因子)**。
+P5(churn 泄漏) 报告 reset 丢失、未验；P6(脏 Excel) 跑过(cleaned 文件为证)、报告丢失。**下一步应让 Fable 参谋长
+读齐 P1-P4 重排 Wave K 优先级**（angle：count 桶 K0/K1 vs 角色层中文/分类 vs 面板感知 vs 执行层诚实修，四条线谁先）。
+
+
 ## Wave K 修复规划（Fable，可直接派工；下面成于 P1/P2，尚未含 P3 的 6-10）
 **代码坐标**：`recommender/affinity.py:145-217`(信号定义+漏接点) · `scoring.py:189`(min_count_cols 裸门) ·
 `match.py:51-65`(可行性门=K0/K1 主战场) · `profiler/types.py:62-84`(`is_ordinal_like`，只消费别动) ·
