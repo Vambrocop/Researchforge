@@ -213,7 +213,15 @@ def detect_roles(columns, df=None) -> dict:
     #    it isn't a time/id-looking column → LOW confidence
     elif len(numeric) >= 3:
         last = numeric[-1]
-        if last.kind in _NUMERIC_KINDS and not _TIME_RE.fullmatch(str(last.name).strip().lower() or " "):
+        # a constant column (n_unique <= 1) can never be a meaningful outcome — skip it
+        # in the position fallback (dogfooding finding #19). Name-matched paths above are
+        # untouched: a constant column that is EXPLICITLY named like an outcome is a data
+        # problem, not a heuristic problem.
+        if (
+            last.kind in _NUMERIC_KINDS
+            and not _TIME_RE.fullmatch(str(last.name).strip().lower() or " ")
+            and last.n_unique > 1
+        ):
             out["likely_outcome"] = last.name
             out["likely_outcome_confidence"] = "low"
             out["reason"] = f"'{last.name}' is the last numeric column (common target position)"

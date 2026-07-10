@@ -38,6 +38,37 @@ def test_outcome_by_position_when_no_name():
     assert "last numeric" in roles["reason"]
 
 
+def test_outcome_position_skips_constant_last_column():
+    # dogfooding finding #19: a constant column (n_unique<=1) can never be a meaningful
+    # outcome, even when it sits in the "last numeric column" position the fallback
+    # otherwise trusts. With no other candidate tried, no likely_outcome is set.
+    cols = [_col("a", "continuous"), _col("b", "continuous"),
+            ColumnInfo(name="c", kind="count", dtype="int64", n_missing=0, n_unique=1)]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] is None
+
+
+def test_outcome_position_still_fires_when_last_column_varies():
+    # non-regression: the ordinary position fallback (last column has real variance) is
+    # untouched by the constant-column guard.
+    cols = [_col("a", "continuous"), _col("b", "continuous"), _col("c", "count")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "c"
+    assert roles["likely_outcome_confidence"] == "low"
+
+
+def test_outcome_by_name_not_skipped_even_if_constant():
+    # the constant-column guard is scoped to the POSITION fallback only — an explicitly
+    # named outcome that happens to be constant is a data problem, not a heuristic
+    # problem, so the name-matched path must still bind it (per task scope).
+    cols = [_col("x1", "continuous"),
+            ColumnInfo(name="target", kind="continuous", dtype="float64", n_missing=0, n_unique=1),
+            _col("x2", "continuous")]
+    roles = detect_roles(cols)
+    assert roles["likely_outcome"] == "target"
+    assert roles["likely_outcome_confidence"] == "high"
+
+
 def test_no_outcome_when_too_few_numeric():
     cols = [_col("a", "continuous"), _col("g", "categorical")]
     roles = detect_roles(cols)
