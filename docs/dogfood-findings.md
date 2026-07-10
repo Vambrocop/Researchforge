@@ -24,7 +24,21 @@
 5. 跨方法收敛信号靠字段名撞车比不相关 p_value；中文列名进 statsmodels formula 未做标识符守卫(R 桥有先例)；
    分类预测变量不自动哑变量化。
 
-## Wave K 修复规划（Fable，可直接派工）
+## P3 补充（经济学生/面板，计量·推断质量向，与上面根因桶不同）
+6. **`pick` 生成的命令覆盖出比分支默认更差的结果**：pick 把 likely_outcome 塞进 `--config outcome=`，
+   当它是低置信/误判时（面板里 size），反而覆盖了引擎本来对的默认（第一连续列 investment）→ 跟着工具给的
+   命令跑反而错、不带 config 跑反而对。**反直觉，头号陷阱。** → pick 命令不应用比默认更差的猜测覆盖它。
+7. **面板回归默认只 HC1、不按 unit_col 聚类 SE**：明知 `fp.unit_col`，`panel_fixed_effects`/`ols`/`did`
+   共享分支仍 HC1 → p 值假性极小（1e-187），只 `random_effects` 分支做对了聚类。→ 检测到 unit_col 默认聚类。
+8. **`ols_regression` 不感知面板**：同次 profiling 已判 `is_panel=True`，ols 偏差披露却只字不提、说"可常规解读"，
+   pooled 偏差（+25%）静默通过。→ ols 偏差文本交叉核对 `is_panel`，检测到主动提示 FE。
+9. **`study` 把崩溃方法计入"N/N 跑了"**：panel_qca R 崩仍算进 methods_run（Wave I judgment call #1 现被真实
+   用户确认）。→ 总结行区分成功/失败计数。
+10. rigor 排名不奖励更严谨 SE：random_effects(Hausman+聚类,做对)排在 panel_fixed_effects(HC1,错)之下。
+> ⚠ 6-10 是 P3 新增、Fable 的 Wave K 规划成于 P1/P2 之前——**这几条需 Fable 参谋长回炉折进 Wave K 优先级**
+> （7/8 是"面板感知"一族、便宜高价值；6 是 pick/nudge 层；9 接 Wave I methods_run 根治）。
+
+## Wave K 修复规划（Fable，可直接派工；下面成于 P1/P2，尚未含 P3 的 6-10）
 **代码坐标**：`recommender/affinity.py:145-217`(信号定义+漏接点) · `scoring.py:189`(min_count_cols 裸门) ·
 `match.py:51-65`(可行性门=K0/K1 主战场) · `profiler/types.py:62-84`(`is_ordinal_like`，只消费别动) ·
 `executor/branches/regression.py`(logistic OR+预测变量+标识符守卫) · `branches/psychometrics.py`(cronbach 选题) ·
