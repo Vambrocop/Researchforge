@@ -68,13 +68,35 @@
     10 重复行精删/稀有城市→Other/**日期诚实标"像标识符"不硬解析**——全对。且分支自己会解析逗号数字，
     多数分析可跳过 clean 直跑（值得写进文档当卖点）。
 
+## P5 补充（ML 工程师/churn 泄漏，最严重诚实缺口 + 两个真 bug）
+21. **无泄漏检测器，引擎把泄漏结果 narrate 成"诚实估计"（headline·最危险）**：refund_amount 是结果后泄漏特征
+    (只有 churner 有退款)，gradient_boosting/discriminant/logistic **默认全吃** → cv_acc 0.975-1.000、单特征
+    importance 碾压其余，报告写"诚实泛化估计"、**零警告**。profiler 无任何 leakage/too-good-to-be-true 检查(grep 过)。
+    → 便宜高价值：cv_acc>0.97 / 单特征 importance 碾压 / logistic PerfectSeparation / SE≫coef 时，出一等 ⚠
+    "结果可疑地完美——查是否信息泄漏(尤其结果发生后才产生的字段)"。
+22. **`ml.py` random_forest/xgboost config-outcome override BUG（真 defect，连 H4 接线）**：即便
+    `--config outcome=churn`，仍 regress on tenure——"prefer continuous outcome" tier 在 resolve_outcome 之前，
+    churn 不在 cont 候选里、config 被静默吞。违反 CLAUDE.md config 契约(override 应赢)。`ml_supervised._resolve_xy`
+    做对了、`ml.py:518-650` 没有。→ config["outcome"] 检查须在 cont-vs-binary tier 决策**之前**。
+23. **`entry_matches_goal` 忽略 `entry.goal`（goal 路由 bug）**：gradient_boosting 声明 `goal: predict` 却对
+    `--goal predict` 完全不可见(`recommender/goals.py:24-26,64-71` 用 whitelist+字面关键词，description 无"predict"字样)——
+    最该服务该目标、且唯一正确 honor config+分层 CV+报 F1 的方法反而消失。→ entry_matches_goal 应先信 entry.goal。
+24. **logistic 完美分离不动态诊断**：SE 爆到 1.9e8、p≈1，报告只有静态 `biases: perfect separation` boilerplate
+    (每次都印，非诊断)、无动态"没收敛"flag。→ 动态检测 SE≫coef/p≈1 pattern 绑回"未真正收敛"。
+25. gamm 作 `--goal predict` top pick 但截面数据无分组变量直接失败(阻断)。
+26. **✅ 正面**：customer_id(id-kind)正确排除、churn(第5列)高置信检测**对**——检测对，断在**binding 到执行**(#22)。
+    手动排除 refund_amount 后 logistic 近乎精确恢复真 DGP(tenure -0.068 vs 真 -0.08…)——底层统计引擎可信。
+> ⚠ **21 是新根因线 F（泄漏/可疑完美=零检测，最伤"诚实"招牌）；22/23 是可直接修的真 bug（config 契约+goal 路由）。**
+
 ## 待办：Wave K 需 Fable 回炉定稿
-Fable 的下方 Wave K 规划成于 P1/P2，**未含 P3(6-10)/P4(11-15)/P6(16-20)**。P5(churn 泄漏)报告 reset 丢失、未验。
-**下一步应让 Fable 参谋长读齐 P1-P4+P6(20 条发现)重排 Wave K**。五条根因线：
-A. count 语义桶(P1/P2) · B. 角色层英文-only+反语义+分类因子丢(P4) · C. 结构过度检测(时序/DoE 压过朴素比较, P6) ·
-D. 面板/推断质量(SE/pick 命令/study 崩溃计数, P3) · E. 执行层诚实(OR/丢暴露/嵌套 NaN/无人话结论/收敛信号, P1/P2/P6)。
-**头号元判据（5 persona 印证）：分析层可信，但"自动挡"(recommend/pick/study 自动选法+角色检测)在最常见数据
-形态上系统误路由、常静默给自信错答——直接戳北极星"自动选模越聪明"，对新手是帮倒忙。修选择/角色层优先于加新方法。**
+Fable 的下方 Wave K 规划成于 P1/P2，**未含 P3-P6(6-26)**。**6/6 persona 全到齐。下一步应让 Fable 参谋长读齐
+全部 26 条发现、重排 Wave K**。六条根因线：
+A. count 语义桶(P1/P2) · B. 角色层英文-only+反语义+分类因子丢(P4) · C. 结构过度检测(时序/DoE/goal 路由压过朴素, P3/P6) ·
+D. 面板/推断质量(SE/pick 命令, P3) · E. 执行层诚实(OR/丢暴露/嵌套 NaN/无人话结论/完美分离, P1/P2/P6) ·
+**F. 泄漏/可疑完美=零检测 + config 契约/goal 路由真 bug(P5，最伤诚实招牌)**。
+**头号元判据（6 persona 印证）：分析层可信、clean 层是强项，但"自动挡"(recommend/pick/study 自动选法+角色检测)
+在最常见数据形态上系统误路由、常静默给自信错答——最狠是 P5：把数据泄漏的 100% 准确率 narrate 成"诚实估计"。
+直接戳北极星"自动选模越聪明"，对新手是帮倒忙。修选择/角色/诚实-防护层，优先于加任何新方法。**
 
 
 ## Wave K 修复规划（Fable，可直接派工；下面成于 P1/P2，尚未含 P3 的 6-10）
