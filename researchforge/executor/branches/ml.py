@@ -521,13 +521,20 @@ def _branch_random_forest(ctx: Ctx) -> None:
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
     binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
 
+    # An explicit config outcome always wins, checked BEFORE the continuous/binary
+    # tier decision below (mirrors ml_supervised._resolve_xy's forced_y precedence) —
+    # otherwise a user-specified binary outcome could be silently overridden by the
+    # tier logic when a continuous column also exists.
     # Prefer a continuous outcome (regression). Classify a binary outcome only
     # when there is no continuous column — a lone binary is usually a
     # treatment / flag *feature*, not the prediction target. This prevents
     # silently running the wrong analysis on the common "outcome + indicator" shape.
     # Within each tier the shared resolver applies (config > high-confidence detected
     # outcome > first non-treatment-named > first) — closes selection→execution for ML.
-    if cont_cols:
+    forced_y = cfg.get("outcome")
+    if forced_y in df.columns:
+        outcome, is_clf = forced_y, forced_y not in cont_cols
+    elif cont_cols:
         outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
     elif binary_cols:
         outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True
@@ -628,13 +635,20 @@ def _branch_xgboost(ctx: Ctx) -> None:
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
     binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
 
+    # An explicit config outcome always wins, checked BEFORE the continuous/binary
+    # tier decision below (mirrors ml_supervised._resolve_xy's forced_y precedence) —
+    # otherwise a user-specified binary outcome could be silently overridden by the
+    # tier logic when a continuous column also exists.
     # Prefer a continuous outcome (regression). Classify a binary outcome only
     # when there is no continuous column — a lone binary is usually a
     # treatment / flag *feature*, not the prediction target. This prevents
     # silently running the wrong analysis on the common "outcome + indicator" shape.
     # Within each tier the shared resolver applies (config > high-confidence detected
     # outcome > first non-treatment-named > first) — closes selection→execution for ML.
-    if cont_cols:
+    forced_y = cfg.get("outcome")
+    if forced_y in df.columns:
+        outcome, is_clf = forced_y, forced_y not in cont_cols
+    elif cont_cols:
         outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
     elif binary_cols:
         outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True

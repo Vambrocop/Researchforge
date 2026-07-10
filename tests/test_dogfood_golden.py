@@ -165,16 +165,8 @@ def test_p4_rcbd_at_least_feasible(tmp_path: Path) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# P5 — churn 预测/泄漏 (发现 22, 真 bug；Wave K-F1)
+# P5 — churn 预测/泄漏 (发现 22, 真 bug；Wave K-F1 已落地 → 硬断言/回归护栏)
 # ─────────────────────────────────────────────────────────────────────────────
-_P5_CONFIG_XFAIL_REASON = (
-    "Wave K-F1 未落地：ml.py random_forest/xgboost 先看 cont_cols 是否非空再决定 tier，"
-    "resolve_outcome(fp, cfg, cont_cols) 里 churn(binary) 不在 cont_cols 候选内，"
-    "config['outcome']='churn' 被静默吞掉，仍回归 tenure（发现22，违反 config 契约）"
-)
-
-
-@pytest.mark.xfail(reason=_P5_CONFIG_XFAIL_REASON, strict=False)
 def test_p5_config_outcome_binds_random_forest(tmp_path: Path) -> None:
     fp = _profile(build_p5_churn(), tmp_path)
     res = run_analysis(fp, _CAT.by_id("random_forest"), output_root=str(tmp_path / "o"),
@@ -182,7 +174,6 @@ def test_p5_config_outcome_binds_random_forest(tmp_path: Path) -> None:
     assert "预测 churn" in res.summary, f"config outcome=churn not honored: {res.summary!r}"
 
 
-@pytest.mark.xfail(reason=_P5_CONFIG_XFAIL_REASON, strict=False)
 def test_p5_config_outcome_binds_xgboost(tmp_path: Path) -> None:
     fp = _profile(build_p5_churn(), tmp_path)
     res = run_analysis(fp, _CAT.by_id("xgboost"), output_root=str(tmp_path / "o"),
