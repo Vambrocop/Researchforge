@@ -19,7 +19,9 @@ def _branch_rcbd(ctx: Ctx) -> None:
     role_cols = [c.name for c in fp.columns
                  if c.kind in {"categorical", "binary", "count", "id"} and c.name not in _excl]
 
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # accept both "outcome" and "response" config keys (back-compat: either name works)
+    y_cfg = cfg.get("outcome") if cfg.get("outcome") in cont else cfg.get("response")
+    y = y_cfg if y_cfg in cont else (cont[0] if cont else None)
     # config overrides accept ANY column (a role factor may profile as count/id, not categorical)
     trt_cfg = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
     blk_cfg = cfg.get("block") if cfg.get("block") in df.columns else None

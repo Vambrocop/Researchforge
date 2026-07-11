@@ -45,16 +45,87 @@ def _branch_factorial_anova(ctx: Ctx) -> None:
         )
         return
 
+    # Complete-nesting guard (dogfood P6): one factor can be a deterministic function
+    # of the other (e.g. 城市 ⊂ 区域 — every city belongs to exactly one region). A
+    # "crossed" A*B formula is then exactly rank-deficient (it's a nested design, not
+    # a factorial one) — statsmodels silently returns F=nan and/or emits rank
+    # warnings straight to stderr. Detect via a strict many-to-one mapping test: every
+    # level of one factor pairs with exactly one level of the other. A true crossed
+    # design — even unbalanced, even with empty cells — has >=2 distinct
+    # partner-levels for at least one level of each factor, so this does not fire on
+    # genuine factorial data (only on an exact functional A->B or B->A mapping).
+    nest_a_in_b = bool(sub.groupby(fa, observed=True)[fb].nunique().eq(1).all())
+    nest_b_in_a = bool(sub.groupby(fb, observed=True)[fa].nunique().eq(1).all())
+    nested = nest_a_in_b or nest_b_in_a
+
     try:
+        import warnings
+
         import statsmodels.formula.api as smf
         from statsmodels.stats.anova import anova_lm
 
-        formula = f'Q("{y}") ~ C(Q("{fa}")) * C(Q("{fb}"))'
-        model = smf.ols(formula, data=sub).fit()
-        if _degenerate_fit(model, sub[y]):
-            summary.append("双因素方差分析失败：残差自由度不足/残差均方≈0 —— 设计近饱和，F 检验不可靠。")
+        if nested:
+            # inner = the factor that is nested *inside* the other (a strict
+            # refinement — every inner level maps to one outer level), so a one-way
+            # ANOVA on it drops no information; the outer factor is perfectly
+            # collinear with it and must be dropped from the model entirely.
+            if nest_a_in_b and not nest_b_in_a:
+                inner, outer = fa, fb
+            elif nest_b_in_a and not nest_a_in_b:
+                inner, outer = fb, fa
+            else:  # both directions hold (1:1 relabeling) — fall back to more levels
+                inner, outer = (fa, fb) if na >= nb else (fb, fa)
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                formula = f'Q("{y}") ~ C(Q("{inner}"))'
+                model = smf.ols(formula, data=sub).fit()
+                if _degenerate_fit(model, sub[y]):
+                    summary.append("双因素方差分析失败：残差自由度不足/残差均方≈0 —— 设计近饱和，F 检验不可靠。")
+                    return
+                aov = anova_lm(model, typ=2)
+            aov.to_csv(d / "anova_table.csv", encoding="utf-8")
+            files.append("anova_table.csv")
+
+            term = f'C(Q("{inner}"))'
+            f_in = float(aov.loc[term, "F"]) if term in aov.index else float("nan")
+            p_in = float(aov.loc[term, "PR(>F)"]) if term in aov.index else float("nan")
+            estimates.update({
+                "A_F": f_in, "A_p": p_in,
+                "B_F": float("nan"), "B_p": float("nan"),
+                "interaction_F": float("nan"), "interaction_p": float("nan"),
+                "r_squared": float(model.rsquared),
+            })
+            warn_note = (
+                f" 拟合期间 {len(caught)} 条底层数值警告已收口（未泄漏到终端）。" if caught else ""
+            )
+            summary.append(
+                f"⚠ 检测到 {inner}⊂{outer} 完全嵌套（{inner} 的每个水平只对应唯一 {outer} 水平，"
+                "非交叉析因设计）—— 含交互的双因素模型不可估（设计矩阵秩亏，会得到 F=nan）。"
+                f"已降级为单因子 ANOVA：{y} ~ {inner}（{outer} 与之完全共线，已略去）。"
+                f"F={f_in:.3f}, p={p_in:.3g}；R²={model.rsquared:.3f}。{warn_note}"
+                " 若两因子本应是交叉设计，请检查数据采集是否有混淆；若确系嵌套，宜改用嵌套（分层）ANOVA。"
+            )
+            code += [
+                "import statsmodels.formula.api as smf",
+                "from statsmodels.stats.anova import anova_lm",
+                f'# {inner} 与 {outer} 完全嵌套，非交叉析因 —— 降级为单因子模型',
+                f'model = smf.ols(\'Q("{y}") ~ C(Q("{inner}"))\', data=df).fit()',
+                "print(anova_lm(model, typ=2))",
+            ]
             return
-        aov = anova_lm(model, typ=2)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            formula = f'Q("{y}") ~ C(Q("{fa}")) * C(Q("{fb}"))'
+            model = smf.ols(formula, data=sub).fit()
+            if _degenerate_fit(model, sub[y]):
+                summary.append("双因素方差分析失败：残差自由度不足/残差均方≈0 —— 设计近饱和，F 检验不可靠。")
+                return
+            aov = anova_lm(model, typ=2)
+        warn_note = (
+            f" 拟合期间 {len(caught)} 条底层数值警告已收口（未泄漏到终端）。" if caught else ""
+        )
         aov.to_csv(d / "anova_table.csv", encoding="utf-8")
         files.append("anova_table.csv")
 
@@ -114,6 +185,7 @@ def _branch_factorial_anova(ctx: Ctx) -> None:
             f"A: F={fA:.3f},p={pA:.3g} ｜ B: F={fB:.3f},p={pB:.3g} ｜ A×B: F={fI:.3f},p={pI:.3g}；"
             f"R²={model.rsquared:.3f}。{emph}"
             " ⚠ 残差正态/等方差假定；Type II SS（主效应行不随交互校正；不平衡且含交互时 Type III + sum 对照是另一口径）。"
+            f"{warn_note}"
         )
         code += [
             "import statsmodels.formula.api as smf",

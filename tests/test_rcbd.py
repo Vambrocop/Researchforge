@@ -60,6 +60,27 @@ def test_rcbd_rejects_degenerate_design(tmp_path: Path) -> None:
     assert "treatment_p" not in res.estimates   # no spurious F/p emitted
 
 
+def test_rcbd_accepts_response_config_key_alias(tmp_path: Path) -> None:
+    # D5: outcome column may be specified via config["response"] as well as
+    # config["outcome"] (back-compat with the field_trials rcbd_anova key name).
+    rng = np.random.default_rng(0)
+    trt_eff = {"A": 0.0, "B": 2.0, "C": 4.0, "D": 6.0}
+    rows = []
+    for b in range(1, 7):
+        b_eff = rng.normal(0, 1.5)
+        for t in trt_eff:
+            rows.append({"yield": 10 + trt_eff[t] + b_eff + rng.normal(0, 0.5),
+                         "variety": t, "block": b})
+    csv = tmp_path / "trial.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"),
+                       config={"response": "yield", "treatment": "variety", "block": "block"})
+    assert "完成" in res.summary
+    assert res.estimates["treatment_p"] < 0.01
+    assert res.estimates["treatment_F"] > 5
+
+
 def test_rcbd_needs_treatment_and_block(tmp_path: Path) -> None:
     # only one factor available -> cannot form a block design
     rng = np.random.default_rng(1)
