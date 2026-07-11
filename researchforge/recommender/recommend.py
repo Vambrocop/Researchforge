@@ -98,7 +98,11 @@ def select_top(
     pool so the data's actual structure (overdispersion, non-normality, collinearity…)
     promotes the methods that handle it. ``plan`` can be passed in to avoid re-reading
     the file; otherwise it is built on demand."""
-    from researchforge.recommender.goals import entry_matches_goal, resolve_goal
+    from researchforge.recommender.goals import (
+        entry_matches_goal,
+        has_design_signal,
+        resolve_goal,
+    )
 
     recs = recommend(fp, catalog=catalog, include_infeasible=True)
     gk = resolve_goal(goal)
@@ -110,6 +114,15 @@ def select_top(
 
             plan = build_plan(fp, catalog=catalog)
         recs = apply_diagnostic_ranking(recs, plan)
+    # Observational data under a comparison goal: designed-experiment methods (factorial /
+    # split-plot / RCBD / Latin square / AMMI…) presuppose a design that isn't present, so
+    # they must not crowd out the naive group comparison (发现16). Stable demotion sinks the
+    # whole experimental_design family below the genuine comparison methods (group_comparison,
+    # one-way ANOVA, Kruskal–Wallis) while preserving their relative order. Goal-scoped and
+    # gated on the absence of any treatment/block column, so a real RCBD trial (design signal
+    # present) is untouched and the no-goal ranking is never affected (Wave K-C1).
+    if gk == "compare" and not has_design_signal(fp):
+        recs = sorted(recs, key=lambda r: r.entry.family == "experimental_design")
     feasible = [r for r in recs if r.feasible]
     pool = feasible or recs  # nothing feasible -> show the closest (red, needs informed override)
     return pool[:top]

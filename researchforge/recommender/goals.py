@@ -74,3 +74,25 @@ def entry_matches_goal(entry: AnalysisEntry, goal_key: str) -> bool:
         return True
     hay = f"{entry.method} {entry.description} {entry.domain}".lower()
     return any(kw in hay for kw in g["kw"])
+
+
+# Treatment/block vocabulary that marks a DESIGNED experiment (vs. observational data).
+# A coarse bilingual subset of experimental_design/_shared {_BLOCK_HINTS, _TRT_HINTS}, kept
+# recommender-local on purpose: importing the executor.branches package here would drag in
+# ~130 branch modules (walk_packages registration) on the recommendation hot path. Wave L
+# (ColumnSemantics) should relocate this vocabulary to a neutral column-semantics home so the
+# recommender and the executor share one definition. Keep in sync with _shared until then.
+_DESIGN_SIGNAL_HINTS = (
+    "treat", "trt", "block", "rep", "replicate", "plot", "variety", "cultivar",
+    "genotype", "hybrid", "dose",
+    "处理", "区组", "重复", "组块", "品种", "剂量", "水平", "施肥", "组别",
+)
+
+
+def has_design_signal(fp) -> bool:
+    """True when a column name signals a designed experiment (a treatment or block factor).
+    Distinguishes a real DoE (RCBD/factorial/split-plot…) from observational data that merely
+    has categorical groups — used to stop designed-experiment methods from crowding out the
+    naive group comparison under ``--goal compare`` on observational data (Wave K-C1, 发现16)."""
+    names = [str(c.name).lower() for c in fp.columns]
+    return any(h in nm for nm in names for h in _DESIGN_SIGNAL_HINTS)

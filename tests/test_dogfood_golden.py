@@ -225,3 +225,41 @@ def test_p6_messy_profiler_survives_and_flags_issues(tmp_path: Path) -> None:
     assert {"duplicate_rows", "constant", "missing"} <= kinds, (
         f"expected duplicate/constant/missing issues flagged, got kinds={sorted(kinds)}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C1 — goal=compare 排序 (发现16；Wave K-C1 已落地 → 硬断言)
+# 观测数据(无 treatment/block 列)在 --goal compare 下，DoE 怪兽(factorial/split-plot/RCBD/
+# Latin/AMMI)不得压过朴素 group_comparison；有设计信号(P4 处理/区组)时 DoE 排位不动。
+# ─────────────────────────────────────────────────────────────────────────────
+def _compare_top_ids(fp, k: int = _TOP_K) -> list[str]:
+    return [r.entry.id for r in select_top(fp, goal="compare", top=k)]
+
+
+def test_p6_compare_goal_surfaces_naive_comparison(tmp_path: Path) -> None:
+    from researchforge.recommender.goals import has_design_signal
+
+    fp = _profile(build_p6_messy(), tmp_path)
+    assert not has_design_signal(fp), "P6 is observational — no treatment/block column expected"
+    top = _compare_top_ids(fp)
+    assert "group_comparison" in top, (
+        f"naive group_comparison should surface in top-{_TOP_K} on observational compare data, got {top}"
+    )
+    doe = {"factorial_anova", "split_plot", "rcbd", "latin_square", "ammi", "gge_biplot"}
+    assert not (doe & set(top)), (
+        f"designed-experiment methods must not crowd top-{_TOP_K} on observational data, got {sorted(doe & set(top))}"
+    )
+
+
+def test_p4_compare_goal_keeps_doe_when_design_signal(tmp_path: Path) -> None:
+    """Gate check: P4 HAS a design signal (处理/区组), so the C1 demotion must NOT fire — a real
+    RCBD trial keeps its designed-experiment methods eligible while naive comparison also shows."""
+    from researchforge.recommender.goals import has_design_signal
+
+    fp = _profile(build_p4_rcbd(), tmp_path)
+    assert has_design_signal(fp), "P4 is a designed RCBD — 处理/区组 should signal design"
+    top = _compare_top_ids(fp)
+    assert "group_comparison" in top, f"group_comparison should still surface on P4, got {top}"
+    assert {"factorial_anova", "rcbd", "split_plot"} & set(top), (
+        f"designed-experiment methods must stay eligible when a design signal is present, got {top}"
+    )
