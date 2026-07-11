@@ -105,17 +105,9 @@ def test_p3_panel_family_feasible(tmp_path: Path) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# P4 — 农学 RCBD (发现 11；Wave K-B1 — role hints 英文 only 反转角色)
+# P4 — 农学 RCBD (发现 11；Wave K-B1 已落地 → 硬断言)
+# B1 给 _TRT_HINTS/_BLOCK_HINTS 加中文子串(处理/区组…)后，角色不再反转：处理绑 treatment、区组绑 block。
 # ─────────────────────────────────────────────────────────────────────────────
-_P4_ROLE_XFAIL = pytest.mark.xfail(
-    reason="Wave K-B1 未落地：_TRT_HINTS/_BLOCK_HINTS 只认英文子串，中文'处理'/'区组'两个都不命中，"
-    "兜底按列声明顺序分配角色 -> 处理(5 水平)被当 block、区组(4 水平)被当 treatment，"
-    "角色反转、无披露（发现11，阻断级）",
-    strict=False,
-)
-
-
-@_P4_ROLE_XFAIL
 def test_p4_rcbd_roles_not_reversed(tmp_path: Path) -> None:
     df = build_p4_rcbd()
     csv = tmp_path / "p4.csv"
@@ -131,7 +123,6 @@ def test_p4_rcbd_roles_not_reversed(tmp_path: Path) -> None:
     )
 
 
-@_P4_ROLE_XFAIL
 def test_p4_rcbd_anova_roles_not_reversed(tmp_path: Path) -> None:
     df = build_p4_rcbd()
     csv = tmp_path / "p4.csv"

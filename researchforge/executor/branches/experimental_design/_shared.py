@@ -7,8 +7,10 @@ because they are specific to design-aware analyses (block/treatment/plot/G×E ro
 from __future__ import annotations
 
 # column-name hints for auto-detecting roles when config doesn't specify them
-_BLOCK_HINTS = ("block", "rep", "replicate", "site", "field", "batch")
-_TRT_HINTS = ("treat", "trt", "variety", "cultivar", "genotype", "hybrid", "factor", "dose", "level")
+_BLOCK_HINTS = ("block", "rep", "replicate", "site", "field", "batch",
+                "区组", "重复", "组块", "块")
+_TRT_HINTS = ("treat", "trt", "variety", "cultivar", "genotype", "hybrid", "factor", "dose", "level",
+              "处理", "品种", "剂量", "水平", "施肥", "组别")
 _ROW_HINTS = ("row", "lane")
 _COL_HINTS = ("col", "column", "position")
 _GENO_HINTS = ("genotype", "geno", "variety", "cultivar", "hybrid", "line", "entry", "accession")

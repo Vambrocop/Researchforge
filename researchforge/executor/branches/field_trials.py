@@ -33,8 +33,10 @@ from researchforge.executor._branch_api import Ctx, register
 _FACTOR_KINDS = {"categorical", "binary", "count", "id"}
 _MAX_LEVELS = 20  # field-trial factors are small; guard against an id column sneaking in
 
-_BLOCK_HINTS = ("block", "blk", "rep", "replicate", "replication", "plot")
-_TRT_HINTS = ("treatment", "trt", "treat", "variety", "cultivar", "hybrid", "dose", "fert")
+_BLOCK_HINTS = ("block", "blk", "rep", "replicate", "replication", "plot",
+                "区组", "重复", "组块", "块")
+_TRT_HINTS = ("treatment", "trt", "treat", "variety", "cultivar", "hybrid", "dose", "fert",
+              "处理", "品种", "剂量", "施肥")
 _ROW_HINTS = ("row",)
 _COL_HINTS = ("col", "column")
 _WHOLE_HINTS = ("wholeplot", "whole", "main", "mainplot", "irrigation", "tillage")
@@ -77,6 +79,15 @@ def _pick(df, fp, hints, excl, pool=None):
     return None
 
 
+def _via_hint(name, hints) -> bool:
+    """True if `name` itself matches one of the hint substrings — i.e. `_pick` resolved
+    it by name-hint, not by falling back to column-declaration order."""
+    if name is None:
+        return False
+    low = str(name).strip().lower()
+    return any(h in low for h in hints)
+
+
 def _resolve_response(cfg, fp):
     cont = _continuous(fp)
     y = cfg.get("response") or cfg.get("outcome")
@@ -104,11 +115,18 @@ def _branch_rcbd_anova(ctx: Ctx) -> None:
     y = _resolve_response(cfg, fp)
     block = cfg.get("block") if cfg.get("block") in df.columns else None
     trt = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
+    block_cfg, trt_cfg = block, trt
     excl = {y, fp.unit_col, fp.time_col}
     if trt is None:
         trt = _pick(df, fp, _TRT_HINTS, excl | ({block} if block else set()))
     if block is None:
         block = _pick(df, fp, _BLOCK_HINTS, excl | ({trt} if trt else set()))
+    # order-fallback disclosure: only when NOT explicitly configured AND `_pick` had to
+    # fall back to column-declaration order (no hint matched either candidate name).
+    order_guessed = (
+        (trt_cfg is None and not _via_hint(trt, _TRT_HINTS))
+        or (block_cfg is None and not _via_hint(block, _BLOCK_HINTS))
+    )
 
     if y is None or trt is None or block is None or len({y, trt, block}) < 3:
         summary.append(
@@ -234,6 +252,10 @@ def _branch_rcbd_anova(ctx: Ctx) -> None:
             "区组相对效率<1 时说明区组化反而不划算。"
             " ⚠ η²/偏η² 在小设计下偏向上偏（高估解释比例）；ω²/ε² 偏差更小，报告时可优先参考。"
         )
+        if order_guessed:
+            summary.append(
+                f"⚠ 角色按列序猜测（处理={trt}/区组={block}），若不符可用 config 覆盖。"
+            )
     except Exception as e:
         summary.append(f"RCBD 方差分析失败：{type(e).__name__}: {e}")
 

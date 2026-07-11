@@ -37,12 +37,16 @@ def _branch_rcbd(ctx: Ctx) -> None:
         treatment = _pick(_TRT_HINTS, {block})
     if block is None:
         block = _pick(_BLOCK_HINTS, {treatment})
-    # last resort: fill remaining roles from leftover role columns
+    # last resort: fill remaining roles from leftover role columns, in column-declaration
+    # order — no hint matched either name, so this is a pure positional guess.
     leftover = [c for c in role_cols if c not in {treatment, block} and c != y]
+    order_guessed = False
     if treatment is None and leftover:
         treatment = leftover.pop(0)
+        order_guessed = True
     if block is None and leftover:
         block = leftover.pop(0)
+        order_guessed = True
     # nudge to set config unless BOTH roles were explicitly configured (name-hint/leftover picks too)
     guessed = not (trt_cfg is not None and blk_cfg is not None)
 
@@ -144,6 +148,10 @@ def _branch_rcbd(ctx: Ctx) -> None:
             "处理×区组交互）；残差正态/等方差假定；区组亦可作随机效应（混合模型）。"
             " Tukey HSD 与均值±CI **未扣除区组**（用一元误差项），比 RCBD 的 F 检验保守、口径不同。"
         )
+        if order_guessed:
+            summary.append(
+                f"⚠ 角色按列序猜测（处理={treatment}/区组={block}），若不符可用 config 覆盖。"
+            )
         code += [
             "import statsmodels.formula.api as smf",
             "from statsmodels.stats.anova import anova_lm",
