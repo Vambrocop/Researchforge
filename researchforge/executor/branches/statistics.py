@@ -534,6 +534,23 @@ def _welch_anova(groups: list) -> tuple[float, float, float, float] | None:
     return float(F), p, df1, float(df2)
 
 
+# Column-name hints for a block/replicate/site role — kept local to this family
+# (not imported from executor/branches/experimental_design/_shared.py) to avoid
+# cross-family coupling per CLAUDE.md's helper-placement convention. A group_col
+# candidate whose name matches one of these is a *design* nuisance factor (block,
+# replicate, batch, site) rather than the treatment/grouping factor the analyst
+# actually wants compared — see docs/dogfood-findings.md #12.
+_GROUP_BLOCK_HINTS = (
+    "block", "blk", "rep", "replicate", "replication", "batch", "site", "field", "plot",
+    "区组", "重复", "地块", "批次", "小区", "场地",
+)
+
+
+def _looks_block_named(name: str) -> bool:
+    lname = name.lower()
+    return any(h in lname for h in _GROUP_BLOCK_HINTS)
+
+
 @register("group_comparison")
 def _branch_group_comparison(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
@@ -543,17 +560,40 @@ def _branch_group_comparison(ctx: Ctx) -> None:
     _excl = {fp.unit_col, fp.time_col}
     bin_cols = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     cat_cols = [c.name for c in fp.columns if c.kind == "categorical" and c.name not in _excl]
-    # prefer a binary group; otherwise the lowest-cardinality categorical, so a
-    # high-cardinality unit/id column is never picked as the grouping variable.
-    cat_cols.sort(key=lambda name: int(df[name].nunique()))
     group_candidates = bin_cols + cat_cols
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
-    group_col = group_candidates[0] if group_candidates else None
     outcome = cont_cols[0] if cont_cols else None
+
+    group_override = cfg.get("group")
+    guessed_group = True
+    if group_override in df.columns:
+        group_col = group_override
+        guessed_group = False
+    elif group_candidates:
+        # Layer 1: candidates whose name does NOT look like a block/replicate/site
+        # nuisance factor get first dibs — a block-hint name is demoted so a real
+        # treatment/grouping factor is never shadowed by a block that happens to
+        # have fewer levels (the old `sort by nunique` picked whichever column had
+        # the fewest levels, which is backwards: it favored blocks over treatments).
+        # Binary-before-categorical and ascending-nunique remain as tie-breakers
+        # within a layer (the original nunique-sort's purpose — keep high-cardinality
+        # id-like columns from winning — is preserved, just demoted to tie-break).
+        def _rank(name: str) -> tuple:
+            return (
+                1 if _looks_block_named(name) else 0,
+                0 if name in bin_cols else 1,
+                int(df[name].nunique()),
+            )
+
+        group_col = sorted(group_candidates, key=_rank)[0]
+    else:
+        group_col = None
 
     if group_col is None or outcome is None:
         summary.append("组间比较失败：未找到分组变量或连续结果变量。")
     else:
+        if guessed_group:
+            summary.append(f"⚠ 自动选分组={group_col}（可用 config[\"group\"] 覆盖）")
         # Per-group means/counts
         group_means = df.groupby(group_col)[outcome].agg(["mean", "count", "std"])
         group_means.to_csv(d / "group_means.csv", encoding="utf-8")
@@ -743,48 +783,106 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
         if group_col is None:
             summary.append("混合模型失败：未找到分组变量(随机效应)。")
         else:
-            predictors = [
-                c.name
-                for c in fp.columns
-                if c.kind in {"continuous", "count", "binary"}
-                and c.name not in {outcome, group_col, fp.unit_col, fp.time_col}
+            # Wave K-B3: categorical fixed effects used to be silently dropped
+            # (only continuous/count/binary were collected) — a treatment factor
+            # like "variety"/"处理" with >2 levels vanished from the model without
+            # any disclosure. Now categorical predictors are kept and dummy-coded
+            # in the formula via `C(Q('col'))` (statsmodels/patsy native syntax —
+            # a proper identifier-safe formula-builder helper is deferred to the
+            # B4 batch, per Wave K plan; Q() already handles arbitrary column
+            # names here the same way the rest of this module's formula strings do).
+            _excl_names = {outcome, group_col, fp.unit_col, fp.time_col}
+            predictor_cols = [
+                c for c in fp.columns
+                if c.kind in {"continuous", "count", "binary", "categorical"}
+                and c.name not in _excl_names
+                # skip a single-level categorical: C() yields zero dummies → a silent
+                # "完成 but no estimate" pseudo-success (B3 冷审 NICE)
+                and not (c.kind == "categorical" and df[c.name].nunique(dropna=True) < 2)
             ][:5]
-            rhs = [f"Q('{v}')" for v in predictors]
+            predictors = [c.name for c in predictor_cols]
+            rhs = [
+                f"C(Q('{c.name}'))" if c.kind == "categorical" else f"Q('{c.name}')"
+                for c in predictor_cols
+            ]
             # Control for time on panel data — otherwise a staggered treatment is
             # confounded with the time trend (mirrors _regression's FE handling).
             if fp.time_col and fp.time_col != group_col:
                 rhs.append(f"C(Q('{fp.time_col}'))")
-            formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
-            try:
-                model = smf.mixedlm(formula, data=df, groups=df[group_col]).fit()
-                (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
-                files.append("summary.txt")
-                try:
-                    import pandas as pd
-                    pd.DataFrame(model.summary().tables[1]).to_csv(
-                        d / "coefficients.csv", encoding="utf-8"
-                    )
-                except Exception:
-                    import pandas as pd
-                    model.params.to_frame(name="coef").to_csv(
-                        d / "coefficients.csv", encoding="utf-8"
-                    )
-                files.append("coefficients.csv")
-                for v in predictors:
-                    kn = f"Q('{v}')"
-                    if kn in model.params.index:
-                        estimates[v] = float(model.params[kn])
-                summary.append(
-                    f"{entry.method} 完成：结果变量 {outcome}，随机效应分组 {group_col}，"
-                    f"固定效应 {len(predictors)} 个"
-                )
-                code += [
-                    "import statsmodels.formula.api as smf",
-                    f'model = smf.mixedlm("{formula}", data=df, groups=df["{group_col}"]).fit()',
-                    "print(model.summary())",
-                ]
-            except Exception as err:
-                summary.append(f"混合模型未收敛/失败：{err}")
+
+            if not rhs:
+                # Degenerate to an intercept-only "model" (no fixed-effect
+                # predictors survived filtering, and no time control either) —
+                # this used to still report "完成" (looked like a fitted model
+                # with nothing to say). Report failure instead of a misleading
+                # success.
+                summary.append("mixed_effects 失败：无可用固定效应预测变量")
+            else:
+                formula = f"Q('{outcome}') ~ " + " + ".join(rhs)
+                # Wave K-B3 冷审(SHOULD)：mixedlm.from_formula 默认 missing='none'，patsy 丢 NaN
+                # 行后 endog 变短、groups 数组仍全长 → IndexError，被下方 except 谎报"未收敛"。
+                # 分类预测变量更常带缺失（B3 放大此隐患），故拟合前手动 listwise 删除对齐。
+                _acols = [outcome, group_col, *predictors]
+                if fp.time_col and fp.time_col != group_col:
+                    _acols.append(fp.time_col)
+                sub = df[[c for c in dict.fromkeys(_acols) if c in df.columns]].dropna().reset_index(drop=True)
+                if len(sub) < 20 or sub[group_col].nunique() < 2:
+                    summary.append("mixed_effects 失败：删除缺失后有效样本(<20)或分组(<2)不足")
+                else:
+                    try:
+                        model = smf.mixedlm(formula, data=sub, groups=sub[group_col]).fit()
+                        (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
+                        files.append("summary.txt")
+                        try:
+                            import pandas as pd
+                            pd.DataFrame(model.summary().tables[1]).to_csv(
+                                d / "coefficients.csv", encoding="utf-8"
+                            )
+                        except Exception:
+                            import pandas as pd
+                            model.params.to_frame(name="coef").to_csv(
+                                d / "coefficients.csv", encoding="utf-8"
+                            )
+                        files.append("coefficients.csv")
+                        _n_cat = 0
+                        for c in predictor_cols:
+                            v = c.name
+                            if c.kind == "categorical":
+                                prefix = f"C(Q('{v}'))["
+                                hit = False
+                                for idx in model.params.index:
+                                    if idx.startswith(prefix):
+                                        level = idx[len(f"C(Q('{v}'))"):]
+                                        estimates[f"{v}{level}"] = float(model.params[idx])
+                                        hit = True
+                                if hit:
+                                    _n_cat += 1
+                            else:
+                                # 数值预测变量用精确键；但**字符串编码的二值列**被 patsy 自动
+                                # 哑变量化成 Q('v')[T.level]，精确键落空 → 回退前缀扫描，免得系数
+                                # 静默漏出 estimates（B3 冷审 SHOULD）。
+                                kn = f"Q('{v}')"
+                                if kn in model.params.index:
+                                    estimates[v] = float(model.params[kn])
+                                else:
+                                    for idx in model.params.index:
+                                        if idx.startswith(kn + "["):
+                                            estimates[f"{v}{idx[len(kn):]}"] = float(model.params[idx])
+                        _cat_note = (
+                            f"（含 {_n_cat} 个分类固定效应已哑变量化，以各自首水平为参照）" if _n_cat else ""
+                        )
+                        summary.append(
+                            f"{entry.method} 完成：结果变量 {outcome}，随机效应分组 {group_col}，"
+                            f"固定效应 {len(predictors)} 个{_cat_note}"
+                        )
+                        code += [
+                            "import statsmodels.formula.api as smf",
+                            f"sub = df.dropna(subset={[outcome, group_col, *predictors]!r})  # 对齐 groups/endog",
+                            f'model = smf.mixedlm("{formula}", data=sub, groups=sub["{group_col}"]).fit()',
+                            "print(model.summary())",
+                        ]
+                    except Exception as err:
+                        summary.append(f"混合模型未收敛/失败：{err}")
 
 
 

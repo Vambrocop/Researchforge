@@ -433,3 +433,66 @@ def test_executor_group_comparison_degenerate_variance_skips_honestly(tmp_path):
     assert "pvalue" not in res.estimates
     assert "失败" in res.summary
     assert "方差为 0" in res.summary
+
+
+# ---------------------------------------------------------------------------
+# 7. group_comparison — Wave K-B2: block-hint layering must not let a
+#    lower-cardinality *block* (RCBD nuisance factor) shadow the real
+#    treatment/grouping factor just because it has fewer levels.
+# ---------------------------------------------------------------------------
+
+def _make_rcbd_csv(tmp_path: Path) -> Path:
+    """Textbook RCBD shape: 4 blocks x 5 treatments x 3 reps. Block has FEWER
+    levels (4) than treatment (5) — the old `sort by nunique ascending` picked
+    block first, which is backwards (docs/dogfood-findings.md #12)."""
+    rng = np.random.default_rng(9)
+    blocks = [f"B{i}" for i in range(4)]
+    trts = [f"T{i}" for i in range(5)]
+    rows = []
+    for b in blocks:
+        for i, t in enumerate(trts):
+            for _ in range(3):
+                rows.append({
+                    "block": b,
+                    "trt": t,
+                    "yield": 10.0 + i * 2.0 + rng.normal(0, 0.3),
+                })
+    df = pd.DataFrame(rows)
+    csv = tmp_path / "rcbd.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def test_group_comparison_prefers_treatment_over_lower_card_block(tmp_path):
+    csv = _make_rcbd_csv(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+    gm = pd.read_csv(Path(res.output_dir) / "group_means.csv")
+
+    # must group by 'trt' (5 levels), NOT 'block' (4 levels, fewer -> would have
+    # won under the old nunique-ascending sort).
+    assert gm.columns[0] == "trt", f"expected grouped by trt, got columns {list(gm.columns)}"
+    assert len(gm) == 5
+    assert "⚠ 自动选分组=trt" in res.summary
+
+
+def test_group_comparison_config_group_override(tmp_path):
+    """config["group"] must win over the auto heuristic even when it points at
+    a block-hint-named column."""
+    csv = _make_rcbd_csv(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(
+        fp, entry, output_root=str(tmp_path / "outputs2"), config={"group": "block"}
+    )
+    gm = pd.read_csv(Path(res.output_dir) / "group_means.csv")
+
+    assert gm.columns[0] == "block"
+    assert len(gm) == 4
+    # explicit override -> no "auto-picked" disclosure
+    assert "⚠ 自动选分组" not in res.summary
