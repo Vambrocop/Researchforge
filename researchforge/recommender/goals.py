@@ -67,5 +67,10 @@ def entry_matches_goal(entry: AnalysisEntry, goal_key: str) -> bool:
         return True
     if entry.family in g["families"] or entry.id in g["ids"]:
         return True
+    # Trust the catalog's own goal field where the value domains actually align: entry.goal
+    # is describe/explain/predict (catalog/schema.py), which only overlaps the user-facing
+    # goal keys at "predict" — so this only widens the predict route (dogfood finding P5/F2).
+    if goal_key == "predict" and getattr(entry, "goal", None) == "predict":
+        return True
     hay = f"{entry.method} {entry.description} {entry.domain}".lower()
     return any(kw in hay for kw in g["kw"])

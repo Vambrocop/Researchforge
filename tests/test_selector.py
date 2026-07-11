@@ -33,6 +33,16 @@ def test_resolve_goal() -> None:
     assert resolve_goal(None) is None
 
 
+def test_entry_matches_predict_via_catalog_goal_field() -> None:
+    # Wave K-F2: 一个 catalog goal='predict' 的方法在 --goal predict 下应匹配（信 entry.goal），
+    # 即便它不在硬编码的 predict id/family 表里（dogfood 发现 P5）。
+    from researchforge.catalog import Catalog
+
+    preds = [e for e in Catalog.load().entries if getattr(e, "goal", None) == "predict"]
+    assert preds, "expected catalog entries with goal=predict"
+    assert all(entry_matches_goal(e, "predict") for e in preds)
+
+
 def test_select_top_caps_and_filters(tmp_path: Path) -> None:
     fp = profile_dataset(_rich_csv(tmp_path))
     top6 = select_top(fp, top=6)
