@@ -181,6 +181,67 @@ def test_cronbach_too_few_items_skips(tmp_path: Path) -> None:
     assert (Path(res.output_dir) / "report.md").exists()
 
 
+def test_cronbach_default_prefers_ordinal_like_over_age(tmp_path: Path) -> None:
+    # Wave K E2 (dogfood P1): a Likert questionnaire (8 bounded 1-5 satisfaction
+    # items -> profiler ordinal_like=True) sits alongside a demographic `age`
+    # column that also profiles as numeric (`count`, non-negative integer) but
+    # is NOT ordinal_like (wide range, >7 distinct levels). Age has nothing to
+    # do with the scale's internal consistency; if the old "all continuous+count"
+    # default swept it in, its huge/unrelated variance collapses alpha toward 0.
+    # The new default should auto-restrict to the 8 ordinal_like items and
+    # recover a plausible internal-consistency reading.
+    rng = np.random.default_rng(7)
+    n = 150
+    theta = rng.normal(0, 1, n)
+    items = {
+        f"q{j}": np.clip(np.round(3 + theta + rng.normal(0, 0.9, n)), 1, 5).astype(int)
+        for j in range(1, 9)
+    }
+    df = pd.DataFrame(items)
+    df["age"] = rng.integers(18, 70, n)  # unrelated demographic, wide range -> not ordinal_like
+    csv = tmp_path / "p1_likert.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    age_col = next(c for c in fp.columns if c.name == "age")
+    assert age_col.ordinal_like is False, "test fixture assumption: age must not be ordinal_like"
+    q_cols = [c for c in fp.columns if c.name.startswith("q")]
+    assert all(c.ordinal_like for c in q_cols), "test fixture assumption: q1..q8 must be ordinal_like"
+
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
+
+    assert res.estimates["n_items"] == 8.0
+    stats = pd.read_csv(Path(res.output_dir) / "cronbach_item_stats.csv")
+    assert set(stats["item"]) == {f"q{j}" for j in range(1, 9)}
+    assert "age" not in set(stats["item"])
+    # alpha recovers to a plausible internal-consistency band instead of
+    # collapsing toward 0 under age's unrelated variance.
+    assert 0.5 <= res.estimates["cronbach_alpha"] <= 0.9
+
+
+def test_cronbach_falls_back_to_full_default_without_ordinal_like_columns(tmp_path: Path) -> None:
+    # A hand-built continuous scale (no profiler ordinal_like columns at all,
+    # e.g. z-scored / non-integer items) must still resolve to the old
+    # unrestricted continuous+count default -- alpha is also legitimately used
+    # for continuous scales, so prefer_ordinal must never turn into a hard
+    # requirement / honest-skip that didn't exist before.
+    rng = np.random.default_rng(8)
+    theta = rng.normal(0.0, 1.0, 40)
+    df = pd.DataFrame(
+        {f"i{j + 1}": theta + rng.normal(0.0, 0.30, 40) for j in range(4)}
+    )
+    csv = tmp_path / "continuous_scale.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert not any(getattr(c, "ordinal_like", False) for c in fp.columns)
+
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
+
+    assert "cronbach_alpha" in res.estimates
+    assert res.estimates["n_items"] == 4.0
+
+
 def test_cronbach_non_numeric_skips(tmp_path: Path) -> None:
     # All-categorical -> no continuous/count items -> honest skip, no crash.
     df = pd.DataFrame(

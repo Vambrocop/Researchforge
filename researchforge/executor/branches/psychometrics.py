@@ -28,7 +28,7 @@ from researchforge.executor._branch_api import Ctx, register
 # Shared item-resolution helper (local to this family)
 # ---------------------------------------------------------------------------
 
-def _resolve_items(ctx: Ctx) -> list[str]:
+def _resolve_items(ctx: Ctx, prefer_ordinal: bool = False) -> list[str]:
     """Pick the item / rater columns.
 
     Priority: config ``items`` then config ``columns`` (any columns the user
@@ -36,17 +36,29 @@ def _resolve_items(ctx: Ctx) -> list[str]:
     continuous + count columns excluding the panel unit/time columns. Likert
     items are frequently profiled as ``count`` (small-integer) — both kinds are
     accepted so ordinal scales are not silently dropped.
+
+    ``prefer_ordinal=True`` (cronbach_alpha only) narrows that auto default to
+    columns the profiler flags ``ordinal_like`` (bounded rating-scale items,
+    e.g. 1–5 Likert) when at least one such column exists — this keeps
+    non-scale numeric columns (age, id-like counts, …) that happen to sit
+    alongside a questionnaire out of the reliability estimate. Falls back to
+    the unrestricted continuous+count default when no ordinal_like column is
+    present (Cronbach's alpha is also used for continuous scales), so this is
+    additive and never causes an honest-skip that didn't happen before.
     """
     df, fp, cfg = ctx.df, ctx.fp, ctx.cfg
     forced = cfg.get("items") or cfg.get("columns")
     if forced:
         return [c for c in forced if c in df.columns]
     excl = {fp.unit_col, fp.time_col}
-    return [
-        c.name
-        for c in fp.columns
-        if c.kind in {"continuous", "count"} and c.name not in excl
+    candidates = [
+        c for c in fp.columns if c.kind in {"continuous", "count"} and c.name not in excl
     ]
+    if prefer_ordinal:
+        ordinal = [c.name for c in candidates if getattr(c, "ordinal_like", False)]
+        if ordinal:
+            return ordinal
+    return [c.name for c in candidates]
 
 
 # ===========================================================================
@@ -60,7 +72,7 @@ def _branch_cronbach_alpha(ctx: Ctx) -> None:
     import numpy as np
     import pandas as pd
 
-    items = _resolve_items(ctx)
+    items = _resolve_items(ctx, prefer_ordinal=True)
     if len(items) < 3:
         summary.append("Cronbach's α 跳过：需要 ≥3 个数值题项（连续/计数列），当前不足。")
         return
