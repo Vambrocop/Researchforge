@@ -15,6 +15,7 @@ family file is auto-registered by branches/__init__.py (pkgutil.walk_packages).
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -324,17 +325,33 @@ def _branch_discriminant_analysis(ctx: Ctx) -> None:
         chance = float(y.value_counts(normalize=True).max())
         better = "LDA" if (not (qda_cv_acc == qda_cv_acc) or lda_cv_acc >= qda_cv_acc) else "QDA"
         qda_txt = f"QDA CV 准确率={qda_cv_acc:.3f}" if qda_cv_acc == qda_cv_acc else "QDA 不可用（类内样本不足）"
+
+        # Wave K 收尾（军师判泄漏检测器漏铺）：discriminant_analysis 此前未接 F3——事后
+        # 对 LDA/QDA 各自的 CV 准确率跑第①条判据（判别分析无 feature_importances_，不传②③）。
+        _warn: list[str] = list(suspicious_fit_warnings(cv_accuracy=lda_cv_acc, baseline_rate=chance))
+        if qda_cv_acc == qda_cv_acc:
+            for _w in suspicious_fit_warnings(cv_accuracy=qda_cv_acc, baseline_rate=chance):
+                if _w not in _warn:
+                    _warn.append(_w)
+        # narrate 红线：命中则不得再说 CV 准确率"诚实"——降级为中性措辞，警告另起一等 ⚠。
+        _cv_note = (
+            "⚠ 已用分层 CV（非重代入 resubstitution）估计准确率——见下方泄漏警告，不可直接采信；"
+            if _warn else
+            "⚠ CV 准确率是诚实的性能估计（重代入 resubstitution 会高估，故未采用）；"
+        )
         summary.append(
             f"{entry.method} 完成：{len(predictors)} 个预测变量判别 {group}"
             f"（{n_classes} 类，n={len(sub)}，{k}-折分层 CV）。"
             f"LDA CV 准确率={lda_cv_acc:.3f}（基线/最大类占比={chance:.3f}）；{qda_txt}；"
             f"较优={better}；判别轴解释比 {('LD1='+format(evr[0],'.3f')) if n_ld else '（二分类只有1轴）'}。"
-            f"⚠ CV 准确率是诚实的性能估计（重代入 resubstitution 会高估，故未采用）；"
+            f"{_cv_note}"
             f"LDA 假定各类协方差相等，QDA 放松此假定——已对比两者；每类需 n > 预测变量数。"
             f"⚠ 准确率为单次 {k}-折 CV 的描述性估计，未做「显著优于基线」的正式检验"
             f"（如置换检验/二项检定）；不同随机划分（random_state）下数值会波动，"
             f"差异是否可信不能只看点估计与基线的差距。"
         )
+        for _w in _warn:
+            summary.append(_w)
         code += [
             "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis",
             "from sklearn.model_selection import StratifiedKFold, cross_val_predict",

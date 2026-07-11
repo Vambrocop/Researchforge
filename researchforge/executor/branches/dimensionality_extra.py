@@ -36,6 +36,7 @@ summary) so results are reproducible; t-SNE remains seed-sensitive by nature.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 
 
 # ---------------------------------------------------------------------------
@@ -605,16 +606,28 @@ def _branch_linear_discriminant(ctx: Ctx) -> None:
         baseline = float(vc.max()) / float(n)
         cv_txt = f"{cv_acc:.3f}" if cv_acc == cv_acc else "N/A"
         var_ld1_txt = f"{var_ld1:.1%}" if var_ld1 == var_ld1 else "N/A"
+
+        # Wave K 收尾（军师判泄漏检测器漏铺）：linear_discriminant（predict 目标）此前
+        # 未接 F3——对 CV 准确率跑第①条判据（无 feature_importances_，不传②③）。
+        _warn = suspicious_fit_warnings(cv_accuracy=cv_acc, baseline_rate=baseline) if cv_acc == cv_acc else []
+        # narrate 红线：命中则不得再说"诚实的样本外估计"——降级为中性措辞，警告另起一等 ⚠。
+        _cv_note = (
+            "⚠ 已用 CV 管线内标准化的分层 CV（非重代入）估计准确率——见下方泄漏警告，不可直接采信；"
+            if _warn else
+            "交叉验证准确率是诚实的样本外估计（与基线对比才有意义），样本内拟合会偏乐观；"
+        )
         summary.append(
             f"{entry.method} 完成（LDA 监督降维 + 分类，目标={target}，{n_classes} 类，"
             f"{len(features)} 个特征 × {n} 个样本 → {n_components} 个判别轴）："
             f"{k_folds}-折交叉验证准确率={cv_txt}（多数类基线={baseline:.3f}），"
             f"LD1 解释 {var_ld1_txt} 的类间方差（详见 lda_scores.csv / lda_class_means_ld1.csv）。"
             f"⚠ LDA 假定各类协方差相等且特征近似正态——若违背请改用 QDA；"
-            f"交叉验证准确率是诚实的样本外估计（与基线对比才有意义），样本内拟合会偏乐观；"
+            f"{_cv_note}"
             f"需要分类目标——可用 config outcome/features 覆盖；特征已在 CV 管线内标准化（防泄漏，已固定 random_state=0）。"
             f" ⚠ 判别轴（LD1/LD2…）的符号是任意的（整轴可同时翻转，不改变可分性）——解释方向时只看相对位置。"
         )
+        for _w in _warn:
+            summary.append(_w)
         code += [
             "from sklearn.discriminant_analysis import LinearDiscriminantAnalysis",
             "from sklearn.model_selection import StratifiedKFold, cross_val_score",

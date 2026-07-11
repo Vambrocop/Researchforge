@@ -398,5 +398,9 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **附带小摩擦**：E-value 的 id 是 `evalue`（非 `e_value`，`params e_value` 报「未知分析 id」）；`logistic_regression` 未声明机器可读 params（`params logistic_regression` 无参数规格，靠 loop-decisions 才知 outcome/predictors 键）；且其 predictors **默认只取 continuous/count 列**，会把二值暴露 `smoking` 和二值混杂 `sex` 丢出模型——流行病学者必须手动 `--config predictors=[smoking,age,sex,bmi]` 才能得到正确的调整模型（默认模型会漏掉主暴露！这条比 recommender 更该修：logistic 的默认 predictors 应纳入二值协变量）。
 - **正面**：`epi_risk_measures`/`logistic_regression`/`evalue` 三者跑通、口径专业（Woolf/Wilson CI、Haldane 校正、AR%/PAR%、OR→RR 常见结局 √OR 近似、E-value 点+CI 判语），图表与中文披露到位。分析层没问题，缺口在**推荐层的选模路由**。
 
+**Wave K 收尾（2026-07-12）：F3 泄漏检测器补铺 discriminant_analysis / linear_discriminant——建造时冒出的两个小观察：**
+- **discriminant_analysis 的 config 键与 outcome 惯例不一致**：该分支只声明接受 `predictors`/`group`（不接受项目惯例的 `outcome`），传 `config={"outcome": "churn"}` 会先打一条「未知参数」提示、再靠"churn 恰好是唯一的 binary 列"这一巧合被 `_group_candidates()` 默认选中——数据形状变了（比如出现另一个 binary 列排在它前面）就会静默选错分组列。**补全**：让该分支的 `group` 解析也认 `cfg.get("outcome")` 作为别名（回归族的 `outcome`/`predictors` 已是项目级约定，这里应对齐），或至少在 yaml `params` 里把 `outcome` 列为 `group` 的同义提示。
+- **linear_discriminant 的检测阈值召回缺口**：P5 churn 上 `linear_discriminant`（单纯 LDA，无 QDA 对照）5-折 CV 准确率落在 0.963——刚好低于 F3 保守阈值 `_LEAK_ACC=0.97`，同一泄漏列（refund_amount）在 `discriminant_analysis`（LDA+QDA 都跑）里因 QDA 冲到 1.000 而被抓到。两分支底层同一份泄漏特征，只因模型/阈值组合不同就一个报警一个不报——不是接线缺陷（阈值是 Wave K 既有保守设计，见 `diagnostics.py` 注释），但值得记一笔：未来如果要收紧召回，可以让 `linear_discriminant` 也顺手对比一次 QDA（同代码模式），或者干脆把两个 LDA 相关分支合并成一个更强的判别分析入口。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

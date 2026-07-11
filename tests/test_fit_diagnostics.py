@@ -136,3 +136,52 @@ def test_leaky_churn_gbm_fires_and_drops_endorsement(tmp_path):
                        output_root=str(tmp_path / "o"), config={"outcome": "churn"})
     assert "可疑地完美" in res.summary or "泄漏" in res.summary, res.summary
     assert "诚实泛化" not in res.summary and "样本外" not in res.summary, res.summary
+
+
+# 铺点补漏（Wave K 收尾）：discriminant_analysis / linear_discriminant 二轮 dogfood 逮到漏网 ──
+def test_leaky_churn_discriminant_analysis_fires_and_drops_endorsement(tmp_path):
+    # discriminant_analysis（multivariate.py）此前未接 F3：P5 churn 上 QDA CV=1.000，
+    # 曾把这份完美 narrate 成"诚实的性能估计"——必须报 ⚠ 且不得残留"诚实"背书。
+    from fixtures.dogfood import build_p5_churn  # noqa: E402
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+
+    df = build_p5_churn()
+    csv = tmp_path / "churn.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    # 显式用 group（该分支只认 group/predictors，不认 outcome）——不靠自动探测的偶然性(冷审 SHOULD)
+    res = run_analysis(fp, Catalog.load().by_id("discriminant_analysis"),
+                       output_root=str(tmp_path / "o"), config={"group": "churn"})
+    assert "可疑地完美" in res.summary or "泄漏" in res.summary, res.summary
+    assert "诚实" not in res.summary and "样本外" not in res.summary, res.summary
+
+
+def test_leaky_linear_discriminant_fires_and_drops_endorsement(tmp_path):
+    # linear_discriminant（dimensionality_extra.py，goal=predict）此前未接 F3。P5 churn 上
+    # LDA-only CV 准确率恰好落在 0.963（< 保守阈值 0.97，不触发——检测器阈值特性，非接线缺陷）；
+    # 故用一个更极端的合成泄漏列直接验证铺点在跨阈值时确实报警、且兑现 narrate 红线。
+    import numpy as np
+    import pandas as pd
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+
+    rng = np.random.default_rng(1)
+    n = 200
+    label = rng.integers(0, 2, n)
+    leak_col = label * 10 + rng.normal(0, 0.05, n)  # near-perfect post-outcome leak
+    df = pd.DataFrame({
+        "f1": rng.normal(0, 1, n),
+        "f2": rng.normal(0, 1, n),
+        "leak_col": leak_col,
+        "label": label,
+    })
+    csv = tmp_path / "leak.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, Catalog.load().by_id("linear_discriminant"),
+                       output_root=str(tmp_path / "o"), config={"outcome": "label"})
+    assert "可疑地完美" in res.summary or "泄漏" in res.summary, res.summary
+    assert "诚实" not in res.summary and "样本外" not in res.summary, res.summary
