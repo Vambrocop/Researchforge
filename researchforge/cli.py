@@ -139,7 +139,12 @@ def _cmd_pick(path: str, goal: str | None = None) -> int:
         print(f"   依据：{why}")
 
     cmd = f"py -3 -m researchforge.cli run {path} {top.entry.id}"
-    if any(p.name in ("outcome", "y") for p in top.entry.params) and fp.likely_outcome:
+    # Only bind outcome into the suggested command at high confidence — medium/low
+    # confidence means the column name is ambiguous, and pre-filling it would steer
+    # the user toward a possibly-wrong result variable without them noticing
+    # (mirrors resolve_outcome / executor/run.py's own "medium/low 不 bind" rule).
+    if (any(p.name in ("outcome", "y") for p in top.entry.params) and fp.likely_outcome
+            and fp.likely_outcome_confidence == "high"):
         import json
 
         cmd += " --config '" + json.dumps({"outcome": fp.likely_outcome}, ensure_ascii=False) + "'"
@@ -263,10 +268,14 @@ def _cmd_study(
             return 1
     result = run_study(path, goal=goal, top=top, clean=clean_first, config=cfg)
     n_run = len(result["methods_run"])
+    n_failed = len(result.get("methods_failed", []))
     n_req = result["meta"]["top_requested"]
     print(f"研究目录：{result['study_dir']}")
     print(f"报告：{result['report_path']}")
-    print(f"已跑方法（{n_run}/{n_req}）：" + ("、".join(result["methods_run"]) if result["methods_run"] else "（无）"))
+    print(f"方法：成功 {n_run} / 失败 {n_failed}（共选 {n_req}）")
+    print("  成功：" + ("、".join(result["methods_run"]) if result["methods_run"] else "（无）"))
+    if result.get("methods_failed"):
+        print("  失败：" + "、".join(result["methods_failed"]))
     if n_run == 0:
         print("⚠ 全部实质方法执行失败，报告仍已写出（各节含失败原因，可据此排查）。")
         return 1

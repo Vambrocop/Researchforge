@@ -192,6 +192,51 @@ def test_study_failure_injection(tmp_path, monkeypatch):
     assert Path(result["report_path"]).exists()
 
 
+def test_study_handler_failure_counted_separately(tmp_path, monkeypatch):
+    """E6: a method whose branch handler raises INSIDE run_analysis (e.g. data that
+    doesn't satisfy its preconditions) is absorbed by run_analysis's own try/except
+    into a normal RunResult carrying the '⚠ <id> 执行失败：...' marker — no exception
+    reaches study.py. Before this fix that was silently counted as a SUCCESS in
+    methods_run (dogfooding finding 9: crashed methods mixed in with real ones).
+    It must instead land in methods_failed and be excluded from methods_run."""
+    monkeypatch.chdir(tmp_path)
+    csv = tmp_path / "data.csv"
+    _regression_df().to_csv(csv, index=False)
+
+    import researchforge.study as study_mod
+    from researchforge.executor.run import RunResult
+
+    real_run_analysis = study_mod.run_analysis
+    broken = {"id": None}
+
+    def degrading(fp, entry, output_root=None, config=None):
+        if broken["id"] is None and entry.id != "descriptive_stats":
+            broken["id"] = entry.id
+            return RunResult(
+                analysis_id=entry.id,
+                method=entry.method,
+                output_dir=str(output_root),
+                files=[],
+                report_path="unused",
+                summary=f"⚠ {entry.id} 执行失败：RuntimeError: 数据不满足该方法前提",
+                estimates={},
+            )
+        return real_run_analysis(fp, entry, output_root=output_root, config=config)
+
+    monkeypatch.setattr(study_mod, "run_analysis", degrading)
+
+    result = study_mod.run_study(str(csv), top=3)
+    assert broken["id"] is not None, "fixture never reached a substantive method"
+
+    assert broken["id"] not in result["methods_run"]
+    assert broken["id"] in result["methods_failed"]
+    assert len(result["methods_failed"]) >= 1
+    meta_methods = {m["id"]: m for m in result["meta"]["methods"]}
+    assert meta_methods[broken["id"]]["status"] == "handler_failed"
+    # the rest of the study is not sunk by the one degraded method
+    assert "§跨方法收敛信号" in result["report_text"]
+
+
 def test_study_clean_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rng = np.random.default_rng(9)

@@ -141,6 +141,59 @@ def test_cli_run_without_clean_flag_skips_cleaning(tmp_path, capsys):
     assert not (tmp_path / "dirty2_cleaned.csv").exists()
 
 
+def test_cli_pick_low_confidence_outcome_not_bound(tmp_path, capsys):
+    """D3: P3 panel persona (docs/dogfood-findings.md) — 'size' is only a LOW-confidence
+    likely_outcome (position fallback, actually a distractor covariate; see
+    tests/fixtures/dogfood.py::build_p3_panel). pick must NOT pre-bind it into the
+    suggested --config, since that would silently steer the user onto the wrong
+    result variable."""
+    from fixtures.dogfood import build_p3_panel
+
+    from researchforge.cli import main
+    from researchforge.profiler import profile_dataset
+
+    csv = tmp_path / "p3.csv"
+    build_p3_panel().to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "size"
+    assert fp.likely_outcome_confidence in ("medium", "low")  # ambiguous, not high
+
+    assert main(["pick", str(csv)]) == 0
+    out = capsys.readouterr().out
+    assert "--config" not in out  # low-confidence outcome must not be pre-bound
+    assert '"outcome": "size"' not in out
+
+
+def test_cli_pick_high_confidence_outcome_still_bound(tmp_path, capsys):
+    """D3 counterpart: an unambiguous, explicitly-named target ('target' matches
+    _OUTCOME_HIGH_RE) is HIGH confidence -> pick still pre-fills --config outcome=
+    (the whole point of the nudge is to save a step when the column is unambiguous)."""
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.cli import main
+    from researchforge.profiler import profile_dataset
+
+    rng = np.random.default_rng(11)
+    n = 150
+    x1 = rng.normal(0, 1, n)
+    x2 = rng.normal(5, 2, n)
+    target = 3.0 + 2.0 * x1 - 0.5 * x2 + rng.normal(0, 1, n)
+    csv = tmp_path / "reg.csv"
+    pd.DataFrame({"target": target.round(3), "x1": x1.round(3), "x2": x2.round(3)}).to_csv(
+        csv, index=False
+    )
+
+    fp = profile_dataset(csv)
+    assert fp.likely_outcome == "target"
+    assert fp.likely_outcome_confidence == "high"
+
+    assert main(["pick", str(csv)]) == 0
+    out = capsys.readouterr().out
+    assert '"outcome": "target"' in out
+
+
 def test_cli_pick_survival(tmp_path, capsys):
     import numpy as np
     import pandas as pd

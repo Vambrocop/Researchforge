@@ -91,6 +91,26 @@ def _diversity_pick(recs: list, k: int) -> list:
     return chosen
 
 
+def _is_failed_result(result) -> bool:
+    """True when a method must be counted as FAILED even though the orchestration
+    call itself didn't raise (that case is tracked separately via ``error`` in the
+    caller's try/except). Two cases (dogfooding finding 9: a crashed-but-not-raised
+    method was silently lumped in with real successes in ``methods_run``):
+
+    - ``result`` is ``None`` — defensive; ``run_analysis`` today always returns a
+      ``RunResult``, but a future contract change should fail safe as "failed", not
+      "succeeded".
+    - the branch handler raised INSIDE ``run_analysis`` and was absorbed into a
+      degraded ``RunResult`` whose summary carries the ``'⚠ <id> 执行失败：...'``
+      marker (``executor/run.py``'s own handler-exception catch) — the exact
+      substring ``study_report.py`` already keys off of when rendering a method's
+      section, reused here rather than re-deriving a second failure heuristic.
+    """
+    if result is None:
+        return True
+    return "执行失败" in (result.summary or "")
+
+
 def run_study(
     path: str,
     goal: Optional[str] = None,
@@ -107,7 +127,15 @@ def run_study(
     dict even when every method fails; the caller can detect that via an empty
     ``methods_run``.
 
-    Returns {study_dir, report_path, report_text, methods_run: list[str], meta: dict}.
+    ``methods_run`` / ``methods_failed`` partition the ``top`` chosen methods
+    (excluding the unconditional §0 baseline, tracked separately via
+    ``base_result``/``base_error``): a method lands in ``methods_failed`` when the
+    orchestration call raised, OR when it returned normally but
+    ``_is_failed_result`` flags it as a handler-level failure — never both, and
+    never silently counted as a success (see ``_is_failed_result``).
+
+    Returns {study_dir, report_path, report_text, methods_run: list[str],
+    methods_failed: list[str], meta: dict}.
     """
     fp = profile_dataset(path)
     study_dir = _run_dir("outputs", "study")
@@ -140,15 +168,20 @@ def run_study(
 
     run_entries: list[dict] = []
     methods_run: list[str] = []
+    methods_failed: list[str] = []
     for rec in chosen:
         entry = rec.entry
         result = None
         error: Optional[str] = None
         try:
             result = run_analysis(fp, entry, output_root=str(study_dir), config=config)
-            methods_run.append(entry.id)
+            if _is_failed_result(result):
+                methods_failed.append(entry.id)
+            else:
+                methods_run.append(entry.id)
         except Exception as err:  # noqa: BLE001 — one method's crash must not sink the study
             error = f"{type(err).__name__}: {str(err)[:200]}"
+            methods_failed.append(entry.id)
         run_entries.append({"rec": rec, "result": result, "error": error})
 
     report_text = render_report(
@@ -180,7 +213,11 @@ def run_study(
                 "method": e["rec"].entry.method,
                 "family": e["rec"].entry.family,
                 "run_dir": e["result"].output_dir if e["result"] else None,
-                "status": "ok" if e["result"] else "orchestration_failed",
+                "status": (
+                    "orchestration_failed" if e["result"] is None
+                    else "handler_failed" if _is_failed_result(e["result"])
+                    else "ok"
+                ),
                 "error": e["error"],
             }
             for e in run_entries
@@ -204,5 +241,6 @@ def run_study(
         "report_path": str(report_path),
         "report_text": report_text,
         "methods_run": methods_run,
+        "methods_failed": methods_failed,
         "meta": meta,
     }
