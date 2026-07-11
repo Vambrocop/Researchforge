@@ -7,6 +7,7 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 from researchforge.executor.run import (
     _bart_via_r,
     _conformal_prediction,
@@ -608,6 +609,14 @@ def _branch_random_forest(ctx: Ctx) -> None:
                 f"{entry.method} 完成：{task_label}预测 {outcome}，"
                 f"测试集得分={score:.4f}（{score_label}）"
             )
+            if is_clf:  # Wave K-F3: 可疑地完美/泄漏事后诊断（一等 ⚠，narrate 红线）
+                for _w in suspicious_fit_warnings(
+                    cv_accuracy=float(score),
+                    baseline_rate=float(pd.Series(y).value_counts(normalize=True).max()),
+                    importances=model.feature_importances_,
+                    feature_names=list(features),
+                ):
+                    summary.append(_w)
             code += [
                 "from sklearn.ensemble import "
                 + ("RandomForestClassifier" if is_clf else "RandomForestRegressor"),
@@ -722,6 +731,14 @@ def _branch_xgboost(ctx: Ctx) -> None:
                 f"{entry.method} 完成：{task_label}预测 {outcome}，"
                 f"测试集得分={score:.4f}（{score_label}）"
             )
+            if is_clf:  # Wave K-F3: 可疑地完美/泄漏事后诊断（一等 ⚠，narrate 红线）
+                for _w in suspicious_fit_warnings(
+                    cv_accuracy=float(score),
+                    baseline_rate=float(pd.Series(y).value_counts(normalize=True).max()),
+                    importances=model.feature_importances_,
+                    feature_names=list(features),
+                ):
+                    summary.append(_w)
             code += [
                 "from xgboost import "
                 + ("XGBClassifier" if is_clf else "XGBRegressor"),

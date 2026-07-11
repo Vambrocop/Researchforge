@@ -7,6 +7,7 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 from researchforge.executor.run import (
     _coef_plot,
     _gam_via_r,
@@ -698,6 +699,14 @@ def _branch_logistic_regression(ctx: Ctx) -> None:
                 else ""
             )
             summary.append(f"{entry.method} 完成：结果变量 {outcome}{key}{amb}")
+            try:  # Wave K-F3: 完美分离检测（分离时 bse 爆大/p≈1，系数与 OR 不可解读）
+                for _w in suspicious_fit_warnings(
+                    coefs=model.params.to_numpy(), ses=model.bse.to_numpy(),
+                    pvalues=model.pvalues.to_numpy(),
+                ):
+                    summary.append(_w)
+            except Exception:
+                pass
             code += [
                 "import statsmodels.formula.api as smf",
                 f'model = smf.logit("{formula}", data=df).fit(disp=False)',

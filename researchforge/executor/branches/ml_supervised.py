@@ -33,6 +33,7 @@ from __future__ import annotations
 import importlib.util
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 from researchforge.executor.run import resolve_outcome
 
 _SEED = 0  # fixed random_state, disclosed in every summary
@@ -385,13 +386,19 @@ def _branch_svm_model(ctx: Ctx) -> None:
                 pass
 
             bal_note = "（类别较均衡）" if imbalance >= 0.5 else f"（类别不均衡，最小/最大类比={imbalance:.2f}）"
+            # Wave K-F3: 可疑地完美诊断（SVM 无特征重要度，仅准确率信号）
+            _svm_base = float(pd.Series(y).value_counts(normalize=True).max())
+            _svm_warn = suspicious_fit_warnings(cv_accuracy=cv_acc, baseline_rate=_svm_base)
+            _oos = "交叉验证，见下警告" if _svm_warn else "样本外"
             summary.append(
                 f"{entry.method} 完成（SVC，{kernel} 核，C={C:g}，{k}-折分层交叉验证，seed={_SEED}）："
-                f"分类 {outcome}（{len(labels)} 类）{bal_note}；交叉验证 准确率={cv_acc:.3f}、macro-F1={cv_f1:.3f}（样本外）；"
+                f"分类 {outcome}（{len(labels)} 类）{bal_note}；交叉验证 准确率={cv_acc:.3f}、macro-F1={cv_f1:.3f}（{_oos}）；"
                 f"支持向量 {n_sv} 个（占 {n_sv / n:.0%}）；n={n}。"
                 "⚠ SVM 需特征标准化（已做）；rbf 的 C/gamma 影响大（除非 config 指定，否则用默认，不再自动调参以保证速度）；"
                 "报告的是交叉验证表现（非样本内）；类别不均衡会抬高准确率，故同时报 macro-F1；可用 config 设 outcome/predictors/kernel/C/gamma。"
             )
+            for _w in _svm_warn:
+                summary.append(_w)
         else:
             cv = KFold(n_splits=k, shuffle=True, random_state=_SEED)
             r2_scores = cross_val_score(pipe, X, y, cv=cv, scoring="r2")
@@ -573,13 +580,22 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
         else:
             perf_txt = f"R²={cv_r2:.3f}、RMSE={cv_rmse:.3f}"
             task_txt = f"回归 {outcome} ~ {len(names)} 个预测变量"
+        # Wave K-F3: 可疑地完美/泄漏事后诊断 — 命中则抹掉背书措辞（诚实泛化估计/样本外）、改一等 ⚠
+        _base = float(pd.Series(y).value_counts(normalize=True).max()) if is_clf else None
+        _warn = (suspicious_fit_warnings(cv_accuracy=cv_acc, baseline_rate=_base,
+                                         importances=imp_mean, feature_names=list(names))
+                 if is_clf else [])
+        _perf_tag = "交叉验证" if _warn else "样本外，诚实泛化估计"
+        _honest_note = "" if _warn else "交叉验证表现为诚实估计（样本内偏乐观）；"
         summary.append(
             f"{entry.method} 完成（GradientBoosting，{n_estimators} 树，lr={learning_rate:g}，depth={max_depth}，"
-            f"{k}-折交叉验证，seed={_SEED}）：{task_txt}；交叉验证 {perf_txt}（样本外，诚实泛化估计）；"
+            f"{k}-折交叉验证，seed={_SEED}）：{task_txt}；交叉验证 {perf_txt}（{_perf_tag}）；"
             f"置换重要性最高的预测变量={top_name}（{top_importance:.4f}）；n={n}。"
-            "⚠ 用**置换重要性**（非杂质重要性，后者偏向高基数特征）；交叉验证表现为诚实估计（样本内偏乐观）；"
+            "⚠ 用**置换重要性**（非杂质重要性，后者偏向高基数特征）；" + _honest_note +
             "GBM 在小样本上易过拟合（已披露 n）；除非 config 指定否则用默认（n_estimators/learning_rate/max_depth）；可用 config 设 outcome/predictors。"
         )
+        for _w in _warn:
+            summary.append(_w)
         task = "GradientBoostingClassifier" if is_clf else "GradientBoostingRegressor"
         code += [
             f"from sklearn.ensemble import {task}",
