@@ -113,6 +113,52 @@ def get_affinity(family: str) -> FamilyAffinity:
 _SURV_DUR = ("dur", "time", "tenure", "surv", "lifetime", "follow", "age_at", "tte", "los")
 _SURV_EVT = ("event", "status", "censor", "death", "dead", "fail", "relapse", "recur")
 
+# A count column means one of two very different things: a genuine EVENT/abundance count
+# (a Poisson/NB/ZIP response) or a demographic integer that merely profiles as `count`
+# (age, a year, a code). Only the former is a count OUTCOME. K-A1 already stripped bounded
+# 1..k ratings (ordinal_like); K-A2 is the second cut — a `count` column is an outcome when
+# it is the role-detected outcome OR its NAME reads count-ish. Name hints are high-precision
+# count nouns; extend here as new count-outcome vocabulary shows up.
+_COUNT_OUTCOME_HINTS = ("count", "n_", "num_", "events", "cases", "freq", "times",
+                        "visits", "claims", "incidents")
+
+
+def is_count_outcome(col, fp: DataFingerprint) -> bool:
+    """True iff a single count-kind column is a genuine count OUTCOME (Poisson/NB/ZIP),
+    not a demographic integer covariate that only profiles as `count` (age/year/code).
+    Ordinal_like ratings are never count outcomes (excluded upstream, K-A1). A column
+    qualifies when it is the role-detected ``likely_outcome`` OR its name is count-ish."""
+    if col.kind != "count" or getattr(col, "ordinal_like", False):
+        return False
+    if col.name in {fp.unit_col, fp.time_col}:
+        return False
+    lo = getattr(fp, "likely_outcome", None)
+    if lo and col.name == lo:
+        return True
+    name = str(col.name).lower()
+    return any(h in name for h in _COUNT_OUTCOME_HINTS)
+
+
+def has_count_outcome(fp: DataFingerprint) -> bool:
+    """Does the dataset carry ≥1 genuine count outcome? The SINGLE source of truth for the
+    "is Poisson/NB/ZIP/abundance applicable" question — consumed by both the scoring signal
+    (``data_signals``) and the feasibility gate (``recommender.match``) so the two never drift.
+
+    A named / role-detected count outcome always qualifies. A safety valve additionally keeps
+    a LONE unbounded count column when there is no continuous column to be a better outcome
+    AND no Likert/ordinal array is present — that shape is almost always a true (if blandly
+    named) Poisson response. The ordinal guard is the K-A2 calibration point: it stops a
+    questionnaire's demographic ``age`` (a lone count amid a Likert block, with no continuous
+    column) from re-opening count models — which would otherwise mis-route P1 (发现1)."""
+    cols = [c for c in fp.columns if c.name not in {fp.unit_col, fp.time_col}]
+    if any(is_count_outcome(c, fp) for c in cols):
+        return True
+    plain_counts = [c for c in cols
+                    if c.kind == "count" and not getattr(c, "ordinal_like", False)]
+    n_cont = sum(1 for c in cols if c.kind == "continuous")
+    n_ordinal = sum(1 for c in cols if getattr(c, "ordinal_like", False))
+    return len(plain_counts) == 1 and n_cont == 0 and n_ordinal == 0
+
 
 def data_signals(fp: DataFingerprint) -> dict:
     """Extract structural selection signals from a fingerprint (analysis columns only —
@@ -195,11 +241,11 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_categorical": n_cat >= 1,
         "has_count": n_count >= 1,
         "n_count_real": n_count_real,
-        # a genuine count OUTCOME = count-kind AND NOT ordinal_like (Wave K-A1). This
-        # already excludes both a rater block and a 1-2 col ordinal outcome (both are
-        # ordinal_like), so Poisson/NB don't outrank the inter-rater agreement / ordinal
-        # regression / reliability methods that the structure actually calls for.
-        "has_count_outcome": n_count_real >= 1,
+        # a genuine count OUTCOME (Wave K-A1 ordinal exclusion + K-A2 name/role test with a
+        # lone-count safety valve; see has_count_outcome). Excludes a rater block, a 1-2 col
+        # ordinal outcome (both ordinal_like), AND a demographic integer like age/year — so
+        # Poisson/NB don't outrank the reliability / logistic / epi methods the data calls for.
+        "has_count_outcome": has_count_outcome(fp),
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
         "has_rater_block": has_rater_block,

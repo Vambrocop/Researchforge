@@ -156,3 +156,60 @@ def test_poisson_multi_count_ambiguity_note(tmp_path: Path) -> None:
 
     res = run_analysis(fp, _make_entry(), output_root=str(tmp_path / "out"))
     assert "个计数列" in res.summary  # ambiguity note surfaced
+
+
+# ---------------------------------------------------------------------------
+# Wave K-A2 — genuine count OUTCOME vs demographic integer covariate
+# ---------------------------------------------------------------------------
+
+
+def test_a2_valve_keeps_lone_unnamed_count_outcome(tmp_path: Path) -> None:
+    """不误伤 lock: a LONE unbounded count response with a NON-count-ish name, no continuous
+    column and no Likert array is a true Poisson outcome — the K-A2 safety valve must keep
+    requires_count_outcome feasible even though the name gives no hint and role detection is
+    silent."""
+    rng = np.random.default_rng(21)
+    n = 80
+    # a single count-kind column, neutrally named (no count/n_/events hint), wide range so it
+    # is neither ordinal_like nor id-like; no continuous / no Likert siblings.
+    df = pd.DataFrame({"harvest": rng.poisson(9, n).astype(int)})
+    csv = tmp_path / "lone_count.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+
+    kinds = {c.name: c.kind for c in fp.columns}
+    assert kinds.get("harvest") == "count", f"expected 'harvest' count-kind; got {kinds}"
+    assert not getattr(fp.column("harvest"), "ordinal_like", False), "must not be ordinal_like"
+    assert not any(c.kind == "continuous" for c in fp.columns)
+
+    ok, unmet = check_preconditions(fp, _make_entry().preconditions)
+    assert ok, f"safety valve should keep a lone true-count outcome feasible; unmet={unmet}"
+
+
+def test_a2_demographic_age_amid_likert_is_not_a_count_outcome(tmp_path: Path) -> None:
+    """误路由 lock: a questionnaire's demographic `age` (lone count amid a Likert block, no
+    continuous column) must NOT satisfy requires_count_outcome — the ordinal guard blocks the
+    safety valve, so Poisson/NB/ZIP stay infeasible on bounded-rating survey data (发现1)."""
+    rng = np.random.default_rng(23)
+    n = 200
+    # age placed BEFORE the Likert block (as in the real P1 questionnaire) so the last-numeric
+    # positional heuristic does not mistake it for the outcome — the point is that a demographic
+    # covariate must not open count models purely by being count-kind.
+    data = {"age": rng.integers(18, 70, n)}                          # demographic count
+    for i in range(1, 7):
+        data[f"item{i}"] = rng.integers(1, 6, n)                     # 6 Likert items (1-5)
+    df = pd.DataFrame(data)
+    csv = tmp_path / "likert_plus_age.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+
+    age_col = fp.column("age")
+    assert age_col is not None and age_col.kind == "count", "age should profile as count"
+    assert not getattr(age_col, "ordinal_like", False), "age is not a bounded rating"
+    assert sum(1 for c in fp.columns if getattr(c, "ordinal_like", False)) >= 1, (
+        "Likert items must profile as ordinal_like for this test to exercise the guard"
+    )
+
+    ok, unmet = check_preconditions(fp, _make_entry().preconditions)
+    assert not ok, "a demographic age amid a Likert block must NOT satisfy requires_count_outcome"
+    assert "需要计数型结果变量" in unmet, f"unmet reason missing; got {unmet}"

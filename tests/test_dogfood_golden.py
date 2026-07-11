@@ -56,11 +56,7 @@ def _top_ids(fp, k: int = _TOP_K) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # P1 — 医学生 Likert 问卷 (发现 1、2；Wave K-A1/A2/E7)
 # ─────────────────────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    reason="Wave K-A1/K-E7 未落地：8 个 ordinal_like 满意度列仍在可行性/排名上跟 ecology/agreement 抢位，"
-    "cronbach_alpha 现排名第 7（top-6 之外）、factor_analysis 连 top-10 都进不去（发现1）",
-    strict=False,
-)
+# Wave K-A1+A2 已落地 → 硬断言：count 模型退出可行集后 cronbach/factor 升进 top-6（附带红利）。
 def test_p1_likert_surfaces_psychometrics(tmp_path: Path) -> None:
     fp = _profile(build_p1_likert(), tmp_path)
     top = set(_top_ids(fp))
@@ -69,12 +65,7 @@ def test_p1_likert_surfaces_psychometrics(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.xfail(
-    reason="Wave K-A1/K-A2 未落地：match.py 的 requires_count_outcome/min_count_cols 门只看 c.kind=='count'、"
-    "不排除 ordinal_like，8 个 Likert 列仍判定为可行的计数结果 -> permanova/indicator_species/"
-    "poisson/zip/nb 全部 feasible=True（发现1，应对有界评分不可行）",
-    strict=False,
-)
+# Wave K-A1(排 ordinal_like)+A2(排非结果 count 协变量 + 单一真源 has_count_outcome) 已落地 → 硬断言。
 def test_p1_likert_ecology_and_count_models_infeasible(tmp_path: Path) -> None:
     fp = _profile(build_p1_likert(), tmp_path)
     feasible = _feasible_ids(fp)
@@ -89,9 +80,9 @@ def test_p1_likert_ecology_and_count_models_infeasible(tmp_path: Path) -> None:
 # P2 — 流行病 cohort (发现 1、3；Wave K-A1/A2)
 # ─────────────────────────────────────────────────────────────────────────────
 @pytest.mark.xfail(
-    reason="Wave K-A2 未落地：age(20-80 整数, count kind, 非 likely_outcome、无 count/n_/events 命名) "
-    "仍被判 has_count_outcome=True，把 NB/ZIP/Poisson(fit=81) 顶到 logistic_regression/"
-    "epi_risk_measures(fit=67) 之上，二者未进 top-6（发现1、3）",
+    reason="Wave K-A2 后已重归属(Fable A2 验)：count 模型确已退场，但 P2 top-6 现被因果族"
+    "(disease/smoking 被读成 treatment-outcome 的 double_ml/causal_forest/psm/ipw)+tweedie 压住，"
+    "logistic/epi 仍未进 top-6。真凶=二值结局 cohort 上因果族过度排名，待后续排名/affinity 批降权(非 A2)",
     strict=False,
 )
 def test_p2_cohort_surfaces_logistic_and_epi(tmp_path: Path) -> None:

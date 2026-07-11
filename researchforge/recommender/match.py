@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from researchforge.catalog.schema import Precondition
 from researchforge.profiler.fingerprint import DataFingerprint
-from researchforge.recommender.affinity import _NODE_MIN_UNIQUE
+from researchforge.recommender.affinity import _NODE_MIN_UNIQUE, has_count_outcome
 
 
 def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, list[str]]:
@@ -48,9 +48,10 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
         unmet.append("需要分组变量（分类/二值）")
-    if pre.requires_count_outcome and not any(
-        c.kind == "count" and not getattr(c, "ordinal_like", False) for c in fp.columns
-    ):
+    if pre.requires_count_outcome and not has_count_outcome(fp):
+        # a genuine count OUTCOME, not a demographic integer that merely profiles as `count`
+        # (age/year) — the single source of truth (affinity.has_count_outcome) also excludes
+        # bounded Likert ratings (K-A1) and applies the lone-count safety valve (K-A2).
         unmet.append("需要计数型结果变量")
     if pre.min_count_cols is not None:
         # a REAL count column: count-kind AND NOT a bounded ordinal/Likert rating (see

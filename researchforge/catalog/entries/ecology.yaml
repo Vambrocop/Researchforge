@@ -59,7 +59,11 @@
   goal: explain
   description: Dufrene-Legendre indicator value (IndVal = specificity x fidelity x 100) for each taxon against a grouping variable, with a permutation p-value. Identifies which taxa characterize each group.
   preconditions:
-    min_count_cols: 1
+    # IndVal is inherently multivariate — it ranks indicator values across ≥2 taxa; a lone
+    # count column is a univariate count (use Poisson), not an abundance matrix. Aligned with
+    # the whole abundance family at 2 so a single demographic integer (age) on questionnaire
+    # data no longer makes it feasible (Wave K-A2, 发现1).
+    min_count_cols: 2
     requires_group: true
     min_rows: 6
   produces:
