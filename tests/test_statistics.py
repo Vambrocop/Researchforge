@@ -496,3 +496,118 @@ def test_group_comparison_config_group_override(tmp_path):
     assert len(gm) == 4
     # explicit override -> no "auto-picked" disclosure
     assert "⚠ 自动选分组" not in res.summary
+
+
+# ---------------------------------------------------------------------------
+# 8. group_comparison — Wave K-E5: on a significant difference, the summary
+#    must spell out a plain-language conclusion (highest group, % vs lowest,
+#    p-value), not just raw stat/p numbers.
+# ---------------------------------------------------------------------------
+
+def test_group_comparison_significant_synthesizes_human_conclusion(tmp_path):
+    csv = _make_group_csv(tmp_path, n_groups=3)  # A mean~0, B mean~2, C mean~4
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "最高" in res.summary
+    assert "显著" in res.summary
+    assert "C" in res.summary  # C has the highest mean in this fixture
+
+
+def test_group_comparison_not_significant_skips_human_conclusion(tmp_path):
+    """No synthesized "X 组均值最高...显著" sentence when the difference is not
+    significant — the sentence must be conditional on p<0.05, not unconditional."""
+    rng = np.random.default_rng(321)
+    n = 30
+    grp = ["A"] * n + ["B"] * n
+    value = list(rng.normal(0, 1, n)) + list(rng.normal(0, 1, n))  # same mean -> not significant
+    df = pd.DataFrame({"grp": grp, "value": value})
+    csv = tmp_path / "group_ns.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("group_comparison")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert res.estimates.get("pvalue", 0) >= 0.05, (
+        f"fixture unexpectedly significant, cannot test the negative case: {res.estimates}"
+    )
+    assert "均值最高" not in res.summary
+
+
+# ---------------------------------------------------------------------------
+# 9. logistic_regression — Wave K-B4b: Chinese (non-formula-identifier-safe)
+#    column names must not crash the formula, and coefficients.csv/summary
+#    must show the ORIGINAL Chinese names, not the internal v1/v2/... aliases
+#    that safe_formula_terms() uses to keep patsy happy.
+# ---------------------------------------------------------------------------
+
+def _make_chinese_logistic_csv(tmp_path: Path, n: int = 100) -> Path:
+    rng = np.random.default_rng(2024)
+    pred1 = rng.normal(0, 1, n)
+    pred2 = rng.normal(0, 1, n)
+    p = 1 / (1 + np.exp(-(0.4 + 1.0 * pred1 - 0.6 * pred2)))
+    outcome = rng.binomial(1, p).astype(int)
+    df = pd.DataFrame({"结果": outcome, "预测1": pred1, "预测2": pred2})
+    csv = tmp_path / "chinese_logistic.csv"
+    df.to_csv(csv, index=False)
+    return csv
+
+
+def test_logistic_regression_chinese_columns_do_not_crash(tmp_path):
+    csv = _make_chinese_logistic_csv(tmp_path)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("logistic_regression")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "未收敛/失败" not in res.summary, f"crashed on Chinese columns: {res.summary!r}"
+    coefs = pd.read_csv(Path(res.output_dir) / "coefficients.csv", index_col=0)
+    # original Chinese names must appear in the coefficients table, NOT the
+    # internal v1/v2/... formula-safety aliases.
+    assert "预测1" in coefs.index
+    assert "预测2" in coefs.index
+    assert not any(str(i).startswith("v") and str(i)[1:].isdigit() for i in coefs.index)
+    assert "结果变量 结果" in res.summary
+    assert "预测1" in res.estimates and "预测2" in res.estimates
+
+
+# ---------------------------------------------------------------------------
+# 10. logistic_regression — Wave K-E1 (odds ratios) + E3 (binary predictors
+#     included by default), on the P2 epidemiology cohort fixture
+#     (disease ~ smoking + age + sex + bmi, true smoking OR = 2.0).
+# ---------------------------------------------------------------------------
+
+def test_logistic_regression_p2_cohort_or_and_binary_predictors(tmp_path):
+    from fixtures.dogfood import build_p2_cohort
+
+    df = build_p2_cohort()
+    csv = tmp_path / "p2_cohort.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    entry = Catalog.load().by_id("logistic_regression")
+    assert entry is not None
+
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "outputs"))
+
+    assert "结果变量 disease" in res.summary, f"unexpected outcome pick: {res.summary!r}"
+    # E3: smoking (binary) and sex (binary) must be included as predictors —
+    # previously only continuous columns (age, bmi) were auto-selected.
+    assert "smoking" in res.estimates, f"smoking missing from predictors: {sorted(res.estimates)}"
+    assert "sex" in res.estimates, f"sex missing from predictors: {sorted(res.estimates)}"
+
+    # E1: OR = exp(coef); CI endpoints = exp(conf_int) (never exp(point ± se)).
+    assert "smoking_OR" in res.estimates
+    assert res.estimates["smoking_OR"] == pytest.approx(np.exp(res.estimates["smoking"]))
+
+    coefs = pd.read_csv(Path(res.output_dir) / "coefficients.csv", index_col=0)
+    assert {"OR", "OR_CI_low", "OR_CI_high"} <= set(coefs.columns)
+    row = coefs.loc["smoking"]
+    assert row["OR"] == pytest.approx(np.exp(row["Coef."]))
+    assert row["OR_CI_low"] == pytest.approx(np.exp(row["[0.025"]))
+    assert row["OR_CI_high"] == pytest.approx(np.exp(row["0.975]"]))

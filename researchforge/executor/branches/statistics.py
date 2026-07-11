@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
 from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
+from researchforge.executor._helpers.formula import safe_formula_terms
 from researchforge.executor.run import (
     _coef_plot,
     _gam_via_r,
@@ -678,6 +679,27 @@ def _branch_group_comparison(ctx: Ctx) -> None:
                     f"统计量={stat:.4f}，p={p:.3g}"
                     + (f"。{var_note}" if var_note else "")
                 )
+                # Wave K-E5: 显著时把 stat/p 数字翻译成一句人话结论（哪组最高、比最低组高
+                # 多少个百分点），别只甩统计量让用户自己算。仅比较族做，别泛化到别的分支。
+                if p < 0.05:
+                    _means = group_means["mean"]
+                    top_level = _means.idxmax()
+                    bottom_level = _means.idxmin()
+                    top_val = float(_means[top_level])
+                    bottom_val = float(_means[bottom_level])
+                    if top_level != bottom_level:
+                        if bottom_val != 0:
+                            pct = (top_val - bottom_val) / abs(bottom_val) * 100
+                            diff_note = f"较最低（{bottom_level} 组，{bottom_val:.4g}）高 ~{pct:.0f}%"
+                        else:
+                            diff_note = (
+                                f"较最低（{bottom_level} 组，{bottom_val:.4g}）高 "
+                                f"{top_val - bottom_val:.4g}（基准为 0，无法折算百分比）"
+                            )
+                        summary.append(
+                            f"⚠ {top_level} 组均值最高（{outcome}={top_val:.4g}），"
+                            f"{diff_note}，p={p:.3g}，差异显著。"
+                        )
                 code += [
                     "from scipy import stats",
                     f"groups = [df.loc[df['{group_col}'] == lv, '{outcome}'].dropna().values",
@@ -692,6 +714,7 @@ def _branch_group_comparison(ctx: Ctx) -> None:
 def _branch_logistic_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    import numpy as np
     import statsmodels.formula.api as smf
 
     # outcome: config override > high-confidence detected binary outcome (e.g. 'died',
@@ -705,34 +728,95 @@ def _branch_logistic_regression(ctx: Ctx) -> None:
     ]
     outcome = resolve_outcome(fp, cfg, binary_cols) if binary_cols else None
     exclude = {outcome, fp.unit_col, fp.time_col}
+    kind_by_name = {c.name: c.kind for c in fp.columns}
+    # Wave K-E3: predictors now also pull binary + categorical columns (dummy-coded
+    # below), not just continuous/count — a binary risk factor like smoking/sex used
+    # to be silently excluded from its own logistic model.
+    _auto_predictor_cols = [
+        c for c in fp.columns
+        if c.kind in {"continuous", "count", "binary", "categorical"}
+        and c.name not in exclude
+        # a constant (single-level) categorical dummy-codes to zero columns -> silent
+        # no-op predictor; skip it (mirrors mixed_effects's B3 guard).
+        and not (c.kind == "categorical" and df[c.name].nunique(dropna=True) < 2)
+    ]
     predictors = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != outcome] or [
-        c.name
-        for c in fp.columns
-        if c.kind in {"continuous", "count"} and c.name not in exclude
+        c.name for c in _auto_predictor_cols
     ][:5]
 
     if outcome is None:
         summary.append("逻辑回归失败：未找到二值结果变量。")
     else:
-        rhs = [f"Q('{v}')" for v in predictors]
-        formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
+        # Wave K-B4b: formula identifiers now go through the shared
+        # safe_formula_terms() helper (non-identifier-safe names, e.g. Chinese
+        # columns, get aliased to v1/v2/…) instead of ad-hoc Q('col') string
+        # splicing — a single collection point. _term_pairs (安全项, 原名) is used
+        # below to restore the original names in coefficients.csv/estimates/summary.
+        terms, _ = safe_formula_terms([outcome, *predictors])
+        term_outcome, *term_predictors = terms
+        col_map = dict(zip([outcome, *predictors], terms))  # 原名 -> 安全项
+        _term_pairs = list(zip(term_predictors, predictors))  # (安全项, 原名)
+        rhs = [
+            f"C({t})" if kind_by_name.get(v) == "categorical" else t
+            for t, v in _term_pairs
+        ]
+        formula = f"{term_outcome} ~ " + (" + ".join(rhs) if rhs else "1")
+        sub = df[[outcome, *predictors]].rename(columns=col_map)
         try:
-            model = smf.logit(formula, data=df).fit(disp=False)
+            model = smf.logit(formula, data=sub).fit(disp=False)
             (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
             files.append("summary.txt")
-            model.summary2().tables[1].to_csv(d / "coefficients.csv", encoding="utf-8")
+
+            def _delabel(idx: str) -> str:
+                """安全项(含 C(term)[T.level]/term[T.level] 哑变量后缀)还原成原始列名。"""
+                for t, o in _term_pairs:
+                    if idx == t:
+                        return o
+                    if idx.startswith(f"C({t})["):
+                        return f"{o}{idx[len(f'C({t})'):]}"
+                    if idx.startswith(f"{t}["):
+                        return f"{o}{idx[len(t):]}"
+                return idx
+
+            # Wave K-E1: 出 OR = exp(β) + 95%CI = exp(conf_int()) 端点
+            # （必须是 exp(conf_int) 端点，绝不是 exp(点估±se)）。
+            ci = model.conf_int()
+            coefs_table = model.summary2().tables[1].copy()
+            coefs_table["OR"] = np.exp(model.params)
+            coefs_table["OR_CI_low"] = np.exp(ci[0])
+            coefs_table["OR_CI_high"] = np.exp(ci[1])
+            coefs_table.index = [_delabel(i) for i in coefs_table.index]
+            coefs_table.to_csv(d / "coefficients.csv", encoding="utf-8")
             files.append("coefficients.csv")
-            _coef_plot(model, predictors, d / "coefficients.png")
+            _coef_plot(model, term_predictors, d / "coefficients.png")
             files.append("coefficients.png")
-            for v in predictors:
-                kn = f"Q('{v}')"
-                if kn in model.params.index:
-                    estimates[v] = float(model.params[kn])
+
+            for t, v in _term_pairs:
+                if t in model.params.index:
+                    estimates[v] = float(model.params[t])
+                    estimates[f"{v}_OR"] = float(np.exp(model.params[t]))
+                    estimates[f"{v}_OR_CI_low"] = float(np.exp(ci.loc[t, 0]))
+                    estimates[f"{v}_OR_CI_high"] = float(np.exp(ci.loc[t, 1]))
+                else:
+                    # 分类/字符串二值列被 patsy 哑变量化成 term[T.level] 或
+                    # C(term)[T.level]，精确键落空 -> 回退前缀扫描逐水平取值。
+                    for idx in model.params.index:
+                        if idx.startswith(f"C({t})[") or idx.startswith(f"{t}["):
+                            lbl = _delabel(idx)
+                            estimates[lbl] = float(model.params[idx])
+                            estimates[f"{lbl}_OR"] = float(np.exp(model.params[idx]))
+                            estimates[f"{lbl}_OR_CI_low"] = float(np.exp(ci.loc[idx, 0]))
+                            estimates[f"{lbl}_OR_CI_high"] = float(np.exp(ci.loc[idx, 1]))
+
             key = ""
             if predictors:
-                kname = f"Q('{predictors[0]}')"
-                if kname in model.params.index:
-                    key = f"，关键系数 {predictors[0]} = {model.params[kname]:.4f} (p={model.pvalues[kname]:.3g})"
+                t0 = term_predictors[0]
+                if t0 in model.params.index:
+                    or0 = float(np.exp(model.params[t0]))
+                    key = (
+                        f"，关键系数 {predictors[0]} = {model.params[t0]:.4f} "
+                        f"(OR={or0:.3f}, p={model.pvalues[t0]:.3g})"
+                    )
             amb = (
                 f"（数据有 {len(binary_cols)} 个二值列，已取 {outcome}；若它实为处理/标志变量请改选）"
                 if len(binary_cols) > 1
@@ -749,7 +833,8 @@ def _branch_logistic_regression(ctx: Ctx) -> None:
                 pass
             code += [
                 "import statsmodels.formula.api as smf",
-                f'model = smf.logit("{formula}", data=df).fit(disp=False)',
+                f"sub = df[{[outcome, *predictors]!r}].rename(columns={col_map!r})",
+                f'model = smf.logit("{formula}", data=sub).fit(disp=False)',
                 "print(model.summary())",
             ]
         except Exception as err:
@@ -787,10 +872,15 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
             # (only continuous/count/binary were collected) — a treatment factor
             # like "variety"/"处理" with >2 levels vanished from the model without
             # any disclosure. Now categorical predictors are kept and dummy-coded
-            # in the formula via `C(Q('col'))` (statsmodels/patsy native syntax —
-            # a proper identifier-safe formula-builder helper is deferred to the
-            # B4 batch, per Wave K plan; Q() already handles arbitrary column
-            # names here the same way the rest of this module's formula strings do).
+            # in the formula via `C(...)`.
+            # Wave K-B4b: formula identifiers now go through the shared
+            # safe_formula_terms() helper (aliasing non-identifier-safe names like
+            # Chinese columns to v1/v2/…) instead of the earlier ad-hoc
+            # `Q('col')`/`C(Q('col'))` quoting — a single collection point; the
+            # alias->original mapping restores the original names in
+            # coefficients.csv/estimates below. group_col itself is passed
+            # straight through via `groups=sub[group_col]` (not formula-parsed),
+            # so it needs no aliasing.
             _excl_names = {outcome, group_col, fp.unit_col, fp.time_col}
             predictor_cols = [
                 c for c in fp.columns
@@ -801,14 +891,22 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
                 and not (c.kind == "categorical" and df[c.name].nunique(dropna=True) < 2)
             ][:5]
             predictors = [c.name for c in predictor_cols]
+            _time_in_formula = bool(fp.time_col) and fp.time_col != group_col
+            _formula_cols = [outcome, *predictors] + ([fp.time_col] if _time_in_formula else [])
+            terms, _ = safe_formula_terms(_formula_cols)
+            term_outcome = terms[0]
+            term_predictors = terms[1: 1 + len(predictors)]
+            term_time = terms[1 + len(predictors)] if _time_in_formula else None
+            col_map = dict(zip(_formula_cols, terms))  # 原名 -> 安全项（不含 group_col）
+
             rhs = [
-                f"C(Q('{c.name}'))" if c.kind == "categorical" else f"Q('{c.name}')"
-                for c in predictor_cols
+                f"C({t})" if c.kind == "categorical" else t
+                for c, t in zip(predictor_cols, term_predictors)
             ]
             # Control for time on panel data — otherwise a staggered treatment is
             # confounded with the time trend (mirrors _regression's FE handling).
-            if fp.time_col and fp.time_col != group_col:
-                rhs.append(f"C(Q('{fp.time_col}'))")
+            if _time_in_formula:
+                rhs.append(f"C({term_time})")
 
             if not rhs:
                 # Degenerate to an intercept-only "model" (no fixed-effect
@@ -818,56 +916,72 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
                 # success.
                 summary.append("mixed_effects 失败：无可用固定效应预测变量")
             else:
-                formula = f"Q('{outcome}') ~ " + " + ".join(rhs)
+                formula = f"{term_outcome} ~ " + " + ".join(rhs)
                 # Wave K-B3 冷审(SHOULD)：mixedlm.from_formula 默认 missing='none'，patsy 丢 NaN
                 # 行后 endog 变短、groups 数组仍全长 → IndexError，被下方 except 谎报"未收敛"。
                 # 分类预测变量更常带缺失（B3 放大此隐患），故拟合前手动 listwise 删除对齐。
                 _acols = [outcome, group_col, *predictors]
-                if fp.time_col and fp.time_col != group_col:
+                if _time_in_formula:
                     _acols.append(fp.time_col)
-                sub = df[[c for c in dict.fromkeys(_acols) if c in df.columns]].dropna().reset_index(drop=True)
-                if len(sub) < 20 or sub[group_col].nunique() < 2:
+                sub_orig = df[[c for c in dict.fromkeys(_acols) if c in df.columns]].dropna().reset_index(drop=True)
+                if len(sub_orig) < 20 or sub_orig[group_col].nunique() < 2:
                     summary.append("mixed_effects 失败：删除缺失后有效样本(<20)或分组(<2)不足")
                 else:
                     try:
+                        sub = sub_orig.rename(columns=col_map)
                         model = smf.mixedlm(formula, data=sub, groups=sub[group_col]).fit()
                         (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
                         files.append("summary.txt")
+
+                        # (安全项, 原名) 配对 + 还原函数：把 C(term)[T.level] / term[T.level]
+                        # 哑变量后缀形式的行标签还原成原始列名，供 coefficients.csv/estimates 用。
+                        _term_pairs = list(zip(term_predictors, predictors))
+                        if _time_in_formula:
+                            _term_pairs.append((term_time, fp.time_col))
+
+                        def _delabel(idx: str) -> str:
+                            for t, o in _term_pairs:
+                                if idx == t:
+                                    return o
+                                if idx.startswith(f"C({t})["):
+                                    return f"{o}{idx[len(f'C({t})'):]}"
+                                if idx.startswith(f"{t}["):
+                                    return f"{o}{idx[len(t):]}"
+                            return idx
+
                         try:
                             import pandas as pd
-                            pd.DataFrame(model.summary().tables[1]).to_csv(
-                                d / "coefficients.csv", encoding="utf-8"
-                            )
+                            coefs_df = pd.DataFrame(model.summary().tables[1])
+                            coefs_df.index = [_delabel(i) for i in coefs_df.index]
+                            coefs_df.to_csv(d / "coefficients.csv", encoding="utf-8")
                         except Exception:
                             import pandas as pd
-                            model.params.to_frame(name="coef").to_csv(
-                                d / "coefficients.csv", encoding="utf-8"
-                            )
+                            fallback = model.params.to_frame(name="coef")
+                            fallback.index = [_delabel(i) for i in fallback.index]
+                            fallback.to_csv(d / "coefficients.csv", encoding="utf-8")
                         files.append("coefficients.csv")
                         _n_cat = 0
-                        for c in predictor_cols:
+                        for c, t in zip(predictor_cols, term_predictors):
                             v = c.name
                             if c.kind == "categorical":
-                                prefix = f"C(Q('{v}'))["
+                                prefix = f"C({t})["
                                 hit = False
                                 for idx in model.params.index:
                                     if idx.startswith(prefix):
-                                        level = idx[len(f"C(Q('{v}'))"):]
-                                        estimates[f"{v}{level}"] = float(model.params[idx])
+                                        estimates[_delabel(idx)] = float(model.params[idx])
                                         hit = True
                                 if hit:
                                     _n_cat += 1
                             else:
                                 # 数值预测变量用精确键；但**字符串编码的二值列**被 patsy 自动
-                                # 哑变量化成 Q('v')[T.level]，精确键落空 → 回退前缀扫描，免得系数
+                                # 哑变量化成 term[T.level]，精确键落空 → 回退前缀扫描，免得系数
                                 # 静默漏出 estimates（B3 冷审 SHOULD）。
-                                kn = f"Q('{v}')"
-                                if kn in model.params.index:
-                                    estimates[v] = float(model.params[kn])
+                                if t in model.params.index:
+                                    estimates[v] = float(model.params[t])
                                 else:
                                     for idx in model.params.index:
-                                        if idx.startswith(kn + "["):
-                                            estimates[f"{v}{idx[len(kn):]}"] = float(model.params[idx])
+                                        if idx.startswith(f"{t}["):
+                                            estimates[_delabel(idx)] = float(model.params[idx])
                         _cat_note = (
                             f"（含 {_n_cat} 个分类固定效应已哑变量化，以各自首水平为参照）" if _n_cat else ""
                         )
@@ -877,7 +991,8 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
                         )
                         code += [
                             "import statsmodels.formula.api as smf",
-                            f"sub = df.dropna(subset={[outcome, group_col, *predictors]!r})  # 对齐 groups/endog",
+                            f"sub = df.dropna(subset={[outcome, group_col, *predictors]!r})"
+                            f".rename(columns={col_map!r})  # 对齐 groups/endog + formula 标识符别名化",
                             f'model = smf.mixedlm("{formula}", data=sub, groups=sub["{group_col}"]).fit()',
                             "print(model.summary())",
                         ]
