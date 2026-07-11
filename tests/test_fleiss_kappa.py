@@ -141,6 +141,47 @@ def test_fleiss_wide_layout_config(tmp_path: Path) -> None:
     assert (out / "fleiss_estimates.csv").exists()
 
 
+def test_fleiss_questionnaire_like_matrix_flagged(tmp_path: Path) -> None:
+    # 20 respondents x 5 Likert items (1-5) -- shaped like "respondents x items"
+    # (a questionnaire), not "raters x targets". Fleiss still fits a kappa (no
+    # silent block), but the branch must flag the shape ambiguity in summary.
+    rng = np.random.default_rng(7)
+    n_resp, n_items = 20, 5
+    cols = {}
+    for j in range(n_items):
+        levels = np.tile(np.arange(1, 6), n_resp // 5)  # guarantees all 5 levels present
+        rng.shuffle(levels)
+        cols[f"item{j + 1}"] = levels
+    df = pd.DataFrame(cols)
+    csv = tmp_path / "questionnaire.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
+    assert "fleiss_kappa" in res.estimates  # still computed, not silently blocked
+    assert "受访者×题项" in res.summary and "问卷" in res.summary
+
+
+def test_fleiss_true_rater_matrix_not_flagged(tmp_path: Path) -> None:
+    # Genuine raters x targets data (categorical labels, rater-style names,
+    # non-ordinal) must NOT trigger the questionnaire heuristic.
+    rng = np.random.default_rng(11)
+    n = 25
+    labels = np.array(["low", "mid", "high"])
+    cols = {}
+    truth = rng.integers(0, 3, n)
+    for r in range(5):
+        flip = rng.random(n) < 0.2
+        codes = np.where(flip, rng.integers(0, 3, n), truth)
+        cols[f"rater{r}"] = labels[codes]
+    df = pd.DataFrame(cols)
+    csv = tmp_path / "true_raters.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "o"))
+    assert "fleiss_kappa" in res.estimates
+    assert "受访者×题项" not in res.summary
+
+
 def test_fleiss_too_few_raters_skips(tmp_path: Path) -> None:
     df = pd.DataFrame({"r1": ["a", "b"] * 10, "r2": ["a", "b"] * 10})
     csv = tmp_path / "two.csv"

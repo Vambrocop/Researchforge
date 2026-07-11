@@ -59,6 +59,34 @@ def _categorical_cols(ctx: Ctx) -> list[str]:
     ]
 
 
+def _looks_like_questionnaire(cols: list[str], fp) -> bool:
+    """Fleiss' kappa's "subjects x raters" wide layout is structurally IDENTICAL
+    to a "respondents x items" questionnaire matrix (same shape: rows = one
+    thing, columns = several small-integer codes) -- fitting kappa on the
+    latter still returns a number, but the number has no rater-agreement
+    meaning. This is a real identifiability limit (same ambiguity Cronbach's
+    alpha item-resolution faces), not a bug we can resolve automatically --
+    so we only flag it, never block or silently reroute.
+
+    Two simple, cheap signals (either is enough to suspect a questionnaire):
+      (a) most column names match a common item/question naming pattern
+          (item1, q3, question_2, ...);
+      (b) most columns are profiler-flagged ``ordinal_like`` (bounded 1..k
+          Likert-style rating scales) -- the classic "k rating-scale items"
+          questionnaire shape.
+    """
+    import re
+
+    if not cols:
+        return False
+    item_pat = re.compile(r"^(item|q|question)[\s_-]*\d+$", re.IGNORECASE)
+    n_item_named = sum(1 for c in cols if item_pat.match(str(c).strip()))
+    kind_by_name = {c.name: c for c in fp.columns}
+    n_ordinal = sum(1 for c in cols if getattr(kind_by_name.get(c), "ordinal_like", False))
+    half = len(cols) / 2.0
+    return n_item_named > half or n_ordinal > half
+
+
 # ===========================================================================
 # 1. Cohen's kappa  (two raters)
 # ===========================================================================
@@ -300,6 +328,7 @@ def _branch_fleiss_kappa(ctx: Ctx) -> None:
         raters = cands
 
     count_mode = bool(cfg.get("count_matrix"))
+    questionnaire_like = False
     try:
         if count_mode:
             # rows = subjects, cols = categories; cell = count of raters
@@ -317,6 +346,7 @@ def _branch_fleiss_kappa(ctx: Ctx) -> None:
                     "config 用 raters=[...] 指定；已计数表用 count_matrix=true（≥3 个评分者）。"
                 )
                 return
+            questionnaire_like = _looks_like_questionnaire(raters, fp)
             sub = df[raters].dropna()
             if sub.shape[0] < 2:
                 summary.append("Fleiss' κ 跳过：成行删除缺失后被试不足 2 行。")
@@ -450,11 +480,20 @@ def _branch_fleiss_kappa(ctx: Ctx) -> None:
         sig = (f"，z={z:.2f}, p={pval:.2g}（{'拒绝 κ=0' if pval < 0.05 else '不能拒绝 κ=0'}）"
                if se == se else "")
         warn_unequal = " ⚠ 各被试评分数原不一致，已按众数对齐删除不齐行。" if unequal else ""
+        warn_questionnaire = (
+            " ⚠ 此矩阵形似「受访者×题项」（问卷量表：列像题项名/多为有界评分量表），"
+            "而非「评分者×被评对象」——Fleiss κ 假设列是可互换的评分者、行是被评对象，"
+            "若这其实是问卷量表，κ 可能没有实质意义；若要一致性请确认矩阵确为评分者×对象"
+            "（若是问卷信度，请改用 Cronbach's α）。"
+            if questionnaire_like
+            else ""
+        )
         summary.append(
             f"{entry.method} 完成：{N} 个被试 × {n} 个评分者，{q} 个类别。"
             f"κ={kappa:.3f}（{_landis_koch(kappa)}）；P̄(观测一致)={P_bar:.3f}，P̄_e(期望一致)={P_e:.3f}{sig}。"
             "各类别 κ 见 fleiss_category_kappa.csv。"
             + warn_unequal
+            + warn_questionnaire
             + " ⚠ Fleiss κ 假设评分者可互换（不要求每个被试是同一批评分者）、每个被试评分数相等、"
             "并做了随机校正；同样对类别患病率敏感（极偏类别拉低 κ）。"
         )
