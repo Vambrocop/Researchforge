@@ -186,7 +186,7 @@ def _precond_bonus(signals: dict, pre) -> float:
     # it gets its full weight again.
     if pm.get("requires_group") and signals.get("has_group"):
         bonus += 10.0
-    if pm.get("min_count_cols") and signals["has_count"]:
+    if pm.get("min_count_cols") and signals["has_count_outcome"]:
         bonus += 8.0
     if pm.get("min_categorical_cols") and signals["has_categorical"]:
         bonus += 6.0

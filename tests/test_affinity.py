@@ -71,6 +71,28 @@ def test_data_signals_edgelist(tmp_path: Path) -> None:
     assert s["has_edgelist"] is True
 
 
+def test_count_outcome_excludes_ordinal_likert(tmp_path: Path) -> None:
+    # Wave K-A1: 1-5 Likert items profile as `count` but are ordinal_like ratings,
+    # not count outcomes — they must NOT make Poisson/NB/PERMANOVA look feasible.
+    rng = np.random.default_rng(11)
+    df = pd.DataFrame({f"item{i}": rng.integers(1, 6, 150) for i in range(1, 6)})
+    s = _signals(df, tmp_path)
+    assert s["has_count"] is True          # they ARE count-kind…
+    assert s["n_count_real"] == 0          # …but none is a real (non-ordinal) count
+    assert s["has_count_outcome"] is False
+
+
+def test_count_outcome_keeps_genuine_unbounded_count(tmp_path: Path) -> None:
+    # Wave K-A1: an unbounded event count (has zeros / many distinct values) is a real
+    # count outcome — the ordinal_like exclusion must not swallow true Poisson data.
+    rng = np.random.default_rng(12)
+    df = pd.DataFrame({"x": rng.normal(0, 1, 200).round(3),
+                       "events": rng.poisson(6, 200)})
+    s = _signals(df, tmp_path)
+    assert s["n_count_real"] >= 1
+    assert s["has_count_outcome"] is True
+
+
 def test_match_score_prefers_right_family_per_structure(tmp_path: Path) -> None:
     rng = np.random.default_rng(7)
     stat = get_affinity("statistics")

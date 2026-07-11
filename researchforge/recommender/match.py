@@ -48,11 +48,19 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
         unmet.append("需要分组变量（分类/二值）")
-    if pre.requires_count_outcome and not any(c.kind == "count" for c in fp.columns):
+    if pre.requires_count_outcome and not any(
+        c.kind == "count" and not getattr(c, "ordinal_like", False) for c in fp.columns
+    ):
         unmet.append("需要计数型结果变量")
     if pre.min_count_cols is not None:
+        # a REAL count column: count-kind AND NOT a bounded ordinal/Likert rating (see
+        # types.is_ordinal_like) — a rating scale profiles as `count` too but is not a
+        # species-abundance / event count, so it must not satisfy this gate (Wave K-A1).
         n_count = sum(
-            1 for c in fp.columns if c.kind == "count" and c.name not in {fp.unit_col, fp.time_col}
+            1 for c in fp.columns
+            if c.kind == "count"
+            and not getattr(c, "ordinal_like", False)
+            and c.name not in {fp.unit_col, fp.time_col}
         )
         if n_count < pre.min_count_cols:
             unmet.append(f"需要 ≥ {pre.min_count_cols} 个计数列（物种丰度，现有 {n_count}）")

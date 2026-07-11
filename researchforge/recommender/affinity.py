@@ -145,6 +145,15 @@ def data_signals(fp: DataFingerprint) -> dict:
     n_ordinal = sum(1 for c in cols if getattr(c, "ordinal_like", False))
     has_rater_block = n_ordinal >= 3
     has_ordinal_outcome = n_ordinal >= 1 and not has_rater_block
+    # a REAL count column: count-kind AND NOT a bounded ordinal/Likert rating (see
+    # types.is_ordinal_like). Poisson/NB/PERMANOVA/indicator-species etc. model an
+    # unbounded count outcome — a bounded 1..k rating profiles as `count` too but is
+    # not one, so it must not make those count methods look feasible/well-fitted
+    # (Wave K-A1). This is the single "is this a count OUTCOME" concept — every
+    # consumer of "count" as an outcome kind should read n_count_real, not n_count.
+    n_count_real = sum(
+        1 for c in cols if c.kind == "count" and not getattr(c, "ordinal_like", False)
+    )
     names = [str(c.name).lower() for c in fp.columns]
 
     def _hint(words):
@@ -185,10 +194,12 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_binary": n_bin >= 1,
         "has_categorical": n_cat >= 1,
         "has_count": n_count >= 1,
-        # a genuine count OUTCOME — excludes a rater block (≥3 parallel rating columns profile
-        # as `count` but are ordinal ratings, not counts), so Poisson/NB don't outrank the
-        # inter-rater agreement / reliability methods that the structure actually calls for.
-        "has_count_outcome": n_count >= 1 and not has_rater_block,
+        "n_count_real": n_count_real,
+        # a genuine count OUTCOME = count-kind AND NOT ordinal_like (Wave K-A1). This
+        # already excludes both a rater block and a 1-2 col ordinal outcome (both are
+        # ordinal_like), so Poisson/NB don't outrank the inter-rater agreement / ordinal
+        # regression / reliability methods that the structure actually calls for.
+        "has_count_outcome": n_count_real >= 1,
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
         "has_rater_block": has_rater_block,
@@ -204,7 +215,7 @@ def _available_outcomes(signals: dict) -> set:
     avail = {"none"}  # descriptive is always applicable
     if signals["n_continuous"] > 0:
         avail.add("continuous")
-    if signals["has_count"]:
+    if signals["has_count_outcome"]:
         avail.add("count")
     if signals["has_binary"]:
         avail.add("binary")
