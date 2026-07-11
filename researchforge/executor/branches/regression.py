@@ -37,6 +37,15 @@ def _branch_regression(ctx: Ctx) -> None:
     n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
     dv_note = f"（数据有 {n_cont} 个连续列，默认取 {y} 为因变量）" if n_cont > 1 else ""
     summary.append(f"{entry.method} 完成：因变量 {y}{key}{dv_note}")
+    clustered = bool(fp.is_panel and fp.unit_col)
+    if clustered:
+        _n_clusters = int(df[fp.unit_col].nunique()) if fp.unit_col in df.columns else 0
+        _cl = (f"标准误按 {fp.unit_col} 聚类（共 {_n_clusters} 个单位；面板数据默认用聚类稳健 SE，"
+               "而非普通 HC1，避免同一单位内序列相关导致 SE 偏小、p 值虚低）。")
+        if 0 < _n_clusters < 30:  # D1 冷审 SHOULD：少簇下 statsmodels 正态参照偏乐观
+            _cl += (f"⚠️ 聚类单位偏少（{_n_clusters}），聚类稳健推断用正态参照、少簇时偏乐观（p 偏小），"
+                    "宜按 t(G−1) 或 wild cluster bootstrap 审慎解读。")
+        summary.append(_cl)
     if not rhs_vars:
         summary.append("⚠️ 无可用解释变量，仅拟合了截距模型，结果无解释意义。")
     if entry.id == "did" and rhs_vars and fp.unit_col:
@@ -44,8 +53,26 @@ def _branch_regression(ctx: Ctx) -> None:
             summary.append(
                 f"⚠️ 处理变量 {rhs_vars[0]} 在每个单位内不随时间变化，可能不是有效的 DID 处理。"
             )
-    code += [
-        "import statsmodels.formula.api as smf",
-        f'model = smf.ols("{formula}", data=df).fit(cov_type="HC1")',
-        "print(model.summary())",
-    ]
+    if entry.id == "did" and clustered:  # D1 冷审 SHOULD：聚类维度诚实披露
+        summary.append(
+            f"⚠️ DID 标准误按 {fp.unit_col} 聚类（处理按单位层赋值时正确）；若处理实为更粗层级赋值"
+            "（如政策打到多个单位），应按该更粗层聚类——引擎按可得的最细单位聚类。"
+        )
+    if entry.id == "ols_regression" and clustered:
+        summary.append(
+            f"⚠️ 数据疑似面板结构（单位列 {fp.unit_col}），当前是 pooled OLS，忽略了个体固定效应，"
+            "估计可能有偏——如需控制个体异质性，考虑改用 panel_fixed_effects。"
+        )
+    if clustered:
+        code += [
+            "import statsmodels.formula.api as smf",
+            f"fit = df.dropna(subset={[y, *rhs_vars, fp.unit_col]!r})  # listwise 删缺失，对齐 groups 与拟合样本",
+            f'model = smf.ols("{formula}", data=fit).fit(cov_type="cluster", cov_kwds={{"groups": fit["{fp.unit_col}"]}})',
+            "print(model.summary())",
+        ]
+    else:
+        code += [
+            "import statsmodels.formula.api as smf",
+            f'model = smf.ols("{formula}", data=df).fit(cov_type="HC1")',
+            "print(model.summary())",
+        ]

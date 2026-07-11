@@ -123,7 +123,26 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None 
 
     rhs = [f"Q('{v}')" for v in rhs_vars] + fe_terms
     formula = f"Q('{y}') ~ " + (" + ".join(rhs) if rhs else "1")
-    model = smf.ols(formula, data=df).fit(cov_type="HC1")
+
+    # Panel data: default HC1 (heteroskedasticity-robust only) ignores within-unit serial
+    # correlation and understates SE -> spuriously tiny p-values (dogfood P3: 1e-187-class
+    # on firm x year panels). Cluster by unit_col instead — same statsmodels idiom already
+    # used for the other unit/time formula fits in this codebase (event_study.py /
+    # staggered_did.py / did_advanced.py: cov_type="cluster", cov_kwds={"groups": ...});
+    # econometrics.py's linearmodels RandomEffects/PanelOLS use the linearmodels-equivalent
+    # cov_type="clustered", cluster_entity=True. Applies to ols_regression too — pooled OLS
+    # fit on panel-shaped data still has within-unit correlated errors even without FE terms.
+    if fp.is_panel and fp.unit_col and fp.unit_col in df.columns:
+        formula_cols = [y, *rhs_vars]
+        if fe_terms:
+            formula_cols += [fp.unit_col, fp.time_col]
+        fit_cols = list(dict.fromkeys([*formula_cols, fp.unit_col]))
+        fit_df = df[fit_cols].dropna()
+        model = smf.ols(formula, data=df.loc[fit_df.index]).fit(
+            cov_type="cluster", cov_kwds={"groups": fit_df[fp.unit_col]}
+        )
+    else:
+        model = smf.ols(formula, data=df).fit(cov_type="HC1")
     return y, rhs_vars, formula, model
 
 

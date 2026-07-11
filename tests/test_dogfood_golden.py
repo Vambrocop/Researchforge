@@ -104,6 +104,45 @@ def test_p3_panel_family_feasible(tmp_path: Path) -> None:
     assert hit, f"expected a panel estimator feasible, got feasible={sorted(feasible)}"
 
 
+# Wave K 轨F D1/D2 已落地 → 硬断言：pooled OLS / panel FE 在面板数据上默认 HC1 稳健 SE 忽略
+# 同单位内序列相关，把 p 值压到虚假显著（dogfood 观测：panel_fixed_effects 上 HC1 给
+# cashflow p≈6.7e-39）；按 firm_id 聚类后 SE 明显变大、p 不再离谱（仍显著——cashflow 对
+# investment 确有真实效应，聚类只是把过度自信的 SE 修正回诚实水平，不是把信号抹掉）。
+def test_p3_panel_ols_and_fe_use_clustered_se(tmp_path: Path) -> None:
+    import statsmodels.formula.api as smf
+
+    from researchforge.executor.run import _regression
+
+    df = build_p3_panel()
+    csv = tmp_path / "p3.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.is_panel and fp.unit_col == "firm_id"
+
+    for eid in ("ols_regression", "panel_fixed_effects"):
+        entry = _CAT.by_id(eid)
+        _, rhs_vars, formula, model = _regression(df, fp, entry, {})
+        key = "Q('cashflow')"
+        assert key in model.bse.index, f"{eid}: cashflow dropped from spec, rhs={rhs_vars}"
+        clustered_bse, clustered_p = float(model.bse[key]), float(model.pvalues[key])
+        # same spec, unclustered HC1 — the pre-fix behavior — as the baseline to beat.
+        unclustered = smf.ols(formula, data=df).fit(cov_type="HC1")
+        hc1_bse, hc1_p = float(unclustered.bse[key]), float(unclustered.pvalues[key])
+        assert clustered_bse > hc1_bse * 1.05, (
+            f"{eid}: clustered SE ({clustered_bse}) not visibly larger than unclustered HC1 "
+            f"({hc1_bse}) — clustering may not be engaged"
+        )
+        assert clustered_p > hc1_p * 100, (
+            f"{eid}: clustered p ({clustered_p}) still as extreme as unclustered HC1 p "
+            f"({hc1_p}) — SE fix not reflected in significance"
+        )
+
+    entry = _CAT.by_id("ols_regression")
+    res = run_analysis(fp, entry, output_root=str(tmp_path / "o"), config=None)
+    assert "聚类" in res.summary, "summary 应披露按 unit 聚类的稳健 SE"
+    assert "panel_fixed_effects" in res.summary, "pooled OLS 在面板数据上应提示改用 panel_fixed_effects"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # P4 — 农学 RCBD (发现 11；Wave K-B1 已落地 → 硬断言)
 # B1 给 _TRT_HINTS/_BLOCK_HINTS 加中文子串(处理/区组…)后，角色不再反转：处理绑 treatment、区组绑 block。
