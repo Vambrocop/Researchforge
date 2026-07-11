@@ -24,6 +24,10 @@
       type: column
       description: 连续结果变量
       default: 第一个连续列
+    - name: response
+      type: column
+      description: 连续结果变量（outcome 的别名，向后兼容；Wave K-D5）
+      default: 同 outcome
     - name: treatment
       type: column
       description: 处理因子
