@@ -118,3 +118,42 @@ def test_gamm_no_group_degrades(tmp_path: Path) -> None:
     fp = profile_dataset(csv)
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
     assert "GAMM" in res.summary and ("分组" in res.summary or "失败" in res.summary)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave L D: requires_group's precondition gate accepted ANY binary/categorical column
+# (e.g. a 2-level outcome flag), which let gamm rank as feasible on cross-sectional data
+# with no real grouping structure and then fail at runtime ("需要分组变量...≥5 组").
+# min_group_levels=5 on the catalog entry tightens the recommender-level gate to match
+# gamm's actual runtime requirement — these are precondition-matching tests (no R needed).
+# ─────────────────────────────────────────────────────────────────────────────
+def test_gamm_infeasible_with_only_low_cardinality_group(tmp_path: Path) -> None:
+    from researchforge.recommender.match import check_preconditions
+
+    rng = np.random.default_rng(3)
+    n = 200
+    df = pd.DataFrame({
+        "y": rng.normal(0, 1, n),
+        "x1": rng.uniform(0, 10, n),
+        "x2": rng.uniform(0, 5, n),
+        "region": rng.choice(["North", "South", "East", "West"], n),  # only 4 levels
+        "flag": rng.integers(0, 2, n),  # binary, 2 levels
+    })
+    csv = tmp_path / "lowcard.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    ok, unmet = check_preconditions(fp, _precond_with_min_group_levels())
+    assert not ok, f"gamm should be infeasible with only <5-level groups, unmet={unmet}"
+    assert any("水平数" in u for u in unmet), f"expected a min_group_levels reason, got {unmet}"
+
+
+def test_gamm_feasible_with_real_group_5plus_levels(tmp_path: Path) -> None:
+    from researchforge.recommender.match import check_preconditions
+
+    fp = profile_dataset(_data(tmp_path))  # "site" has 20 levels -> a genuine grouping column
+    ok, unmet = check_preconditions(fp, _precond_with_min_group_levels())
+    assert ok, f"gamm should stay feasible with a real >=5-level group, unmet={unmet}"
+
+
+def _precond_with_min_group_levels() -> Precondition:
+    return Precondition(requires_group=True, min_group_levels=5, min_continuous=2, min_rows=50)

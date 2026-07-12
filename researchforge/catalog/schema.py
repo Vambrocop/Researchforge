@@ -22,6 +22,11 @@ class Precondition(BaseModel):
     min_categorical_cols: Optional[int] = None  # categorical/binary/count (rater codes profile as count)
     requires_binary_outcome: Optional[bool] = None
     requires_group: Optional[bool] = None
+    # stricter than requires_group: needs a categorical/binary column whose level
+    # count is >= N — a genuine grouping structure for a random-intercept/random-slope
+    # term, not just any 2-level flag (e.g. a binary OUTCOME column). Wave L D: gamm's
+    # random intercept needs >=5 groups for a stable variance component (mgcv/lme4).
+    min_group_levels: Optional[int] = None
     requires_count_outcome: Optional[bool] = None
     min_count_cols: Optional[int] = None
     requires_ordinal: Optional[bool] = None

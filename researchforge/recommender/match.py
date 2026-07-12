@@ -48,6 +48,21 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要二值结果变量")
     if pre.requires_group and not any(c.kind in {"binary", "categorical"} for c in fp.columns):
         unmet.append("需要分组变量（分类/二值）")
+    if pre.min_group_levels is not None:
+        # stricter than requires_group: a random-intercept grouping variable needs enough
+        # LEVELS to be a useful group, not just any binary/categorical column — a 2-level
+        # outcome flag (e.g. churn) or a 4-level region code isn't a real random-effects
+        # grouping structure (Wave L D: gamm was ranking rank1 on cross-sectional binary-only
+        # data and failing at runtime with "需要分组变量...≥5 组").
+        max_levels = max(
+            (c.n_unique for c in fp.columns if c.kind in {"binary", "categorical"}),
+            default=0,
+        )
+        if max_levels < pre.min_group_levels:
+            unmet.append(
+                f"需要一个分组变量且水平数 ≥ {pre.min_group_levels}"
+                f"（现有分类/二值列最多 {max_levels} 级，做随机截距分组不够）"
+            )
     if pre.requires_count_outcome and not has_count_outcome(fp):
         # a genuine count OUTCOME, not a demographic integer that merely profiles as `count`
         # (age/year) — the single source of truth (affinity.has_count_outcome) also excludes

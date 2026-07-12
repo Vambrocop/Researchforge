@@ -295,6 +295,7 @@
   description: Combines GAM smooth (penalised-spline) terms for continuous predictors with a random intercept for a grouping variable (clustered / repeated-measures data), via mgcv's s(group, bs="re") in a single REML fit. Captures nonlinear covariate effects AND between-group heterogeneity at once. Reports smooth-term significance (edf), the random-intercept SD, deviance explained, adjusted R-squared, and partial-effect plots. (Pure smoothing -> gam; pure random effects on a linear model -> mixed_effects.)
   preconditions:
     requires_group: true
+    min_group_levels: 5  # Wave L D: random intercept needs >=5 real groups, not just any binary/categorical col
     min_continuous: 2
     min_rows: 50
   produces:
