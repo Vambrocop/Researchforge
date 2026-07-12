@@ -17,6 +17,15 @@ from __future__ import annotations
 
 import re
 
+# _TREATMENT_RE + is_treatment_named + has_design_signal live in profiler.semantics now (Wave L
+# ColumnSemantics single source). Re-exported so `from ...roles import is_treatment_named /
+# has_design_signal` (executor _helpers.core / epidemiology / callers) keeps working unchanged.
+from researchforge.profiler.semantics import (
+    _TREATMENT_RE,
+    has_design_signal,  # noqa: F401 - re-exported for callers importing from roles
+    is_treatment_named,  # noqa: F401 - re-exported (executor _helpers.core / epidemiology)
+)
+
 # Name signals (word-boundary, case-insensitive). Outcome words are the dependent
 # variable a study predicts/explains; treatment a binary intervention; time a period.
 #
@@ -35,11 +44,7 @@ _OUTCOME_MED_RE = re.compile(
     r"price|result|grade|gpa|severity|risk)(?:$|_|\b)",
     re.I,
 )
-_TREATMENT_RE = re.compile(
-    r"(?:^|_|\b)(treat|treatment|treated|intervention|arm|group|condition|"
-    r"exposed|exposure|policy|program|assigned|dose)(?:$|_|\b)",
-    re.I,
-)
+
 _TIME_RE = re.compile(
     r"(?:^|_|\b)(year|yr|date|time|month|quarter|period|day|week|wave)(?:$|_|\b)",
     re.I,
@@ -60,17 +65,6 @@ _BIN_OUTCOME_RE = re.compile(
 )
 
 _NUMERIC_KINDS = {"continuous", "count"}
-
-
-def is_treatment_named(name: str) -> bool:
-    """True when a column NAME carries a treatment/arm signal (treat/arm/exposed/dose…).
-
-    Public so the executor's outcome resolver can skip a treatment-named column when
-    falling back to "first candidate" — a treatment indicator is almost never the
-    dependent variable. Name-signal ONLY: deliberately not based on detect_roles'
-    positional likely_treatment fallback (which tags the first non-outcome binary even
-    without any name evidence, and would flip conventions arbitrarily)."""
-    return bool(_TREATMENT_RE.search(str(name)))
 
 
 def _structure_evidence(med_named, numeric, df):

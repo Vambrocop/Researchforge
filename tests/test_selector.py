@@ -43,6 +43,22 @@ def test_entry_matches_predict_via_catalog_goal_field() -> None:
     assert all(entry_matches_goal(e, "predict") for e in preds)
 
 
+def test_has_design_signal_double_gate() -> None:
+    # Wave L-C1: has_design_signal 双证门槛——treatment 词(处理/dose)单独可判"有设计信号";
+    # 单个 block 词(site/区组)不够、需 ≥2 设计词(防单歧义词把观测数据误判为设计实验)。
+    from types import SimpleNamespace as NS
+
+    from researchforge.recommender.goals import has_design_signal
+
+    def _fp(cols):
+        return NS(columns=[NS(name=c) for c in cols])
+
+    assert has_design_signal(_fp(["处理", "区组", "产量"]))       # treatment 词 → True
+    assert has_design_signal(_fp(["site", "batch", "y"]))         # ≥2 设计词 → True
+    assert not has_design_signal(_fp(["site", "x", "y"]))         # 单个 block 词 → False(双证)
+    assert not has_design_signal(_fp(["城市", "区域", "销售额"]))  # 观测无设计词 → False
+
+
 def test_select_top_caps_and_filters(tmp_path: Path) -> None:
     fp = profile_dataset(_rich_csv(tmp_path))
     top6 = select_top(fp, top=6)

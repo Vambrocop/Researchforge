@@ -9,7 +9,7 @@ so `recommend --goal X` surfaces the right handful. Tuned for the focus domains
 from __future__ import annotations
 
 from researchforge.catalog.schema import AnalysisEntry
-from researchforge.profiler.semantics import role_hint
+from researchforge.profiler.semantics import has_design_signal  # noqa: F401 — 单一真源在 semantics（双证门槛），此处 re-export 供 recommend.py 从 goals 导入
 
 # goal key -> label, matching families, explicit ids, and keyword hints (method/description/domain)
 GOALS: dict[str, dict] = {
@@ -77,16 +77,6 @@ def entry_matches_goal(entry: AnalysisEntry, goal_key: str) -> bool:
     return any(kw in hay for kw in g["kw"])
 
 
-# Treatment/block vocabulary that marks a DESIGNED experiment (vs. observational data).
-# Single source: researchforge/profiler/semantics.py — Wave L ColumnSemantics C0
-# (profiler is the low-dependency neutral layer; importing it here is cheap, unlike
-# executor.branches which would drag in ~130 branch modules via walk_packages registration).
-
-
-def has_design_signal(fp) -> bool:
-    """True when a column name signals a designed experiment (a treatment or block factor).
-    Distinguishes a real DoE (RCBD/factorial/split-plot…) from observational data that merely
-    has categorical groups — used to stop designed-experiment methods from crowding out the
-    naive group comparison under ``--goal compare`` on observational data (Wave K-C1, 发现16)."""
-    names = [str(c.name) for c in fp.columns]
-    return any(role_hint(nm, "treatment") or role_hint(nm, "block") for nm in names)
+# has_design_signal 现由 profiler.semantics 单一提供（Wave L C1 双证门槛版：treatment 词单独可，
+# 单个 block 词不够、需 ≥2 设计词，防单歧义词误伤），line 12 已 import 并 re-export——recommend.py
+# 仍 `from goals import has_design_signal`。此处不再本地定义（旧单证版已删，消除双定义漂移）。
