@@ -86,6 +86,7 @@ def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     if time_col is None:
         return
 
+    n = len(df)
     unit_candidates = [
         c.name
         for c in fp.columns
@@ -93,12 +94,24 @@ def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     ]
     unit_col = None
     for u in unit_candidates:
+        # A real panel UNIT identifies (almost) every row's entity AND repeats across periods.
+        # Guards computed on the FULL table, not a dropna subset (the subset hides missingness):
+        #   (a) coverage — a mostly-empty column (e.g. an 89%-blank free-text 备注/notes field)
+        #       pairs uniquely with a high-cardinality date over its few non-null rows and
+        #       masquerades as a unit; a genuine unit is present in most rows (dogfooding #16);
+        #   (b) repetition — a near-unique id never repeats across time, so it is not a panel
+        #       unit either. Require each unit to appear ≥2× on average.
+        nunq = int(df[u].nunique(dropna=True))
+        if df[u].notna().mean() < 0.5:
+            continue
+        if nunq <= 1 or n / nunq < 2:
+            continue
         pair = df[[u, time_col]].dropna()
-        if pair.duplicated().sum() == 0 and 1 < df[u].nunique() < len(df):
+        if pair.duplicated().sum() == 0 and nunq < n:
             unit_col = u
             break
 
-    if unit_col is not None and len(df) > df[time_col].nunique():
+    if unit_col is not None and n > df[time_col].nunique():
         fp.is_panel = True
         fp.unit_col = unit_col
     elif df[time_col].nunique() > 1:
