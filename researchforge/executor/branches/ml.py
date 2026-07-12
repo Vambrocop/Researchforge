@@ -515,6 +515,34 @@ def _branch_pca(ctx: Ctx) -> None:
 
 
 
+def _resolve_ml_outcome(fp, cfg, cont_cols, binary_cols):
+    """Pick ``(outcome, is_clf)`` for a tree learner. Priority:
+
+      1. an explicit ``config["outcome"]`` — user intent always wins;
+      2. a HIGH-confidence detected outcome, ACROSS kinds — an event-named binary
+         (churn/died/approved via roles._BIN_OUTCOME_RE) IS the prediction target, not a
+         design factor (a drug arm / exposure is treatment-named → roles assigns it to
+         likely_treatment, never likely_outcome), so binding it is safe and fixes the
+         no-config path that would otherwise model a continuous FEATURE like ``tenure``
+         instead of ``churn`` (dogfooding ③);
+      3. else a continuous outcome (regression) — a lone binary next to a continuous
+         column is usually a treatment/flag feature, not the target;
+      4. else a binary outcome (classification).
+
+    ``is_clf`` = the chosen outcome is not one of the continuous columns."""
+    forced_y = cfg.get("outcome")
+    if fp.column(forced_y) is not None:
+        return forced_y, forced_y not in cont_cols
+    hc = fp.likely_outcome if fp.likely_outcome_confidence == "high" else None
+    if hc is not None and fp.column(hc) is not None:
+        return hc, hc not in cont_cols
+    if cont_cols:
+        return resolve_outcome(fp, cfg, cont_cols), False
+    if binary_cols:
+        return resolve_outcome(fp, cfg, binary_cols), True
+    return None, False
+
+
 @register("random_forest")
 def _branch_random_forest(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
@@ -522,25 +550,7 @@ def _branch_random_forest(ctx: Ctx) -> None:
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
     binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
 
-    # An explicit config outcome always wins, checked BEFORE the continuous/binary
-    # tier decision below (mirrors ml_supervised._resolve_xy's forced_y precedence) —
-    # otherwise a user-specified binary outcome could be silently overridden by the
-    # tier logic when a continuous column also exists.
-    # Prefer a continuous outcome (regression). Classify a binary outcome only
-    # when there is no continuous column — a lone binary is usually a
-    # treatment / flag *feature*, not the prediction target. This prevents
-    # silently running the wrong analysis on the common "outcome + indicator" shape.
-    # Within each tier the shared resolver applies (config > high-confidence detected
-    # outcome > first non-treatment-named > first) — closes selection→execution for ML.
-    forced_y = cfg.get("outcome")
-    if forced_y in df.columns:
-        outcome, is_clf = forced_y, forced_y not in cont_cols
-    elif cont_cols:
-        outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
-    elif binary_cols:
-        outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True
-    else:
-        outcome, is_clf = None, False
+    outcome, is_clf = _resolve_ml_outcome(fp, cfg, cont_cols, binary_cols)
 
     exclude = {outcome, fp.unit_col, fp.time_col}
     features = [
@@ -644,25 +654,7 @@ def _branch_xgboost(ctx: Ctx) -> None:
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
     binary_cols = [c.name for c in fp.columns if c.kind == "binary"]
 
-    # An explicit config outcome always wins, checked BEFORE the continuous/binary
-    # tier decision below (mirrors ml_supervised._resolve_xy's forced_y precedence) —
-    # otherwise a user-specified binary outcome could be silently overridden by the
-    # tier logic when a continuous column also exists.
-    # Prefer a continuous outcome (regression). Classify a binary outcome only
-    # when there is no continuous column — a lone binary is usually a
-    # treatment / flag *feature*, not the prediction target. This prevents
-    # silently running the wrong analysis on the common "outcome + indicator" shape.
-    # Within each tier the shared resolver applies (config > high-confidence detected
-    # outcome > first non-treatment-named > first) — closes selection→execution for ML.
-    forced_y = cfg.get("outcome")
-    if forced_y in df.columns:
-        outcome, is_clf = forced_y, forced_y not in cont_cols
-    elif cont_cols:
-        outcome, is_clf = resolve_outcome(fp, cfg, cont_cols), False
-    elif binary_cols:
-        outcome, is_clf = resolve_outcome(fp, cfg, binary_cols), True
-    else:
-        outcome, is_clf = None, False
+    outcome, is_clf = _resolve_ml_outcome(fp, cfg, cont_cols, binary_cols)
 
     exclude = {outcome, fp.unit_col, fp.time_col}
     features = [
