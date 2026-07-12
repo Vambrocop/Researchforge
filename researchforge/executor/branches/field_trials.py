@@ -28,15 +28,15 @@ ctx (never rebinds). See executor/_branch_api.py and CLAUDE.md.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.profiler.semantics import ROLE_HINTS
 
 # A factor may profile as count/id (Likert/integer-coded) — accept those kinds.
 _FACTOR_KINDS = {"categorical", "binary", "count", "id"}
 _MAX_LEVELS = 20  # field-trial factors are small; guard against an id column sneaking in
 
-_BLOCK_HINTS = ("block", "blk", "rep", "replicate", "replication", "plot",
-                "区组", "重复", "组块", "块")
-_TRT_HINTS = ("treatment", "trt", "treat", "variety", "cultivar", "hybrid", "dose", "fert",
-              "处理", "品种", "剂量", "施肥")
+# single source: researchforge/profiler/semantics.py — Wave L ColumnSemantics C0
+_BLOCK_HINTS = ROLE_HINTS["block"]
+_TRT_HINTS = ROLE_HINTS["treatment"]
 _ROW_HINTS = ("row",)
 _COL_HINTS = ("col", "column")
 _WHOLE_HINTS = ("wholeplot", "whole", "main", "mainplot", "irrigation", "tillage")

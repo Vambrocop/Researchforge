@@ -9,6 +9,7 @@ so `recommend --goal X` surfaces the right handful. Tuned for the focus domains
 from __future__ import annotations
 
 from researchforge.catalog.schema import AnalysisEntry
+from researchforge.profiler.semantics import role_hint
 
 # goal key -> label, matching families, explicit ids, and keyword hints (method/description/domain)
 GOALS: dict[str, dict] = {
@@ -77,16 +78,9 @@ def entry_matches_goal(entry: AnalysisEntry, goal_key: str) -> bool:
 
 
 # Treatment/block vocabulary that marks a DESIGNED experiment (vs. observational data).
-# A coarse bilingual subset of experimental_design/_shared {_BLOCK_HINTS, _TRT_HINTS}, kept
-# recommender-local on purpose: importing the executor.branches package here would drag in
-# ~130 branch modules (walk_packages registration) on the recommendation hot path. Wave L
-# (ColumnSemantics) should relocate this vocabulary to a neutral column-semantics home so the
-# recommender and the executor share one definition. Keep in sync with _shared until then.
-_DESIGN_SIGNAL_HINTS = (
-    "treat", "trt", "block", "rep", "replicate", "plot", "variety", "cultivar",
-    "genotype", "hybrid", "dose",
-    "处理", "区组", "重复", "组块", "品种", "剂量", "水平", "施肥", "组别",
-)
+# Single source: researchforge/profiler/semantics.py — Wave L ColumnSemantics C0
+# (profiler is the low-dependency neutral layer; importing it here is cheap, unlike
+# executor.branches which would drag in ~130 branch modules via walk_packages registration).
 
 
 def has_design_signal(fp) -> bool:
@@ -94,5 +88,5 @@ def has_design_signal(fp) -> bool:
     Distinguishes a real DoE (RCBD/factorial/split-plot…) from observational data that merely
     has categorical groups — used to stop designed-experiment methods from crowding out the
     naive group comparison under ``--goal compare`` on observational data (Wave K-C1, 发现16)."""
-    names = [str(c.name).lower() for c in fp.columns]
-    return any(h in nm for nm in names for h in _DESIGN_SIGNAL_HINTS)
+    names = [str(c.name) for c in fp.columns]
+    return any(role_hint(nm, "treatment") or role_hint(nm, "block") for nm in names)

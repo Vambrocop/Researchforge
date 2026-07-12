@@ -7,6 +7,7 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.profiler.semantics import role_hint
 
 
 def _welch_anova(groups: list) -> tuple[float, float, float, float] | None:
@@ -39,21 +40,20 @@ def _welch_anova(groups: list) -> tuple[float, float, float, float] | None:
     return float(F), p, df1, float(df2)
 
 
-# Column-name hints for a block/replicate/site role — kept local to this family
-# (not imported from executor/branches/experimental_design/_shared.py) to avoid
-# cross-family coupling per CLAUDE.md's helper-placement convention. A group_col
-# candidate whose name matches one of these is a *design* nuisance factor (block,
+# Column-name hints for a block/replicate/site role. A group_col candidate whose
+# name matches the "block" vocabulary is a *design* nuisance factor (block,
 # replicate, batch, site) rather than the treatment/grouping factor the analyst
 # actually wants compared — see docs/dogfood-findings.md #12.
-_GROUP_BLOCK_HINTS = (
-    "block", "blk", "rep", "replicate", "replication", "batch", "site", "field", "plot",
-    "区组", "重复", "地块", "批次", "小区", "场地",
-)
+# Single source: researchforge/profiler/semantics.py — Wave L ColumnSemantics C0.
+# 小区 = 试验小区（区组类干扰因子），执行层认它有用无害；但它高歧义（亦指"居民小区"），
+# 军师裁定**不进**共享 ROLE_HINTS——否则会污染 recommender.has_design_signal、在观测数据上
+# 误判"有设计信号"。故只在 group_comparison 本地白名单认它（Wave L ColumnSemantics C0 裁决2）。
+_GROUP_BLOCK_EXTRA = ("小区",)
 
 
 def _looks_block_named(name: str) -> bool:
-    lname = name.lower()
-    return any(h in lname for h in _GROUP_BLOCK_HINTS)
+    low = str(name).strip().lower()
+    return role_hint(name, "block") or any(h in low for h in _GROUP_BLOCK_EXTRA)
 
 
 @register("group_comparison")
