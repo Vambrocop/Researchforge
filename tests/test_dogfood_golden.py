@@ -229,6 +229,26 @@ def test_p5_no_config_rf_binds_high_conf_churn(tmp_path: Path) -> None:
         )
 
 
+# Wave L 收尾: ml_supervised._resolve_xy (gradient_boosting/svm/regularized_regression) had the
+# SAME cont-first-before-high-confidence gap as ml.py's rf/xgboost above, pre-③. Fixed by
+# reusing ml.py's _resolve_ml_outcome for the no-config fallback (one ladder, zero drift) —
+# without config, gradient_boosting must now CLASSIFY churn, not regress a continuous feature
+# (tenure).
+def test_p5_no_config_gbm_binds_high_conf_churn(tmp_path: Path) -> None:
+    fp = _profile(build_p5_churn(), tmp_path)
+    assert fp.likely_outcome == "churn" and fp.likely_outcome_confidence == "high", (
+        f"churn should be a high-confidence detected outcome; got "
+        f"{fp.likely_outcome!r}/{fp.likely_outcome_confidence!r}"
+    )
+    res = run_analysis(
+        fp, _CAT.by_id("gradient_boosting"), output_root=str(tmp_path / "gbm"), config=None
+    )
+    assert "分类 churn" in res.summary, (
+        f"gradient_boosting without config should classify high-conf churn, not regress a "
+        f"continuous feature: {res.summary!r}"
+    )
+
+
 # Wave L D: gamm's requires_group gate accepted ANY binary/categorical column (region has only
 # 4 levels, churn — the outcome itself — has 2), so gamm was ranking rank-1 on this cross-sectional
 # churn data under goal=predict then failing at runtime with "需要分组变量...(≥5 组)". min_group_levels

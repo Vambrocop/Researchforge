@@ -34,7 +34,7 @@ import importlib.util
 
 from researchforge.executor._branch_api import Ctx, register
 from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.branches.ml import _resolve_ml_outcome
 
 _SEED = 0  # fixed random_state, disclosed in every summary
 
@@ -47,9 +47,12 @@ _SEED = 0  # fixed random_state, disclosed in every summary
 # degrade. is_clf is True when the chosen outcome is binary/categorical (classify),
 # False when continuous (regress).
 #
-# Preference order mirrors ml.py's random_forest/xgboost: a CONTINUOUS column is the
-# outcome when present (a lone binary is usually a flag *feature*, not the target);
-# otherwise a binary/categorical column becomes a classification target.
+# Preference order mirrors ml.py's random_forest/xgboost (via _resolve_ml_outcome,
+# reused directly — see Wave L comment below): explicit config["outcome"] wins; else
+# a HIGH-confidence detected outcome ACROSS kinds (an event-named binary like churn is
+# the target even next to a continuous column); else a CONTINUOUS column (a lone binary
+# is usually a flag *feature*, not the target); else a binary/categorical column becomes
+# a classification target.
 # ─────────────────────────────────────────────────────────────────────────────
 def _resolve_xy(ctx: Ctx, method: str, min_rows: int):
     fp, cfg, df = ctx.fp, ctx.cfg, ctx.df
@@ -63,17 +66,28 @@ def _resolve_xy(ctx: Ctx, method: str, min_rows: int):
         if c.kind in {"binary", "categorical"} and c.name not in {fp.unit_col, fp.time_col}
     ]
 
-    # config outcome override decides the task by that column's kind
+    # config outcome override decides the task by that column's kind (Wave K F1 —
+    # untouched by this Wave L change).
     forced_y = cfg.get("outcome")
     if forced_y in df.columns:
         outcome = forced_y
         is_clf = forced_y not in cont
-    elif cont:
-        outcome, is_clf = resolve_outcome(fp, cfg, cont), False
-    elif cat:
-        outcome, is_clf = resolve_outcome(fp, cfg, cat), True
     else:
-        return None, False, [], f"{method}跳过：未找到结果变量（需要 1 个连续列做回归，或二值/分类列做分类）。"
+        # Wave L — delegate the no-config fallback to ml.py's _resolve_ml_outcome so
+        # random_forest/xgboost and gradient_boosting/svm/regularized_regression share
+        # ONE outcome-tier ladder instead of two copies that can drift apart. Its tier 2
+        # (checked before cont-first) binds a HIGH-confidence detected outcome ACROSS
+        # kinds — an event-named binary (churn/died, via roles._BIN_OUTCOME_RE) IS the
+        # prediction target even when a continuous column is also present, closing the
+        # same gap dogfooding ③ found in ml.py (no-config path silently regressing a
+        # continuous feature like tenure instead of classifying churn). A design-factor
+        # column (arm/exposed) is treatment-named, so roles routes it to likely_treatment
+        # and it never reaches likely_outcome here — can't be mis-bound. Tiers 3/4 below
+        # (cont-first, then binary/categorical) reproduce this function's prior behavior
+        # exactly, so this is a pure additive fix, not a behavior change to the fallback.
+        outcome, is_clf = _resolve_ml_outcome(fp, cfg, cont, cat)
+        if outcome is None:
+            return None, False, [], f"{method}跳过：未找到结果变量（需要 1 个连续列做回归，或二值/分类列做分类）。"
 
     # predictors: config override (must exist, drop the outcome), else all numeric
     # (continuous/count/binary) columns except the outcome / unit / time.
