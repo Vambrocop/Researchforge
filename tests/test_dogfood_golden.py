@@ -211,6 +211,39 @@ def test_p5_config_outcome_binds_logistic(tmp_path: Path) -> None:
     assert "结果变量 churn" in res.summary, f"config outcome=churn not honored: {res.summary!r}"
 
 
+# Wave L ③: WITHOUT config, rf/xgboost previously regressed a continuous FEATURE (tenure)
+# because the cont-first tier never considered churn (binary). A high-confidence detected
+# outcome (churn matches the event-name pattern) now binds across kinds → classification on
+# churn, not regression on tenure. churn is event-named (a target), not treatment-named
+# (a design factor), so binding it is safe.
+def test_p5_no_config_rf_binds_high_conf_churn(tmp_path: Path) -> None:
+    fp = _profile(build_p5_churn(), tmp_path)
+    assert fp.likely_outcome == "churn" and fp.likely_outcome_confidence == "high", (
+        f"churn should be a high-confidence detected outcome; got "
+        f"{fp.likely_outcome!r}/{fp.likely_outcome_confidence!r}"
+    )
+    for eid in ("random_forest", "xgboost"):
+        res = run_analysis(fp, _CAT.by_id(eid), output_root=str(tmp_path / eid), config=None)
+        assert "预测 churn" in res.summary, (
+            f"{eid} without config should predict high-conf churn, not a continuous feature: {res.summary!r}"
+        )
+
+
+# Wave L D: gamm's requires_group gate accepted ANY binary/categorical column (region has only
+# 4 levels, churn — the outcome itself — has 2), so gamm was ranking rank-1 on this cross-sectional
+# churn data under goal=predict then failing at runtime with "需要分组变量...(≥5 组)". min_group_levels
+# tightens the gate to a genuine grouping structure (>=5 levels) — hard assertion, regression guard.
+def test_p5_gamm_infeasible_no_real_group(tmp_path: Path) -> None:
+    fp = _profile(build_p5_churn(), tmp_path)
+    feasible = _feasible_ids(fp)
+    assert "gamm" not in feasible, (
+        "gamm should be infeasible on cross-sectional churn data with no >=5-level "
+        f"grouping column (region has 4, churn has 2), got feasible={sorted(feasible)}"
+    )
+    top = set(r.entry.id for r in select_top(fp, goal="predict", top=_TOP_K))
+    assert "gamm" not in top, f"gamm (doomed at runtime) should not rank in top-{_TOP_K}, got {sorted(top)}"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # P6 — 脏 admin 表 (clean 层是强项 -> 硬断言，非 xfail)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,4 +295,31 @@ def test_p4_compare_goal_keeps_doe_when_design_signal(tmp_path: Path) -> None:
     assert "group_comparison" in top, f"group_comparison should still surface on P4, got {top}"
     assert {"factorial_anova", "rcbd", "split_plot"} & set(top), (
         f"designed-experiment methods must stay eligible when a design signal is present, got {top}"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# C2 — 面板误检硬化根治 (发现16 根因；Wave L-C2 → 硬断言)
+# P6 的 备注 列 89% 空、日期 高基数：旧 unit_col 检测在 dropna 子集上判唯一 → 误当面板单位 →
+# is_panel=True → system_gmm 劫持 compare。加覆盖率/重复守卫后 P6 不再是面板；真面板(P3)不受影响。
+# ─────────────────────────────────────────────────────────────────────────────
+def test_p6_not_misdetected_as_panel(tmp_path: Path) -> None:
+    fp = _profile(build_p6_messy(), tmp_path)
+    assert not fp.is_panel, (
+        f"observational admin data must not be a panel; got is_panel with unit_col={fp.unit_col!r}"
+    )
+    assert fp.unit_col is None, f"an 89%-empty notes column must not be a unit; got {fp.unit_col!r}"
+    # the panel misdetection was what floated system_gmm into the compare pool (发现16)
+    feasible = _feasible_ids(fp)
+    assert "system_gmm" not in feasible, (
+        "panel-only estimators must not be feasible on non-panel data"
+    )
+
+
+def test_p3_still_detected_as_panel(tmp_path: Path) -> None:
+    """Regression guard: the C2 unit_col guards must NOT break a genuine balanced panel —
+    firm_id (0 missing, repeats across years) is still a valid unit."""
+    fp = _profile(build_p3_panel(), tmp_path)
+    assert fp.is_panel and fp.unit_col == "firm_id" and fp.time_col == "year", (
+        f"real panel must stay detected; got is_panel={fp.is_panel} unit={fp.unit_col} time={fp.time_col}"
     )
