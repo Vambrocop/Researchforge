@@ -71,6 +71,19 @@ def test_data_signals_edgelist(tmp_path: Path) -> None:
     assert s["has_edgelist"] is True
 
 
+def test_has_treatment_requires_treatment_named_column(tmp_path: Path) -> None:
+    # Wave M1: has_treatment 是排序层语义信号——须存在处理名列(treated/arm/exposed…),
+    # 而非"有 binary 列就算"。无处理名的 cohort(disease/smoking/sex 全 binary)不发
+    # requires_treatment bonus → 因果族不霸榜;有 treated 列则照发(真因果数据不受影响)。
+    rng = np.random.default_rng(21)
+    no_trt = pd.DataFrame({"disease": rng.binomial(1, 0.3, 120), "smoking": rng.binomial(1, 0.4, 120),
+                           "age": rng.uniform(20, 80, 120).round(0)})
+    assert _signals(no_trt, tmp_path)["has_treatment"] is False
+    with_trt = pd.DataFrame({"treated": rng.binomial(1, 0.5, 120), "y": rng.normal(0, 1, 120),
+                             "x": rng.normal(0, 1, 120)})
+    assert _signals(with_trt, tmp_path)["has_treatment"] is True
+
+
 def test_count_outcome_excludes_ordinal_likert(tmp_path: Path) -> None:
     # Wave K-A1: 1-5 Likert items profile as `count` but are ordinal_like ratings,
     # not count outcomes — they must NOT make Poisson/NB/PERMANOVA look feasible.

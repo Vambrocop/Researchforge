@@ -57,6 +57,7 @@ _TIME_RE = re.compile(
 # name-matches (e.g. a 'score' feature alongside an 'approved' target).
 _BIN_OUTCOME_RE = re.compile(
     r"(?:^|_|\b)(approv\w*|default\w*|churn\w*|success\w*|succeed\w*|fail\w*|died|death|dead|"
+    r"disease\w*|diagnos\w*|"  # 流行病标准二值结局名(dogfood P2: disease 列曾不被认,M1)
     r"surviv\w*|deceased|alive|cured|recover\w*|infected|relapse|recur\w*|readmit\w*|"
     r"positive|convert\w*|conversion|fraud\w*|won|win|lost|pass|passed|retain\w*|retention|"
     r"click\w*|purchas\w*|bought|subscrib\w*|respond\w*|response|accept\w*|reject\w*|"

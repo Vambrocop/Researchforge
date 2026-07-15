@@ -79,12 +79,9 @@ def test_p1_likert_ecology_and_count_models_infeasible(tmp_path: Path) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # P2 — 流行病 cohort (发现 1、3；Wave K-A1/A2)
 # ─────────────────────────────────────────────────────────────────────────────
-@pytest.mark.xfail(
-    reason="Wave K-A2 后已重归属(Fable A2 验)：count 模型确已退场，但 P2 top-6 现被因果族"
-    "(disease/smoking 被读成 treatment-outcome 的 double_ml/causal_forest/psm/ipw)+tweedie 压住，"
-    "logistic/epi 仍未进 top-6。真凶=二值结局 cohort 上因果族过度排名，待后续排名/affinity 批降权(非 A2)",
-    strict=False,
-)
+# Wave M1 已落地 → 硬断言:①has_treatment 语义化(处理名列才发 requires_treatment bonus,
+# 因果族在无处理名的 cohort 上退出 top)②disease/diagnos 进二值结局词表(disease 高置信结局,
+# logistic/epi_risk/diagnostic_test/calibration 上位)。26 条 dogfood 发现至此全部收口。
 def test_p2_cohort_surfaces_logistic_and_epi(tmp_path: Path) -> None:
     fp = _profile(build_p2_cohort(), tmp_path)
     top = set(_top_ids(fp))

@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from researchforge.profiler.fingerprint import DataFingerprint
+from researchforge.profiler.semantics import is_treatment_named
 
 # outcome-kind vocabulary a family may target
 _OUTCOMES = {"continuous", "count", "binary", "categorical", "survival", "multi_numeric", "none"}
@@ -252,7 +253,14 @@ def data_signals(fp: DataFingerprint) -> dict:
         "outcome_is_binary": outcome_is_binary,
         "has_survival": has_survival,
         "has_group": has_group,
-        "has_treatment": bool(getattr(fp, "treatment_candidates", None)),
+        # A treatment for RANKING purposes = a TREATMENT-NAMED column (treated/arm/exposed/
+        # dose…, word-boundary via semantics), NOT merely "some binary column exists"
+        # (fp.treatment_candidates = all binary cols). Causal-inference methods presuppose an
+        # identified treatment; on data with no treatment-named column (dogfood P2 cohort:
+        # disease/smoking/sex are all binary but none is a declared treatment) they must not
+        # collect the requires_treatment tailoring bonus and outrank logistic/epi (Wave M1).
+        # Feasibility stays loose (match.py keeps treatment_candidates — the methods still RUN).
+        "has_treatment": any(is_treatment_named(str(c.name)) for c in fp.columns),
     }
 
 
