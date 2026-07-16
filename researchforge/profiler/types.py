@@ -31,13 +31,23 @@ def infer_kind(s: pd.Series) -> ColumnKind:
             return "binary"
         if name in _GEO_NAMES:
             return "geo"
-        is_int = pd.api.types.is_integer_dtype(nn) or bool((nn % 1 == 0).all())
-        if is_int:
+        is_int_dtype = pd.api.types.is_integer_dtype(nn)
+        is_whole = is_int_dtype or bool((nn % 1 == 0).all())
+        if is_whole:
             if nn.is_unique:
                 return "id"
             if len(uniq) == 2:
                 return "binary"
             if bool((nn >= 0).all()):
+                # A count is an event/abundance tally (Poisson/NB). But a whole-valued
+                # FLOAT column with many distinct values is a continuous measurement
+                # recorded without decimals (e.g. a clinical progression score 25–346),
+                # not a count — a genuine count is stored as int. Calling it count would
+                # wrongly surface Poisson/NB over OLS (real-data dogfood: diabetes target
+                # float64, 214 distinct, 25–346). Keep int-typed and low-cardinality-float
+                # whole numbers as count.
+                if (not is_int_dtype) and len(uniq) > 15:
+                    return "continuous"
                 return "count"
         return "continuous"
 
