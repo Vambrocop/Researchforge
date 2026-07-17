@@ -26,6 +26,26 @@ README and the developer docs are in English.
 
 ---
 
+## Honest by design
+
+Most auto-analysis tools just hand you a number. ResearchForge is built to tell
+you when **not** to trust it:
+
+- **Rigor verdicts (🟢🟡🔴) + bias disclosure** on every recommendation — a method
+  that *runs* is not a method that's *right* for your data, and the engine says which.
+- **Data-leakage / too-good-to-be-true detection** — if a model hits ~100% accuracy
+  off a leaked column, the engine raises a ⚠ ("suspiciously perfect — check for
+  post-outcome leakage") instead of narrating it as an honest generalization estimate.
+  Perfect separation, completely-nested factorial designs, and panel data fitted
+  without clustered standard errors are caught and disclosed the same way.
+- **Reads real, messy data** — Chinese (and mixed-language) column names natively; a
+  dirty Excel (text-formatted numbers, duplicate rows, constant columns, rare
+  categories) runs through the clean layer without hand-fixing.
+- **Honest degradation** — an optional backend missing, too few rows, an assumption
+  violated: it says so plainly and falls back, never fabricates a result.
+
+---
+
 ## Install
 
 Requires **Python 3.12+**. From source:
