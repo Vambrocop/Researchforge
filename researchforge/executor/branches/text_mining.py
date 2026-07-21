@@ -1,6 +1,6 @@
 """Branch handlers for the TEXT MINING family — free-text corpus analysis.
 
-Three methods over a free-text column (auto-detected, or config ``text``):
+Four methods over a free-text column (auto-detected, or config ``text``):
 
 - ``lda_topic_model``   — unsupervised topic discovery (sklearn CountVectorizer with
                           english stop-words + LatentDirichletAllocation). Reports the
@@ -12,6 +12,10 @@ Three methods over a free-text column (auto-detected, or config ``text``):
 - ``tfidf_keywords``    — salient-term extraction (sklearn TfidfVectorizer). Reports the
                           top TF-IDF terms overall, and per-group when a low-cardinality
                           grouping column exists (config ``group``).
+- ``word_frequency``    — plain term-frequency counts (Counter over the tokenized corpus):
+                          the top words by raw frequency with each word's document
+                          frequency, a bar chart, and an OPTIONAL word cloud (best-effort).
+                          Complements TF-IDF (raw prevalence vs. distinctiveness).
 - ``sentiment_analysis``— per-document polarity via an OPTIONAL backend, mirroring the
                           engine's R / optional-lib pattern: try vaderSentiment, else
                           textblob, else nltk's VADER. If NONE is installed it degrades
@@ -22,6 +26,13 @@ Text-column detection (``_find_text_col``): a string/object column whose non-nul
 values average ~3+ whitespace tokens (or mean length ~20+ chars) AND is reasonably
 high-cardinality. Config ``text`` overrides. If no text column is found every handler
 degrades honestly.
+
+Chinese / CJK support: the vectorizer / counting methods detect a CJK corpus (config
+``lang`` forces ``zh`` / ``en``) and tokenize it with jieba when the OPTIONAL ``jieba``
+package is installed, else an honest character-bigram fallback (⚠ disclosed — words are
+adjacent 2-char pairs, cruder than word segmentation). English corpora keep the
+byte-identical sklearn english path, so existing behaviour is unchanged. jieba is never
+fetched at runtime (offline red-line).
 
 Each handler unpacks ctx into the same local names run_analysis uses and MUTATES
 summary/estimates/files/code (never rebinds). See executor/_branch_api.py. This
@@ -142,6 +153,163 @@ def _docs(df, text_col) -> "tuple[list[str], list[int]]":
     return docs, idx
 
 
+# ---------------------------------------------------------------------------
+# Multilingual tokenization (Chinese via an OPTIONAL jieba bridge + degrade).
+# ---------------------------------------------------------------------------
+# The vectorizer methods default to English tokenization (sklearn stop_words=
+# "english", a latin word_pattern). That leaves the vocabulary EMPTY on Chinese
+# text (no whitespace tokens, no latin letters) — so 中文 / policy corpora used to
+# silently produce nothing. We DETECT a CJK corpus and switch to a Chinese analyzer:
+# jieba word segmentation when the OPTIONAL jieba package is installed, else a
+# character-bigram fallback (a legitimate, if cruder, Chinese IR tokenization) with
+# an honest ⚠. English corpora keep the byte-identical sklearn path (existing
+# behaviour / tests unchanged); only CJK corpora take the new branch. jieba is never
+# fetched at runtime (offline red-line).
+
+import re as _re
+
+_HAN_RE = _re.compile(r"[一-鿿㐀-䶿]")
+
+# A basic Chinese function-word stop list (extensible). Single characters are dropped
+# wholesale by the analyzer, so this targets 2-char function words that would otherwise
+# dominate a policy corpus. Not exhaustive — content words (政策/发展/建设…) are kept.
+_ZH_STOPWORDS = frozenset({
+    "我们", "你们", "他们", "她们", "它们", "自己", "这个", "那个", "这些", "那些",
+    "这样", "那样", "这里", "那里", "什么", "怎么", "为什么", "因为", "所以", "但是",
+    "而且", "如果", "虽然", "于是", "然后", "已经", "现在", "可以", "没有", "通过",
+    "进行", "以及", "或者", "并且", "等等", "之一", "方面", "各种", "一个", "一些",
+    "一样", "一直", "一定", "不过", "只是", "还是", "就是", "也是", "都是", "不是",
+    "对于", "关于", "根据", "按照", "由于", "从而", "因此", "同时", "此外", "其中",
+    "其他", "以上", "以下", "目前", "以来", "起来", "出来", "上来", "下来", "作为",
+    "成为", "使得", "能够", "应该", "需要", "必须", "可能", "如何", "这种", "那种",
+})
+
+
+def _cjk_share(docs) -> float:
+    """Fraction of non-space characters across the corpus that are CJK ideographs."""
+    n_han = 0
+    n_char = 0
+    for doc in docs:
+        for ch in str(doc):
+            if ch.isspace():
+                continue
+            n_char += 1
+            if _HAN_RE.match(ch):
+                n_han += 1
+    return (n_han / n_char) if n_char else 0.0
+
+
+def _corpus_lang(docs, cfg) -> str:
+    """'zh' or 'en' for the corpus. config ``lang`` overrides ('zh'/'en'); else CJK
+    when >= 20% of non-space characters are Han ideographs (mixed-but-Chinese policy
+    text is common — a modest Han share still means jieba should segment)."""
+    forced = str(cfg.get("lang") or "").strip().lower()
+    if forced in {"zh", "cn", "chinese", "中文"}:
+        return "zh"
+    if forced in {"en", "english", "英文", "英语"}:
+        return "en"
+    return "zh" if _cjk_share(docs) >= 0.20 else "en"
+
+
+def _jieba_available() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("jieba") is not None
+
+
+def _make_zh_analyzer(use_jieba: bool):
+    """A callable(text) -> list[str] for sklearn's ``analyzer=`` (and standalone
+    counting). jieba word segmentation when available, else overlapping character
+    bigrams over Han runs (+ whole latin/number runs). Drops stop-words,
+    pure-punctuation tokens, and single characters."""
+
+    def _keep(tok: str) -> bool:
+        tok = tok.strip()
+        if len(tok) < 2 or tok in _ZH_STOPWORDS:
+            return False
+        # must contain a CJK ideograph or be alphanumeric (drops 。，、；：""（） etc.)
+        return bool(_HAN_RE.search(tok)) or tok.isalnum()
+
+    if use_jieba:
+        import jieba
+
+        def analyze(text):
+            return [t for t in (w.strip() for w in jieba.lcut(str(text))) if _keep(t)]
+    else:
+
+        def analyze(text):
+            s = str(text)
+            toks: list[str] = []
+            for run in _re.findall(r"[一-鿿㐀-䶿]+", s):
+                if len(run) >= 2:  # overlapping char bigrams; lone chars are noise
+                    toks.extend(run[i:i + 2] for i in range(len(run) - 1))
+            toks.extend(_re.findall(r"[a-zA-Z]{2,}|\d+", s))  # keep latin/number runs whole
+            return [t for t in toks if _keep(t)]
+
+    return analyze
+
+
+def _make_text_vectorizer(cls, docs, cfg, *, min_df, max_features=None):
+    """Construct a CountVectorizer / TfidfVectorizer appropriate to the corpus
+    language. Returns (vectorizer, lang, use_jieba). CJK corpora get a jieba /
+    char-bigram analyzer; everything else keeps the byte-identical english path."""
+    lang = _corpus_lang(docs, cfg)
+    if lang == "zh":
+        use_jieba = _jieba_available()
+        vect = cls(
+            analyzer=_make_zh_analyzer(use_jieba),
+            min_df=min_df,
+            max_features=max_features,
+        )
+        return vect, lang, use_jieba
+    vect = cls(
+        stop_words="english",
+        token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b",  # words of >=2 letters
+        min_df=min_df,
+        max_features=max_features,
+    )
+    return vect, lang, True
+
+
+def _tok_note(lang: str, use_jieba: bool) -> str:
+    """Human-readable disclosure of which tokenizer was used (for summaries)."""
+    if lang != "zh":
+        return "英文分词（sklearn，english 停用词）"
+    if use_jieba:
+        return "中文分词（jieba 词切分）"
+    return "中文分词（字符二元组降级——未装 jieba，词≈相邻两字，较粗；装 jieba 更准）"
+
+
+def _count_terms(docs, lang, use_jieba):
+    """(term_freq Counter, doc_freq Counter) over the corpus with the language-
+    appropriate tokenizer. English: latin words of >=2 letters minus sklearn english
+    stop-words; Chinese: the jieba / char-bigram analyzer."""
+    from collections import Counter
+
+    tf: Counter = Counter()
+    dfq: Counter = Counter()
+    if lang == "zh":
+        analyze = _make_zh_analyzer(use_jieba)
+    else:
+        try:
+            from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS as _EN_STOP
+        except Exception:
+            _EN_STOP = frozenset()
+
+        def analyze(text):
+            return [
+                w
+                for w in _re.findall(r"[a-zA-Z][a-zA-Z]+", str(text).lower())
+                if w not in _EN_STOP
+            ]
+
+    for doc in docs:
+        toks = analyze(doc)
+        tf.update(toks)
+        dfq.update(set(toks))
+    return tf, dfq
+
+
 # ===========================================================================
 # 1. LDA topic model  (INFERENCE-bearing — cold-reviewed)
 # ===========================================================================
@@ -202,21 +370,15 @@ def _branch_lda_topic_model(ctx: Ctx) -> None:
         from sklearn.decomposition import LatentDirichletAllocation
         from sklearn.feature_extraction.text import CountVectorizer
 
-        vect = CountVectorizer(
-            stop_words="english",
-            min_df=min_df,
-            max_features=max_features,
-            token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b",  # words of >=2 letters
+        vect, lang, use_jieba = _make_text_vectorizer(
+            CountVectorizer, docs, cfg, min_df=min_df, max_features=max_features
         )
         try:
             dtm = vect.fit_transform(docs)
         except ValueError:
             # min_df pruned the whole vocabulary — retry with min_df=1.
-            vect = CountVectorizer(
-                stop_words="english",
-                min_df=1,
-                max_features=max_features,
-                token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b",
+            vect, lang, use_jieba = _make_text_vectorizer(
+                CountVectorizer, docs, cfg, min_df=1, max_features=max_features
             )
             min_df = 1
             try:
@@ -332,23 +494,34 @@ def _branch_lda_topic_model(ctx: Ctx) -> None:
         preview = " | ".join(
             f"主题{t}: " + ", ".join(topic_top_words[t][:5]) for t in range(min(n_topics, 4))
         )
+        fallback_warn = (
+            "⚠ 未检测到 jieba，中文按字符二元组降级分词（词≈相邻两字，较粗）——"
+            "装 jieba 可得词级主题：pip install jieba。"
+            if (lang == "zh" and not use_jieba) else ""
+        )
         summary.append(
-            f"{entry.method} 完成（LDA 主题模型，文本列={text_col}，{len(docs)} 篇文档 × "
-            f"{len(vocab)} 词词表 → {n_topics} 个主题，{rule_txt}，min_df={min_df}）："
-            f"近似困惑度={perp_txt}（描述性，越低越好），各文档主导主题平均概率="
+            f"{entry.method} 完成（LDA 主题模型，文本列={text_col}，{_tok_note(lang, use_jieba)}，"
+            f"{len(docs)} 篇文档 × {len(vocab)} 词词表 → {n_topics} 个主题，{rule_txt}，"
+            f"min_df={min_df}）：近似困惑度={perp_txt}（描述性，越低越好），各文档主导主题平均概率="
             f"{float(np.mean(dom_conf)):.2f}。主题预览：{preview}"
-            f"（详见 lda_top_words.csv / lda_doc_topics.csv / lda_topic_sizes.csv）。"
+            f"（详见 lda_top_words.csv / lda_doc_topics.csv / lda_topic_sizes.csv）。{fallback_warn}"
             f"⚠ LDA 是一个生成式词袋(bag-of-words)概率模型——主题是模型的产物、不是客观真相，"
             f"对预处理（停用词/分词/min_df）与 n_topics 的选择高度敏感（换设置主题会变）；"
             f"主题的编号/顺序是任意的，词袋忽略词序与语境（否定、习语会失真）；"
             f"困惑度仅供参考、不等于可解释性；已固定 random_state=0 保证可复现，"
             f"但仍需人工命名/验证主题——可用 config text/n_topics/min_df/max_features 覆盖。"
         )
+        vect_line = (
+            "import jieba  # 中文语料：用 jieba 分词作 analyzer\n"
+            f"vect = CountVectorizer(analyzer=lambda t: [w for w in jieba.lcut(t) if len(w) >= 2], min_df={min_df})"
+            if lang == "zh"
+            else f"vect = CountVectorizer(stop_words='english', min_df={min_df})"
+        )
         code += [
             "from sklearn.feature_extraction.text import CountVectorizer",
             "from sklearn.decomposition import LatentDirichletAllocation",
             f"docs = df[{text_col!r}].dropna().astype(str).tolist()",
-            f"vect = CountVectorizer(stop_words='english', min_df={min_df})",
+            vect_line,
             "dtm = vect.fit_transform(docs); vocab = vect.get_feature_names_out()",
             f"lda = LatentDirichletAllocation(n_components={n_topics}, random_state=0).fit(dtm)",
             "doc_topic = lda.transform(dtm)  # top words: argsort(lda.components_[t])[::-1]",
@@ -411,18 +584,14 @@ def _branch_tfidf_keywords(ctx: Ctx) -> None:
         import pandas as pd
         from sklearn.feature_extraction.text import TfidfVectorizer
 
-        vect = TfidfVectorizer(
-            stop_words="english",
-            min_df=min_df,
-            token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b",
+        vect, lang, use_jieba = _make_text_vectorizer(
+            TfidfVectorizer, docs, cfg, min_df=min_df
         )
         try:
             tfidf = vect.fit_transform(docs)
         except ValueError:
-            vect = TfidfVectorizer(
-                stop_words="english",
-                min_df=1,
-                token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b",
+            vect, lang, use_jieba = _make_text_vectorizer(
+                TfidfVectorizer, docs, cfg, min_df=1
             )
             min_df = 1
             try:
@@ -510,18 +679,29 @@ def _branch_tfidf_keywords(ctx: Ctx) -> None:
             if (group_col is not None and group_rows)
             else "，无低基数分组列可分组"
         )
+        fallback_warn = (
+            "⚠ 未检测到 jieba，中文按字符二元组降级分词（词≈相邻两字，较粗）——"
+            "装 jieba 更准：pip install jieba。"
+            if (lang == "zh" and not use_jieba) else ""
+        )
         summary.append(
-            f"{entry.method} 完成（TF-IDF 关键词，文本列={text_col}，{len(docs)} 篇文档 × "
-            f"{len(vocab)} 词词表，min_df={min_df}）：整体 Top 词（按平均 TF-IDF）= "
-            f"{top_terms_preview}{grp_txt}（详见 tfidf_top_terms.csv）。"
+            f"{entry.method} 完成（TF-IDF 关键词，文本列={text_col}，{_tok_note(lang, use_jieba)}，"
+            f"{len(docs)} 篇文档 × {len(vocab)} 词词表，min_df={min_df}）：整体 Top 词"
+            f"（按平均 TF-IDF）= {top_terms_preview}{grp_txt}（详见 tfidf_top_terms.csv）。{fallback_warn}"
             f"⚠ TF-IDF 是词频统计、不是语义——高分词只反映「在本语料中相对独特且高频」，"
-            f"依赖分词与停用词表（已用英文停用词、仅保留≥2字母词），对语料构成与文档长度敏感；"
-            f"它不理解词义/同义/语境，适合做关键词概览而非主题或情感判断——可用 config text/group/min_df/top_n 覆盖。"
+            f"依赖分词与停用词表，对语料构成与文档长度敏感；"
+            f"它不理解词义/同义/语境，适合做关键词概览而非主题或情感判断——可用 config text/group/min_df/top_n/lang 覆盖。"
+        )
+        tfidf_vect_line = (
+            "import jieba  # 中文语料：用 jieba 分词作 analyzer\n"
+            f"vect = TfidfVectorizer(analyzer=lambda t: [w for w in jieba.lcut(t) if len(w) >= 2], min_df={min_df})"
+            if lang == "zh"
+            else f"vect = TfidfVectorizer(stop_words='english', min_df={min_df})"
         )
         code += [
             "from sklearn.feature_extraction.text import TfidfVectorizer",
             f"docs = df[{text_col!r}].dropna().astype(str).tolist()",
-            f"vect = TfidfVectorizer(stop_words='english', min_df={min_df})",
+            tfidf_vect_line,
             "tfidf = vect.fit_transform(docs); vocab = vect.get_feature_names_out()",
             "import numpy as np; mean_tfidf = np.asarray(tfidf.mean(axis=0)).ravel()",
             "top = [vocab[i] for i in np.argsort(mean_tfidf)[::-1][:20]]; print(top)",
@@ -754,3 +934,169 @@ def _branch_sentiment_analysis(ctx: Ctx) -> None:
         ]
     except Exception as err:
         summary.append(f"情感分析失败：{err}")
+
+
+# ===========================================================================
+# 4. Word frequency  (plain term counts + bar chart + OPTIONAL word cloud)
+# ===========================================================================
+
+def _try_word_cloud(freqs: dict, out_dir, lang: str) -> bool:
+    """Best-effort word cloud from a {term: weight} dict. Requires the OPTIONAL
+    ``wordcloud`` package; for CJK it also needs a CJK font (reuses the engine's
+    font detection — no font → skip honestly rather than render tofu). Returns True
+    iff word_cloud.png was written. Never raises."""
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("wordcloud") is None or not freqs:
+            return False
+        from wordcloud import WordCloud
+
+        font_path = None
+        if lang == "zh":
+            from matplotlib import font_manager as fm
+
+            from researchforge.executor.run import _detect_cjk_font
+
+            name = _detect_cjk_font()
+            if name is None:
+                return False  # a Chinese cloud without a CJK font is tofu — skip honestly
+            font_path = fm.findfont(name)
+
+        wc = WordCloud(
+            width=800, height=500, background_color="white",
+            font_path=font_path, max_words=200, prefer_horizontal=0.9,
+        )
+        wc.generate_from_frequencies({str(k): float(v) for k, v in freqs.items() if v > 0})
+        wc.to_file(str(out_dir / "word_cloud.png"))
+        return True
+    except Exception:
+        return False
+
+
+@register("word_frequency")
+def _branch_word_frequency(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    text_col = _find_text_col(fp, df, cfg)
+    if text_col is None:
+        summary.append(
+            "词频统计跳过：未找到自由文本列（需要一个多词/长字符串的高基数文本列）。"
+            "可用 config text 指定文本列。"
+        )
+        return
+
+    docs, _doc_idx = _docs(df, text_col)
+    if len(docs) < 2:
+        summary.append(f"词频统计跳过：有效文档太少（n={len(docs)} < 2）。")
+        return
+
+    try:
+        top_n = int(cfg.get("top_n")) if cfg.get("top_n") is not None else 25
+        if top_n < 1:
+            top_n = 25
+    except (TypeError, ValueError):
+        top_n = 25
+    try:
+        min_count = int(cfg.get("min_count")) if cfg.get("min_count") is not None else 1
+        if min_count < 1:
+            min_count = 1
+    except (TypeError, ValueError):
+        min_count = 1
+
+    lang = _corpus_lang(docs, cfg)
+    use_jieba = _jieba_available() if lang == "zh" else True
+
+    try:
+        import pandas as pd
+
+        tf, dfq = _count_terms(docs, lang, use_jieba)
+        if not tf:
+            summary.append("词频统计跳过：分词后无有效词（文档可能太短、全是停用词或单字）。")
+            return
+
+        total_tokens = int(sum(tf.values()))
+        vocab_size = len(tf)
+        items = [(w, int(c)) for w, c in tf.items() if c >= min_count]
+        items.sort(key=lambda kv: (-kv[1], kv[0]))  # count desc, term asc for stable ties
+        if not items:
+            summary.append(
+                f"词频统计跳过：无词达到 min_count={min_count}（可调低 min_count）。"
+            )
+            return
+        top_items = items[:top_n]
+
+        freq_df = pd.DataFrame({
+            "rank": range(1, len(top_items) + 1),
+            "word": [w for w, _ in top_items],
+            "count": [c for _, c in top_items],
+            "doc_freq": [int(dfq[w]) for w, _ in top_items],
+            "pct_of_tokens": [round(c / total_tokens, 6) for _, c in top_items],
+        })
+        freq_df.to_csv(d / "word_frequency.csv", index=False, encoding="utf-8")
+        files.append("word_frequency.csv")
+
+        # --- PNG: top-words bar chart -----------------------------------------
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            k = len(top_items)
+            words = [w for w, _ in top_items][::-1]
+            counts = [c for _, c in top_items][::-1]
+            fig, ax = plt.subplots(figsize=(6.5, 0.34 * k + 1.0))
+            ax.barh(range(k), counts, color="#4C72B0")
+            ax.set_yticks(range(k))
+            ax.set_yticklabels(words, fontsize=8)
+            ax.set_xlabel("frequency")
+            ax.set_title(f"Top {k} words by frequency ({text_col})", fontsize=10)
+            fig.tight_layout()
+            fig.savefig(d / "word_frequency.png", dpi=150)
+            plt.close(fig)
+            files.append("word_frequency.png")
+        except Exception:
+            pass
+
+        # --- OPTIONAL word cloud (best-effort) --------------------------------
+        made_cloud = _try_word_cloud(dict(items[:200]), d, lang)
+        if made_cloud:
+            files.append("word_cloud.png")
+
+        top_word, top_count = top_items[0]
+        estimates["n_docs"] = float(len(docs))
+        estimates["vocab_size"] = float(vocab_size)
+        estimates["total_tokens"] = float(total_tokens)
+        estimates["top_word_count"] = float(top_count)
+
+        preview = "、".join(f"{w}({c})" for w, c in top_items[:8])
+        fallback_warn = (
+            "⚠ 未检测到 jieba，中文按字符二元组降级分词（词≈相邻两字，较粗）——"
+            "装 jieba 更准：pip install jieba。"
+            if (lang == "zh" and not use_jieba) else ""
+        )
+        cloud_txt = "，并生成词云 word_cloud.png" if made_cloud else ""
+        summary.append(
+            f"{entry.method} 完成（词频统计，文本列={text_col}，{_tok_note(lang, use_jieba)}，"
+            f"{len(docs)} 篇文档，词表 {vocab_size} 词、共 {total_tokens} 词次，"
+            f"min_count={min_count}）：高频词 Top{len(top_items)}：{preview}"
+            f"（详见 word_frequency.csv，含每词文档频次 doc_freq{cloud_txt}）。{fallback_warn}"
+            f"⚠ 词频是最朴素的统计——高频≠重要（功能词/领域惯用语会占榜），结果依赖分词与停用词表；"
+            f"它反映「出现多少」而非「区分度」（后者看 TF-IDF）或「语义」——可用 config text/top_n/min_count/lang 覆盖。"
+        )
+        toks_line = (
+            "import jieba  # 中文：jieba 分词\n"
+            "toks = [w for doc in docs for w in jieba.lcut(doc) if len(w) >= 2]"
+            if lang == "zh"
+            else "import re\n"
+            "toks = [w for doc in docs for w in re.findall(r'[a-zA-Z]{2,}', doc.lower())]"
+        )
+        code += [
+            "from collections import Counter",
+            f"docs = df[{text_col!r}].dropna().astype(str).tolist()",
+            toks_line,
+            "print(Counter(toks).most_common(25))",
+        ]
+    except Exception as err:
+        summary.append(f"词频统计失败：{err}")

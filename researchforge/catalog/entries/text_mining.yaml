@@ -1,8 +1,11 @@
 # Text-mining catalog entries (pure Python — scikit-learn; sentiment via an OPTIONAL backend).
 # NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
-# All three operate on a free-text column auto-detected from the data (config `text` overrides):
+# All operate on a free-text column auto-detected from the data (config `text` overrides):
 # a string/object column whose values average ~3+ whitespace tokens (or ~20+ chars) and that
 # is high-cardinality. If no such column exists, every handler degrades honestly (跳过).
+# Chinese / CJK corpora (config `lang` forces zh/en) tokenize with jieba when the OPTIONAL
+# jieba package is installed, else an honest character-bigram fallback (disclosed). English
+# corpora keep the byte-identical sklearn english path. jieba is never fetched at runtime.
 
 - id: lda_topic_model
   method: LDA topic model (Latent Dirichlet Allocation)
@@ -42,8 +45,13 @@
       type: int
       description: 词表上限（按词频取 top-N 词）
       default: 无上限
+    - name: lang
+      type: str
+      description: 语料语言 zh/en（auto 自动按 CJK 字符占比检测）
+      default: auto
   biases:
     - the text column is auto-detected (config text overrides) — multi-word / long high-cardinality string columns qualify; if none exists the analysis degrades honestly
+    - Chinese/CJK corpora are segmented with jieba when installed, else an honest character-bigram fallback (cruder; disclosed) — config lang forces zh/en
     - LDA is a generative bag-of-words probabilistic model — the topics are a model, NOT ground truth
     - topics are highly sensitive to preprocessing (stop-words / tokenization / min_df) and to the chosen n_topics — change the settings and the topics change
     - bag-of-words ignores word order and context (negation, idioms distort), and topic numbering/order is arbitrary
@@ -84,10 +92,15 @@
       type: int
       description: 输出的关键词数量
       default: "20"
+    - name: lang
+      type: str
+      description: 语料语言 zh/en（auto 自动按 CJK 字符占比检测）
+      default: auto
   biases:
     - the text column is auto-detected (config text overrides); if no free-text column exists the analysis degrades honestly
     - TF-IDF is a frequency statistic, NOT semantics — high-scoring terms only reflect being distinctive and frequent in THIS corpus
-    - results depend on tokenization and the stop-word list (english stop-words; only words of >=2 letters kept) and are sensitive to corpus composition and document length
+    - results depend on tokenization and the stop-word list and are sensitive to corpus composition and document length
+    - Chinese/CJK corpora are segmented with jieba when installed, else an honest character-bigram fallback (cruder; disclosed) — config lang forces zh/en
     - TF-IDF does not understand word meaning / synonymy / context — use it for a keyword overview, not for topic or sentiment conclusions
 
 - id: sentiment_analysis
@@ -124,3 +137,46 @@
     - requires an OPTIONAL sentiment backend (vaderSentiment / textblob / nltk VADER) — with none installed it degrades honestly and does NOT fabricate scores from a hand lexicon
     - sentiment scores are lexicon/model-dependent (a model's judgement, NOT ground truth) and highly domain-sensitive — general lexicons often err on technical / sarcastic / negated / idiomatic text
     - the positive/negative threshold (+/-0.05) is a convention; short texts and cross-language texts are especially unreliable — treat scores as an approximate signal and human-verify important conclusions
+
+- id: word_frequency
+  method: Word frequency counts
+  domain: text
+  family: nlp
+  goal: describe
+  description: >-
+    Plain term-frequency counts over a free-text column (a Counter over the tokenized
+    corpus). Auto-detects the text column (config text overrides), tokenizes with the
+    language-appropriate tokenizer (english sklearn stop-words for latin text; jieba or a
+    character-bigram fallback for Chinese), and reports the top words by raw frequency with
+    each word's document frequency and share of tokens, a horizontal bar chart, and an
+    OPTIONAL word cloud (best-effort, requires the wordcloud package and — for Chinese — a
+    CJK font). Complements TF-IDF: raw prevalence rather than corpus-distinctiveness.
+  preconditions:
+    min_rows: 2
+  produces:
+    - top words by raw frequency (rank x word x count x doc_freq x share of tokens)
+    - top-words horizontal bar chart (PNG)
+    - an optional word cloud (PNG) when the wordcloud package (and a CJK font for Chinese) is available
+  executor_ref: py::word_frequency
+  params:
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: top_n
+      type: int
+      description: 输出的高频词数量
+      default: "25"
+    - name: min_count
+      type: int
+      description: 一个词至少出现多少次才计入
+      default: "1"
+    - name: lang
+      type: str
+      description: 语料语言 zh/en（auto 自动按 CJK 字符占比检测）
+      default: auto
+  biases:
+    - the text column is auto-detected (config text overrides); if no free-text column exists the analysis degrades honestly
+    - raw frequency is the most naive statistic — high frequency does NOT mean importance (function words / domain boilerplate dominate); results depend on tokenization and the stop-word list
+    - Chinese/CJK corpora are segmented with jieba when installed, else an honest character-bigram fallback (cruder; disclosed) — config lang forces zh/en
+    - frequency measures how OFTEN a term appears, not its distinctiveness (see TF-IDF) nor its meaning; the optional word cloud is a display aid, not an analysis

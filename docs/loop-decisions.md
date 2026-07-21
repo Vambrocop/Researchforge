@@ -28,6 +28,7 @@
 > - Fleiss' κ fleiss_kappa：`raters`(评分者列表,默认全部类别/二值/计数列)、`count_matrix`(默认 False;True 时各列=按类别已计数的「被试×类别」矩阵)；评分数不齐时按众数 n 对齐删行
 > - Bland-Altman bland_altman：`method1`/`method2`(两种连续测量列,默认前两个连续列)；LoA=bias±1.96·SD,各界限 95% CI 用 Bland-Altman SE(LoA)≈SD·√(1/n+1.96²/(2(n-1)))
 > - 组间比较 group_comparison(Wave K-B2)：`group`(分组变量列,默认按「非 block/区组命名」分层优先、层内二值优先、nunique 升序为 tie-breaker——修反语义 nunique 排序误选区组/重复列的 bug，见下 dogfood #12；命中自动选组时 summary 披露 `⚠ 自动选分组=X`,显式传 `group` 时不披露)
+> - 文本挖掘族(Wave P，text/nlp)：`text`(自由文本列,默认自动检测最像自由文本的列——多词/长字符串高基数)、`lang`(`auto` 默认→按 CJK 字符占比≥20% 判 zh 否则 en；可强制 `zh`/`en`)；**中文分词=jieba(optional)否则字符二元组降级(⚠ 披露,jieba 不联网取)**，英文走 sklearn english 停用词字节不变路径。分方法另键：`tfidf_keywords`+`group`(分组关键词)/`min_df`/`top_n`；`lda_topic_model`+`n_topics`(默认5)/`min_df`(默认2)/`max_features`；`word_frequency`+`top_n`(默认25)/`min_count`(默认1)，词云需 optional `wordcloud`(+中文需 CJK 字体)否则跳过词云保柱状图；`sentiment_analysis`+`group`(情感后端 vaderSentiment/textblob/nltk 可选,缺则诚实跳过不手搓词典)
 
 > **📌 已决方法学默认（lead 拍板记录，非 config 键；你仍可推翻）**
 > - **group_comparison k≥3 → Welch 稳健单因素方差分析**（2026-07-02，Fable 5 终审拍板）：此前 k≥3 用经典等方差 `f_oneway`，与 k=2 已用的 Welch t 不一致。改为**无条件**用 Welch's F（Satterthwaite 分数 df，手搓、无新依赖）——引擎标准是「跑严谨默认」，Welch 在方差齐性下几乎等效、异方差（尤其不等 n）下更稳（Delacre/Leys/Lakens 2019），且 Welch-t 正是其 k=2 特例，全族统一为 Welch。**不**按 Levene 门控切换（两阶段「先检验方差再选检验」误差控制差），Levene 保留为**诊断披露**（解释为何默认 Welch）。**拒** pingouin（为一个闭式统计量引重依赖，违最小依赖/可选后端约定）。这会改变 k≥3 的 `statistic`/`p_value`（即预期——换成更正确的 Welch 值，测试同步更新为修正值，非放宽）。

@@ -95,7 +95,9 @@ def _entry(eid: str):
 # Catalog sanity
 # ===========================================================================
 
-@pytest.mark.parametrize("eid", ["lda_topic_model", "tfidf_keywords", "sentiment_analysis"])
+@pytest.mark.parametrize(
+    "eid", ["lda_topic_model", "tfidf_keywords", "sentiment_analysis", "word_frequency"]
+)
 def test_catalog_loads(eid):
     e = _entry(eid)
     assert e is not None
@@ -283,7 +285,9 @@ def test_sentiment_honest_degrade_no_backend(tmp_path, monkeypatch):
 # 4. Honest-degrade paths shared by all three (no text column)
 # ===========================================================================
 
-@pytest.mark.parametrize("eid", ["lda_topic_model", "tfidf_keywords", "sentiment_analysis"])
+@pytest.mark.parametrize(
+    "eid", ["lda_topic_model", "tfidf_keywords", "sentiment_analysis", "word_frequency"]
+)
 def test_degrade_no_text_column(tmp_path, eid):
     """A purely numeric dataset has no free-text column -> honest 跳过."""
     rng = np.random.default_rng(0)
@@ -309,3 +313,132 @@ def test_lda_degrade_too_few_docs(tmp_path):
     res = run_analysis(fp, _entry("lda_topic_model"), output_root=str(tmp_path / "o"))
     assert "跳过" in res.summary
     assert "n_topics" not in res.estimates
+
+
+# ===========================================================================
+# 5. Word frequency (P1) — plain counts, per-word doc frequency, min_count
+# ===========================================================================
+
+def test_word_frequency_english(tmp_path):
+    csv = tmp_path / "corpus.csv"
+    _corpus_df().to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("word_frequency"), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+
+    assert (out / "word_frequency.csv").exists()
+    assert res.estimates["n_docs"] == 54.0
+    freq = pd.read_csv(out / "word_frequency.csv")
+    assert {"rank", "word", "count", "doc_freq", "pct_of_tokens"} <= set(freq.columns)
+    assert (freq["count"] > 0).all()
+    assert (freq["doc_freq"] <= 54).all()
+    # salient theme words should top the raw-frequency list
+    assert set(freq["word"]) & {"market", "garlic", "stars", "orbit", "butter", "investors", "bake"}
+
+
+def test_word_frequency_min_count_and_top_n(tmp_path):
+    csv = tmp_path / "corpus.csv"
+    _corpus_df().to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("word_frequency"), output_root=str(tmp_path / "o"),
+                       config={"min_count": 5, "top_n": 8})
+    freq = pd.read_csv(Path(res.output_dir) / "word_frequency.csv")
+    assert len(freq) <= 8
+    assert (freq["count"] >= 5).all()
+
+
+# ===========================================================================
+# 6. Chinese / CJK support (P0) — jieba bridge + character-bigram degrade
+# ===========================================================================
+
+import random as _random  # noqa: E402
+
+_ZH_THEMES = {
+    "教育": ["学校", "教育", "学生", "老师", "课程", "学习", "培养", "素质", "知识", "教学", "改革", "校园"],
+    "医疗": ["医院", "医生", "病人", "健康", "治疗", "药物", "诊断", "护理", "康复", "医疗", "疾病", "门诊"],
+    "交通": ["道路", "交通", "车辆", "公交", "地铁", "出行", "拥堵", "通行", "高速", "运输", "客运", "枢纽"],
+}
+
+
+def _zh_corpus_df(per_theme: int = 15) -> pd.DataFrame:
+    """Distinct space-separated Chinese documents across three disjoint-vocab themes.
+    Space-separated 2-char words tokenize cleanly under BOTH jieba and the char-bigram
+    fallback (each Han run is one word), so the theme assertions hold with or without
+    jieba installed — the tests force the fallback path explicitly for determinism."""
+    rng = _random.Random(0)
+    rows = []
+    for theme, words in _ZH_THEMES.items():
+        for _ in range(per_theme):
+            rows.append({"内容": " ".join(rng.sample(words, 6)), "类别": theme})
+    return pd.DataFrame(rows)
+
+
+def _force_no_jieba(monkeypatch):
+    """Pin the char-bigram fallback path regardless of whether jieba is installed."""
+    import researchforge.executor.branches.text_mining as tm
+    monkeypatch.setattr(tm, "_jieba_available", lambda: False)
+
+
+def test_word_frequency_chinese_fallback(tmp_path, monkeypatch):
+    """Chinese corpus with jieba unavailable -> char-bigram fallback still surfaces
+    theme words and discloses the degrade honestly."""
+    _force_no_jieba(monkeypatch)
+    csv = tmp_path / "zh.csv"
+    _zh_corpus_df().to_csv(csv, index=False, encoding="utf-8")
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("word_frequency"), output_root=str(tmp_path / "o"))
+    out = Path(res.output_dir)
+
+    assert (out / "word_frequency.csv").exists()
+    assert res.estimates["n_docs"] == 45.0
+    top = set(pd.read_csv(out / "word_frequency.csv")["word"])
+    assert top & {"教育", "医生", "交通", "学校", "健康", "车辆", "医院", "学生"}, top
+    assert "字符二元组" in res.summary  # fallback disclosed
+    assert "jieba" in res.summary
+
+
+def test_tfidf_chinese_fallback(tmp_path, monkeypatch):
+    _force_no_jieba(monkeypatch)
+    csv = tmp_path / "zh.csv"
+    _zh_corpus_df().to_csv(csv, index=False, encoding="utf-8")
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("tfidf_keywords"), output_root=str(tmp_path / "o"),
+                       config={"group": "类别"})
+    out = Path(res.output_dir)
+
+    assert (out / "tfidf_top_terms.csv").exists()
+    assert res.estimates["n_groups"] == 3.0
+    terms = set(pd.read_csv(out / "tfidf_top_terms.csv")["term"])
+    assert terms & {"教育", "医生", "交通", "学校", "健康", "车辆", "医院"}, terms
+    assert "字符二元组" in res.summary
+
+
+def test_lda_chinese_fallback_recovers_themes(tmp_path, monkeypatch):
+    _force_no_jieba(monkeypatch)
+    csv = tmp_path / "zh.csv"
+    _zh_corpus_df().to_csv(csv, index=False, encoding="utf-8")
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("lda_topic_model"), output_root=str(tmp_path / "o"),
+                       config={"n_topics": 3, "min_df": 2})
+    out = Path(res.output_dir)
+
+    assert res.estimates["n_topics"] == 3.0
+    all_top = set(pd.read_csv(out / "lda_top_words.csv")["word"])
+    edu = {"教育", "学校", "学生", "课程", "教学", "素质", "校园", "知识"}
+    med = {"医生", "医院", "病人", "健康", "治疗", "药物", "诊断", "医疗"}
+    tra = {"道路", "交通", "车辆", "公交", "地铁", "出行", "运输", "客运"}
+    assert edu & all_top, all_top
+    assert med & all_top, all_top
+    assert tra & all_top, all_top
+
+
+def test_config_lang_forces_english_path(tmp_path):
+    """config lang=en forces the english tokenizer; on a Chinese corpus that leaves an
+    empty vocabulary, so the method degrades honestly instead of crashing — proving the
+    override actually switches the tokenizer path."""
+    csv = tmp_path / "zh.csv"
+    _zh_corpus_df().to_csv(csv, index=False, encoding="utf-8")
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry("tfidf_keywords"), output_root=str(tmp_path / "o"),
+                       config={"lang": "en"})
+    assert "跳过" in res.summary  # english tokenizer finds no latin words in Chinese
