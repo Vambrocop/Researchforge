@@ -19,8 +19,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from researchforge.catalog import Catalog
 from researchforge.executor import run_analysis
 from researchforge.profiler import diagnose, profile_dataset
