@@ -18,10 +18,22 @@ def test_whole_valued_float_high_cardinality_is_continuous():
 
 
 def test_int_typed_genuine_count_still_count():
-    # 未误伤:int 型真事件计数(Poisson 抽样)仍判 count。
+    # 未误伤:int 型真事件计数(Poisson 抽样)仍判 count(小-中值、maxのfew-hundred)。
     rng = np.random.default_rng(4)
     events = pd.Series(rng.poisson(3, 300).astype(int), name="events")
     assert infer_kind(events) == "count"
+    events_hi = pd.Series(rng.poisson(40, 300).astype(int), name="events_hi")  # 高率计数 max~60
+    assert infer_kind(events_hi) == "count"
+
+
+def test_int_large_magnitude_high_cardinality_is_continuous():
+    # 真数据 dogfood ②:整数金额/年龄天数(max≫1000、高基数)是连续测量,不是事件计数——
+    # 没人 Poisson 建模均值上万的量。max≥1000 + 高基数 → continuous。
+    rng = np.random.default_rng(6)
+    amount = pd.Series(rng.integers(100, 99999, 300), name="amount_yuan")
+    assert infer_kind(amount) == "continuous"
+    age_days = pd.Series(rng.integers(6000, 30000, 300), name="age_days")
+    assert infer_kind(age_days) == "continuous"
 
 
 def test_low_cardinality_whole_float_still_count():

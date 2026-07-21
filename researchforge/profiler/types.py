@@ -39,14 +39,15 @@ def infer_kind(s: pd.Series) -> ColumnKind:
             if len(uniq) == 2:
                 return "binary"
             if bool((nn >= 0).all()):
-                # A count is an event/abundance tally (Poisson/NB). But a whole-valued
-                # FLOAT column with many distinct values is a continuous measurement
-                # recorded without decimals (e.g. a clinical progression score 25–346),
-                # not a count — a genuine count is stored as int. Calling it count would
-                # wrongly surface Poisson/NB over OLS (real-data dogfood: diabetes target
-                # float64, 214 distinct, 25–346). Keep int-typed and low-cardinality-float
-                # whole numbers as count.
-                if (not is_int_dtype) and len(uniq) > 15:
+                # A count is an event/abundance tally (Poisson/NB): a small-to-moderate
+                # non-negative whole number. A whole-valued MEASUREMENT recorded without
+                # decimals is NOT a count — calling it one wrongly surfaces Poisson/NB over
+                # OLS. Two tells, both requiring many distinct values (a genuine low-count
+                # outcome has few): a FLOAT dtype (a real count is stored as int; real-data
+                # dogfood: diabetes target float64 25–346), OR large magnitude (max ≥ 1000 —
+                # you don't Poisson-model a 6000–30000 age-in-days or a currency amount).
+                # Small-max / low-cardinality whole numbers stay count.
+                if len(uniq) > 15 and ((not is_int_dtype) or float(nn.max()) >= 1000):
                     return "continuous"
                 return "count"
         return "continuous"
