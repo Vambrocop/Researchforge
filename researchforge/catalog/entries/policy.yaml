@@ -1,0 +1,53 @@
+# Policy-evaluation catalog entries (pure Python — deterministic arithmetic + matplotlib).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+# HONESTY BOUNDARY: the engine does POST-CODING quantification, never automatic coding —
+# secondary indicators (0/1) are assigned by the researcher; the engine computes the index.
+
+- id: pmc_index
+  method: PMC index model (Policy Modeling Consistency)
+  domain: policy
+  family: policy
+  goal: describe
+  description: >-
+    The PMC (Policy Modeling Consistency) index model (Ruiz Estrada 2011): a quantitative
+    consistency score for one or more policies from a matrix of researcher-coded secondary
+    indicators (0/1 or [0,1]). Secondary indicators are grouped into first-level variables
+    (config groups, else by column-name prefix like X1_scope -> X1, else each indicator is its
+    own variable); each first-level variable is the mean of its indicators; the PMC index is
+    the sum of the first-level variables (range 0..n), with a ratio and a rating band
+    (>=0.90 perfect / >=0.70 good / >=0.50 acceptable / else low). Reports per-policy scores,
+    the cross-policy variable means (which dimensions are systematically weak), and a 3D PMC
+    surface per policy (a dip marks a weak dimension). The engine quantifies an ALREADY-CODED
+    matrix — it never judges from the policy text whether an indicator is 0 or 1.
+  preconditions:
+    min_rows: 1
+    min_categorical_cols: 3
+  produces:
+    - per-policy first-level variable scores, PMC index, ratio and rating band (pmc_scores.csv)
+    - cross-policy first-level variable means with a weak-dimension bar chart (pmc_variable_means.csv/.png)
+    - a PMC index bar chart by policy (pmc_by_policy.png)
+    - a 3D PMC surface per policy (pmc_surface_*.png) where a dip marks a weak dimension
+  executor_ref: py::pmc_index
+  params:
+    - name: indicators
+      type: columns
+      description: 二级指标列（研究者编码的 0/1 或 [0,1] 数值列）
+      default: 自动=所有取值落在 [0,1] 的数值列（排除政策名/时间/单位列）
+    - name: groups
+      type: str
+      description: "一级变量分组，{一级变量名: [二级指标列名,...]} 映射"
+      default: 自动=按列名前缀分组（X1_* → X1），否则每指标各自成一级变量
+    - name: policy
+      type: column
+      description: 政策名列（每行一项政策）
+      default: 自动=首个 id/类别列，否则用行号
+    - name: max_surfaces
+      type: int
+      description: 最多绘制多少张 PMC 曲面图
+      default: "6"
+  biases:
+    - HONESTY BOUNDARY — the engine does POST-CODING quantification only; the 0/1 coding of each secondary indicator is the researcher's domain judgement (like three-level grounded-theory coding), NOT auto-derived from the policy text
+    - PMC is highly sensitive to the design of the first-level / secondary indicator framework — a different framework yields a different index (the framework is a modelling choice, disclosed)
+    - the rating bands (>=0.90 perfect / >=0.70 good / >=0.50 acceptable / else low) are the Ruiz Estrada convention, not an absolute standard
+    - empty/uncoded indicator cells are counted as "dimension absent" (0); indicators with values outside [0,1] are per-column min-max normalized and disclosed
+    - the PMC surface lays the variables into a sqrt(n) x sqrt(n) grid and pads empty cells with the policy mean (to keep the surface smooth rather than artificially dented) — a visualization convention
