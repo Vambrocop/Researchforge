@@ -95,6 +95,7 @@ FAMILY_AFFINITY: dict[str, FamilyAffinity] = {
     "sem": _a("cross_section", ("multi_numeric",), needs_predictors=True, min_rows=100),
     "survey_methods": _a("cross_section", ("continuous", "binary", "none"), min_rows=30),
     "nlp": _a("cross_section", ("none",), min_rows=10),
+    "policy": _a("cross_section", ("none",), min_rows=1),
     "choice": _a("cross_section", ("categorical", "binary"), min_rows=50),
     "game_theory": _a("any", ("none",), min_rows=1),
     "latent_class": _a("cross_section", ("categorical", "binary", "multi_numeric"), min_rows=50),

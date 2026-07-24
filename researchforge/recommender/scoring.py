@@ -71,6 +71,7 @@ _FAMILY: dict[str, tuple[int, int, int, int, int]] = {
     "spc": (58, 55, 66, 48, 36),
     "survey_methods": (60, 66, 50, 60, 44),
     "nlp": (74, 68, 66, 62, 68),
+    "policy": (56, 66, 78, 60, 72),
     "choice": (58, 74, 60, 72, 52),
     "missing_data": (58, 66, 52, 64, 54),
     "resource": (50, 60, 66, 52, 56),
