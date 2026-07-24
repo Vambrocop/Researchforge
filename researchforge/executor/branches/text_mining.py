@@ -110,7 +110,16 @@ def _find_text_col(fp, df, cfg) -> str | None:
         if n_nonnull == 0:
             continue
         # free-text gate: multi-word OR long, and not a tiny handful of repeated labels.
-        is_texty = (mean_tokens >= 3.0) or (mean_len >= 20.0)
+        # CJK text has no whitespace tokens and packs more meaning per character, so a
+        # substantially-CJK column qualifies at a lower length bar (~8 chars ≈ a multi-word
+        # phrase) — this finds short Chinese comments / open-ended answers, not only long
+        # policy paragraphs. English is unchanged (cjk_frac ≈ 0, so this clause never fires).
+        cjk_frac = _cjk_share(s.dropna().astype(str).tolist()[:200])
+        is_texty = (
+            (mean_tokens >= 3.0)
+            or (mean_len >= 20.0)
+            or (cjk_frac >= 0.3 and mean_len >= 8.0)
+        )
         # cardinality: at least a few distinct values and >= ~30% distinct of non-null
         # (a 2-level categorical with long sentences is unlikely a free-text field).
         high_card = n_distinct >= 4 and (n_distinct / max(1, n_nonnull)) >= 0.3
