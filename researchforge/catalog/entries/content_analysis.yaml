@@ -1,0 +1,55 @@
+# Content analysis (Wave P5 — pure Python; Cohen's κ via scikit-learn).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+# HONESTY BOUNDARY: the engine does POST-CODING quantification only — the coding scheme
+# (dictionary) and the human codes come from the researcher; the engine never invents
+# categories nor judges meaning. Chinese keyword matching is by substring (jieba-free).
+
+- id: content_analysis
+  method: Content analysis (dictionary coding + inter-coder agreement)
+  domain: text
+  family: nlp
+  goal: describe
+  description: >-
+    Quantitative content analysis with two independent capabilities. (A) Dictionary-based
+    coding (config dictionary = {category: [keywords]}): counts keyword hits per category
+    per document over a free-text column and reports category totals, each document's
+    dominant category, and category co-occurrence. (B) Inter-coder agreement (config
+    coder1 / coder2): Cohen's κ between two human coders with a Landis & Koch strength band.
+    The engine quantifies a researcher-defined coding scheme and researcher-assigned codes;
+    it never invents categories nor judges meaning (the post-coding-quantification boundary,
+    like three-level grounded-theory coding). Chinese keyword matching is by substring
+    (segmentation-independent); English matching is token-based.
+  preconditions:
+    min_rows: 2
+  produces:
+    - category totals with per-category document coverage (content_category_totals.csv + bar chart)
+    - each document's dominant category and per-category counts (content_doc_categories.csv)
+    - category co-occurrence across documents (content_category_cooccurrence.csv)
+    - Cohen's κ inter-coder agreement with a strength band, when two coder columns are given (content_coder_agreement.csv)
+  executor_ref: py::content_analysis
+  params:
+    - name: dictionary
+      type: str
+      description: "编码词典 {类目名: [关键词,...]} 映射（研究者定义，引擎不自动生成）"
+      default: 无（缺则不做词典内容分析）
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: coder1
+      type: column
+      description: 第一位编码者的编码列（算 Cohen's κ 用）
+      default: 无（缺则不算一致性）
+    - name: coder2
+      type: column
+      description: 第二位编码者的编码列（算 Cohen's κ 用）
+      default: 无（缺则不算一致性）
+    - name: lang
+      type: str
+      description: 语料语言 zh/en（auto 自动按 CJK 字符占比检测）
+      default: auto
+  biases:
+    - HONESTY BOUNDARY — the engine does POST-CODING quantification only; the coding scheme (categories/keywords) and any human codes are researcher-supplied, NOT auto-derived, and it never replaces manual qualitative coding
+    - dictionary coverage and validity fully determine the counts — missed synonyms / context / negation cause under-counting; a keyword list is not the concept
+    - Chinese matching is by substring (segmentation-independent but may over-match inside compound words); English matching is token-based (multi-word keywords matched as substrings)
+    - Cohen's κ corrects for chance agreement; the Landis & Koch strength bands are a convention, and κ is sensitive to marginal imbalance (the kappa paradox — very skewed categories depress κ)
