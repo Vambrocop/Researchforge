@@ -7,6 +7,7 @@ branch on numeric-vs-not rather than testing for `object`.
 
 from __future__ import annotations
 
+import re
 import warnings
 
 import pandas as pd
@@ -14,6 +15,23 @@ import pandas as pd
 from researchforge.profiler.fingerprint import ColumnKind
 
 _GEO_NAMES = {"lat", "latitude", "lon", "lng", "long", "longitude"}
+
+# Names that signal a NOMINAL class label (a classification target), not a count. A
+# low-cardinality integer column named like this is a categorical outcome — the name is
+# what disambiguates {0,1,2} = three wine cultivars from {0,1,2} = an event tally. These
+# are strongly nominal words only (no ordinal-ish grade/level/rating, which stay count so
+# is_ordinal_like can flag them). Matched against name TOKENS (split on non-letters), so
+# "wine_class"/"target" both hit.
+_CLASS_LABEL_WORDS = frozenset({
+    "target", "label", "labels", "class", "classes", "category", "categories",
+    "species", "cultivar", "cultivars", "variety", "varieties", "cluster",
+    "clusters", "segment", "segments", "genre", "genres",
+})
+_NOMINAL_MAX_LEVELS = 10
+
+
+def _is_class_label_name(name: str) -> bool:
+    return any(t in _CLASS_LABEL_WORDS for t in re.split(r"[^a-z]+", name))
 
 
 def infer_kind(s: pd.Series) -> ColumnKind:
@@ -38,6 +56,12 @@ def infer_kind(s: pd.Series) -> ColumnKind:
                 return "id"
             if len(uniq) == 2:
                 return "binary"
+            # A low-cardinality integer named like a class label (target/class/label/
+            # species/cultivar…) is a NOMINAL outcome, not a count — surface classification
+            # (discriminant/multinomial), not Poisson/NB. The cardinality gate keeps a
+            # many-valued regression "target" continuous (it never reaches here).
+            if 3 <= len(uniq) <= _NOMINAL_MAX_LEVELS and _is_class_label_name(name):
+                return "categorical"
             if bool((nn >= 0).all()):
                 # A count is an event/abundance tally (Poisson/NB): a small-to-moderate
                 # non-negative whole number. A whole-valued MEASUREMENT recorded without

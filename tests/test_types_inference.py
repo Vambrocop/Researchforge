@@ -46,3 +46,23 @@ def test_low_cardinality_whole_float_still_count():
 def test_binary_and_id_unchanged():
     assert infer_kind(pd.Series([0, 1, 1, 0, 1], name="flag")) == "binary"
     assert infer_kind(pd.Series([10, 11, 12, 13, 14], name="row_id")) == "id"
+
+
+def test_low_cardinality_integer_class_label_is_categorical():
+    # 真数据 dogfood: sklearn wine target = int {0,1,2} = three cultivars (a NOMINAL class
+    # label), but was judged count → Poisson/NB ranked top over discriminant/multinomial.
+    # A low-cardinality integer NAMED like a class label is categorical (name disambiguates
+    # {0,1,2}=cultivars from {0,1,2}=an event tally). Covers target/class/label/species.
+    for name in ("target", "class", "wine_class", "label", "species", "cultivar", "category"):
+        s = pd.Series([0, 1, 2, 0, 1, 2, 1, 2, 0, 1], name=name)
+        assert infer_kind(s) == "categorical", name
+
+
+def test_count_named_column_stays_count():
+    # the label-name gate must NOT catch genuine counts: a low-cardinality tally whose name
+    # is not a class-label word stays count (Poisson/NB), and is_ordinal_like still works.
+    assert infer_kind(pd.Series([0, 1, 2, 3, 2, 1, 0, 3, 1], name="events")) == "count"
+    assert infer_kind(pd.Series([0, 1, 2, 3, 1, 2, 0, 1], name="n_children")) == "count"
+    # a many-valued regression target is not caught by the low-cardinality gate
+    hi = pd.Series(list(range(3, 40)) + [3, 4, 5], name="target")  # 37 distinct, not unique
+    assert infer_kind(hi) == "count"  # count/continuous, NOT categorical
