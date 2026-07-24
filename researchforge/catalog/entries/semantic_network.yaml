@@ -1,0 +1,53 @@
+# Semantic co-occurrence network (Wave P2 — pure Python; networkx OPTIONAL, honest degrade).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+# Reuses the text_mining multilingual tokenizer (jieba bridge + char-bigram fallback),
+# so it is Chinese-capable; config lang forces zh/en. If no free-text column exists, or
+# networkx is not installed, it degrades honestly (跳过).
+
+- id: semantic_network
+  method: Semantic co-occurrence network
+  domain: text
+  family: nlp
+  goal: explore
+  description: >-
+    A keyword co-occurrence network over a free-text column: tokenize each document, keep
+    the most frequent words as nodes, and connect two words with an edge weighted by the
+    number of documents they co-occur in (config top_words / min_count / min_cooccur).
+    Reports degree, weighted-degree and betweenness centrality (1/weight as edge distance)
+    and greedy-modularity communities, plus a spring-layout network plot. Co-occurrence is
+    a bag-of-words association, not a semantic relation; the graph is sensitive to
+    tokenization and the frequency/co-occurrence thresholds.
+  preconditions:
+    min_rows: 3
+  produces:
+    - node table with count, degree, weighted-degree, betweenness centrality and community (semantic_network_nodes.csv)
+    - edge table with per-pair co-occurrence counts (semantic_network_edges.csv)
+    - a spring-layout network plot coloured by community (semantic_network.png)
+  executor_ref: py::semantic_network
+  params:
+    - name: text
+      type: column
+      description: 自由文本列（多词/长字符串的高基数列）
+      default: 自动检测最像自由文本的列
+    - name: lang
+      type: str
+      description: 语料语言 zh/en（auto 自动按 CJK 字符占比检测）
+      default: auto
+    - name: top_words
+      type: int
+      description: 取词频最高的多少个词作为节点
+      default: "30"
+    - name: min_count
+      type: int
+      description: 一个词至少出现多少次才成为节点
+      default: "2"
+    - name: min_cooccur
+      type: int
+      description: 两个词至少在多少篇文档共现才连边
+      default: "2"
+  biases:
+    - the text column is auto-detected (config text overrides); if no free-text column exists, or networkx is not installed, the analysis degrades honestly
+    - co-occurrence is a bag-of-words ASSOCIATION, not a semantic relation — it ignores word order, negation and context
+    - the network is sensitive to tokenization and the top_words / min_count / min_cooccur thresholds — change them and the graph changes
+    - Chinese/CJK corpora are segmented with jieba when installed, else an honest character-bigram fallback (cruder; disclosed) — config lang forces zh/en
+    - betweenness uses 1/weight as edge distance (a stronger co-occurrence = a shorter distance); the spring-layout seed is fixed at 0 for reproducibility
