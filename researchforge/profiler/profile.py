@@ -114,5 +114,9 @@ def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     if unit_col is not None and n > df[time_col].nunique():
         fp.is_panel = True
         fp.unit_col = unit_col
-    elif df[time_col].nunique() > 1:
+    elif df[time_col].nunique() > 1 and n / df[time_col].nunique() <= 1.5:
+        # A univariate time series is indexed by time with ~one observation per period.
+        # Many rows sharing each timestamp is a date-stamped cross-section / batch (which
+        # value do you forecast at t?), not a series — don't flag it timeseries just
+        # because a date column exists (dogfooding P6 structural over-detection).
         fp.is_timeseries = True

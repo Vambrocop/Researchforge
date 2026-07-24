@@ -56,6 +56,42 @@ def test_bare_bounded_integer_without_temporal_name_is_not_time_col(tmp_path):
     assert fp.is_panel is False
 
 
+def test_batched_dates_are_not_timeseries(tmp_path):
+    """M2 dogfood P6: many rows sharing each timestamp is a date-stamped cross-section /
+    batch, not a univariate series — is_timeseries must NOT fire just because a date column
+    exists. Here 10 dates x 12 rows each (n/period = 12)."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    dts = np.repeat(pd.date_range("2021-01-01", periods=10, freq="D"), 12)
+    df = pd.DataFrame({
+        "txn_date": dts,
+        "amount": rng.normal(50, 10, 120),
+        "cat": rng.choice(["a", "b", "c"], 120),
+    })
+    csv = tmp_path / "batched.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.time_col == "txn_date"  # still detected as the time column
+    assert fp.is_timeseries is False  # but NOT a series (12 rows per period)
+    assert fp.is_panel is False
+
+
+def test_regular_series_is_timeseries(tmp_path):
+    """A genuine univariate series (~one observation per period) IS flagged timeseries."""
+    import numpy as np
+
+    months = pd.date_range("2015-01-01", periods=72, freq="MS")
+    df = pd.DataFrame({"month": months, "sales": np.cumsum(np.random.default_rng(1).normal(0, 5, 72)) + 100})
+    csv = tmp_path / "series.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.time_col == "month"
+    assert fp.is_timeseries is True
+
+
 def test_name_anchored_bare_integer_year_still_detected(tmp_path):
     """A bare integer column with year-like values IS still picked up by the
     fallback when its name carries a temporal anchor (e.g. 'obs_year') --
