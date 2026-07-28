@@ -58,8 +58,12 @@
       type: column
       description: 分组（类别）列
       default: 最低基数分类列
+    - name: outcome
+      type: column
+      description: group 的别名（判别分析里被预测的类别列即分组列；接受项目通用的 outcome 键）
+      default: 同 group
   biases:
-    - all continuous columns are predictors and the lowest-cardinality categorical is the group by default — set config predictors/group
+    - all continuous columns are predictors and the lowest-cardinality categorical is the group by default — set config predictors/group (or the outcome alias)
     - LDA assumes equal class covariances; QDA relaxes this (both are reported and compared)
     - cross-validated accuracy is the honest performance estimate — resubstitution accuracy overstates it (so it is not used)
     - needs n > number-of-predictors per class for a stable within-class covariance

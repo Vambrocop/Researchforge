@@ -114,3 +114,23 @@ def test_discriminant_one_class_skips(tmp_path):
                        config={"predictors": ["x1", "x2"], "group": "cls"})
     assert "lda_cv_accuracy" not in res.estimates
     assert "跳过" in res.summary
+
+
+def test_discriminant_outcome_is_group_alias(tmp_path):
+    # M3: `outcome` (the project-wide key for the predicted column) is accepted as a
+    # `group` alias — in a discriminant analysis the class being predicted IS the group.
+    # Without the alias, config outcome fell through to the lowest-cardinality categorical.
+    rng = np.random.default_rng(0)
+    n = 150
+    grp = rng.integers(0, 3, n)                      # the intended 3-class target
+    seg = rng.integers(0, 2, n)                      # a decoy binary column (lower cardinality)
+    x1 = grp + rng.normal(0, 0.5, n)                 # x1 separates grp
+    df = pd.DataFrame({"seg": seg, "target": grp, "x1": x1, "x2": rng.normal(0, 1, n)})
+    csv = tmp_path / "alias.csv"
+    df.to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _ENTRY, output_root=str(tmp_path / "out"),
+                       config={"outcome": "target", "predictors": ["x1", "x2"]})
+    # group resolved to `target` (3 classes), not the decoy `seg` (2 classes)
+    assert "分组=target" in res.summary or "target" in res.summary
+    assert res.estimates.get("n_classes") == 3.0

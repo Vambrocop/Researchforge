@@ -209,9 +209,15 @@ def _branch_discriminant_analysis(ctx: Ctx) -> None:
     # predictors: config override else all continuous columns
     forced_p = [c for c in (cfg.get("predictors") or []) if c in df.columns]
     predictors = forced_p if forced_p else cont
-    # group: config override else lowest-cardinality categorical/binary
+    # group: config override else lowest-cardinality categorical/binary. `outcome` is the
+    # project-wide key for "the thing being predicted"; in a discriminant analysis that IS
+    # the group/class column, so accept it as a `group` alias (else config outcome fell
+    # through to the lowest-cardinality categorical — silently wrong if the shape changes).
     cands = _group_candidates(fp, df)
-    group = cfg["group"] if cfg.get("group") in df.columns else (cands[0] if cands else None)
+    group = next(
+        (cfg[k] for k in ("group", "outcome") if cfg.get(k) in df.columns),
+        cands[0] if cands else None,
+    )
     # drop a predictor that collides with the group column
     predictors = [c for c in predictors if c != group]
 
