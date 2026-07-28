@@ -95,6 +95,23 @@ def test_count_outcome_excludes_ordinal_likert(tmp_path: Path) -> None:
     assert s["has_count_outcome"] is False
 
 
+def test_rater_block_requires_rater_naming(tmp_path: Path) -> None:
+    # Wave M0 (anes96 real-data false positive): ≥3 ordinal (1-k) columns are a RATER BLOCK
+    # only when they look like PARALLEL ratings of one construct. A wide survey of DIFFERENT
+    # 1-7 questions (selfLR / ClinLR / DoleLR / educ) shares no rater naming → NOT a rater
+    # block (Fleiss κ between "TV-news days" and "education" is nonsense); rater1/rater2/… IS.
+    rng = np.random.default_rng(41)
+    survey = pd.DataFrame({name: rng.integers(1, 8, 200)
+                           for name in ("selfLR", "ClinLR", "DoleLR", "educ")})
+    assert _signals(survey, tmp_path)["has_rater_block"] is False
+
+    raters = pd.DataFrame({f"rater{r}": rng.integers(1, 6, 200) for r in range(4)})
+    assert _signals(raters, tmp_path)["has_rater_block"] is True
+
+    items = pd.DataFrame({f"item{i}": rng.integers(1, 6, 200) for i in range(1, 5)})
+    assert _signals(items, tmp_path)["has_rater_block"] is True
+
+
 def test_count_outcome_keeps_genuine_unbounded_count(tmp_path: Path) -> None:
     # Wave K-A1: an unbounded event count (has zeros / many distinct values) is a real
     # count outcome — the ordinal_like exclusion must not swallow true Poisson data.
