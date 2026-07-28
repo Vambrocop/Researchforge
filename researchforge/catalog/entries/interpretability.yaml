@@ -289,3 +289,84 @@
       type: int
       description: 代理树最大深度（2-6）
       default: "3"
+
+- id: explainable_boosting
+  method: Explainable Boosting Machine (EBM glassbox)
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    The Explainable Boosting Machine (EBM, InterpretML): a GLASSBOX model — a cyclic
+    gradient-boosted generalized additive model with a few automatic pairwise interactions.
+    It is accurate like boosting yet directly interpretable: the prediction is the sum of a
+    per-feature shape function (plus a few interactions), so every feature's effect is read
+    off its own curve. Fits an EBM regressor (continuous outcome) or classifier (binary
+    outcome); reports term importances (features + interactions), the shape functions of the
+    top features, and the in-sample score. This is not a post-hoc explainer of another model
+    — the EBM itself is the model. Degrades honestly if the interpret package is absent.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - term importances for features and automatic interactions (CSV + bar chart)
+    - shape functions of the top features (CSV + small-multiples PNG)
+    - in-sample score (R² for regression, accuracy for classification)
+  executor_ref: py::explainable_boosting
+  biases:
+    - the shape functions describe the MODEL's learned associations (not causal effects); a feature's curve reflects fit, not mechanism
+    - the reported score is IN-SAMPLE (no held-out split), so it overstates generalization
+    - EBM keeps interactions limited (a few automatic pairwise terms) — higher-order structure is not fully captured
+    - shape functions are sensitive to binning/preprocessing; requires the interpret package, else it degrades honestly (no substitute model is passed off as an EBM)
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+
+- id: lime_explanation
+  method: LIME local explanation
+  domain: ml
+  family: ml
+  goal: explain
+  description: >-
+    LIME (Local Interpretable Model-agnostic Explanations): explain INDIVIDUAL predictions of
+    a fitted model by fitting a sparse linear surrogate in the neighbourhood of each instance
+    (perturbation sampling around the instance, weighted by proximity). Fits a gradient-boosting
+    model (or random forest via config model), then explains a few instances spanning the low /
+    mid / high predicted range (config n_explain), reporting each instance's top local feature
+    contributions. Complements the global explainers (SHAP / PDP / ALE / EBM) with per-instance,
+    local reasons. Degrades honestly if the lime package is absent.
+  preconditions:
+    min_numeric_cols: 2
+    min_rows: 30
+  produces:
+    - per-instance local feature contributions for a few instances spanning the prediction range (CSV)
+    - per-instance local-weight bar charts (PNG)
+  executor_ref: py::lime_explanation
+  biases:
+    - LIME explains ONE instance at a time via a LOCAL linear surrogate — it is not a global rule and does not transfer beyond each instance's neighbourhood
+    - explanations are sensitive to the perturbation sampling, kernel width and feature discretization; the same instance can vary run to run (seed fixed at 0 here)
+    - local weights describe the MODEL's behaviour, not causal effects, and are only as trustworthy as the fitted model
+    - requires the lime package; absent it the analysis degrades and points to SHAP / partial_dependence / EBM for global views
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归；二值→分类）
+      default: 第一个连续列，否则二值列
+    - name: predictors
+      type: columns
+      description: 特征列
+      default: 其余数值/二值列
+    - name: model
+      type: choice
+      choices: [gbm, rf]
+      description: 基模型（梯度提升 / 随机森林）
+      default: gbm
+    - name: n_explain
+      type: int
+      description: 解释多少个样本（覆盖预测值低/中/高）
+      default: "3"

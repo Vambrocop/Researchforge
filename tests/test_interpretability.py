@@ -217,3 +217,77 @@ def test_surrogate_classification_fidelity(tmp_path: Path) -> None:
     res = _run(csv, "surrogate_model", tmp_path, config={"outcome": "label"})
     assert "fidelity_accuracy" in res.estimates
     assert res.estimates["fidelity_accuracy"] > 0.7
+
+
+# --------------------------------------------------------------------------- #
+# explainable_boosting — EBM glassbox (InterpretML; OPTIONAL lib)
+# --------------------------------------------------------------------------- #
+_FEATS = {"x1", "x2", "noise1", "noise2"}
+
+
+def test_ebm_ranks_strong_feature_top(tmp_path: Path) -> None:
+    pytest.importorskip("interpret")
+    csv = tmp_path / "ebm.csv"
+    _signal_df().to_csv(csv, index=False)
+    res = _run(csv, "explainable_boosting", tmp_path)
+    e = res.estimates
+    assert e["n_features"] == 4.0
+    assert e["train_score"] > 0.5                      # in-sample R²
+    assert "完成" in res.summary and "样本内" in res.summary
+    imp = pd.read_csv(Path(res.output_dir) / "ebm_importances.csv")
+    uni = imp[imp["term"].isin(_FEATS)].set_index("term")["importance"]
+    assert uni["x1"] > uni["x2"]                        # planted: coef 3 > coef 1
+    assert uni["x1"] > uni.get("noise1", 0.0)
+    assert (Path(res.output_dir) / "ebm_shape_functions.csv").exists()
+
+
+def test_ebm_classification(tmp_path: Path) -> None:
+    pytest.importorskip("interpret")
+    rng = np.random.default_rng(5)
+    n = 300
+    x1 = rng.normal(0, 1, n)
+    label = (x1 + 0.3 * rng.normal(0, 1, n) > 0).astype(int)
+    csv = tmp_path / "ebmclf.csv"
+    pd.DataFrame({"label": label, "x1": x1, "x2": rng.normal(0, 1, n)}).to_csv(csv, index=False)
+    res = _run(csv, "explainable_boosting", tmp_path, config={"outcome": "label"})
+    assert res.estimates["train_score"] > 0.8          # in-sample accuracy
+    assert "分类" in res.summary
+
+
+def test_ebm_degrades_without_interpret(tmp_path: Path, monkeypatch) -> None:
+    import importlib.util as u
+    real = u.find_spec
+    monkeypatch.setattr(u, "find_spec",
+                        lambda name, *a, **k: None if name == "interpret" else real(name, *a, **k))
+    csv = tmp_path / "ebmd.csv"
+    _signal_df(n=60).to_csv(csv, index=False)
+    res = _run(csv, "explainable_boosting", tmp_path)
+    assert "跳过" in res.summary and "interpret" in res.summary
+    assert "train_score" not in res.estimates
+
+
+# --------------------------------------------------------------------------- #
+# lime_explanation — LIME local explanations (OPTIONAL lib)
+# --------------------------------------------------------------------------- #
+def test_lime_produces_local_explanations(tmp_path: Path) -> None:
+    pytest.importorskip("lime")
+    csv = tmp_path / "lime.csv"
+    _signal_df().to_csv(csv, index=False)
+    res = _run(csv, "lime_explanation", tmp_path, config={"n_explain": 3})
+    assert res.estimates["n_explained"] == 3.0
+    exp = pd.read_csv(Path(res.output_dir) / "lime_explanations.csv")
+    assert len(exp) > 0
+    assert {"instance_row", "feature_condition", "local_weight"} <= set(exp.columns)
+    assert "局部" in res.summary
+
+
+def test_lime_degrades_without_lime(tmp_path: Path, monkeypatch) -> None:
+    import importlib.util as u
+    real = u.find_spec
+    monkeypatch.setattr(u, "find_spec",
+                        lambda name, *a, **k: None if name == "lime" else real(name, *a, **k))
+    csv = tmp_path / "limed.csv"
+    _signal_df(n=60).to_csv(csv, index=False)
+    res = _run(csv, "lime_explanation", tmp_path)
+    assert "跳过" in res.summary and "lime" in res.summary
+    assert "n_explained" not in res.estimates

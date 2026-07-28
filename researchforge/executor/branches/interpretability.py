@@ -14,8 +14,15 @@ box": which features drive the prediction, in what shape, and how strongly.
                                 alternative to PDP — accumulates LOCAL prediction
                                 differences within feature quantile bins, so it is not
                                 biased by correlated features the way PDP is.
+  * explainable_boosting      — EBM (InterpretML): a GLASSBOX model (not a post-hoc
+                                explainer) — a boosted GAM with a few auto interactions,
+                                whose per-feature shape functions ARE the explanation.
+                                OPTIONAL `interpret` package; degrades honestly.
+  * lime_explanation          — LIME: LOCAL per-instance explanations via a sparse linear
+                                surrogate fit in each instance's neighbourhood. OPTIONAL
+                                `lime` package; degrades honestly.
 
-All fit a default tree model (gradient boosting, or random forest via config model)
+Most fit a default tree model (gradient boosting, or random forest via config model)
 on a continuous outcome (regression) — or a binary outcome (classification) when no
 continuous column exists — mirroring ml.py's role convention; config outcome/predictors
 override. Each degrades honestly (no outcome/features / too few rows / <2 classes /
@@ -719,3 +726,275 @@ def _branch_surrogate_model(ctx: Ctx) -> None:
         )
     except Exception as e:
         summary.append(f"代理模型失败：{type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 6. explainable_boosting — EBM (glassbox GAM + interactions, InterpretML)
+# ---------------------------------------------------------------------------
+@register("explainable_boosting")
+def _branch_explainable_boosting(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    import importlib.util
+
+    # EBM is a GLASSBOX model (not a post-hoc explainer): a cyclic-gradient-boosted GAM
+    # with a few automatic pairwise interactions, from InterpretML. OPTIONAL lib + honest
+    # degrade — we never pass off a different model as an EBM.
+    if importlib.util.find_spec("interpret") is None:
+        summary.append(
+            "EBM 可解释提升机跳过：需要 interpret 包（未检测到）。安装：pip install interpret"
+            "（或轻量 interpret-core）。⚠ 本引擎不用别的模型冒充 EBM。"
+        )
+        return
+
+    info, err = _build_model(ctx, "EBM 可解释提升机")  # role resolution (its GBM is unused)
+    if info is None:
+        summary.append(err)
+        return
+    X, y, features, is_clf = info["X"], info["y"], info["features"], info["is_clf"]
+    outcome, np, pd = info["outcome"], info["np"], info["pd"]
+
+    try:
+        from interpret.glassbox import (
+            ExplainableBoostingClassifier,
+            ExplainableBoostingRegressor,
+        )
+
+        # Cap automatic pairwise interactions at a few, so the model stays a READABLE
+        # glassbox (a GAM with a handful of interactions), matching the disclosure — not
+        # every C(p,2) pair (which would defeat interpretability).
+        ebm = (ExplainableBoostingClassifier(random_state=0, interactions=5) if is_clf
+               else ExplainableBoostingRegressor(random_state=0, interactions=5))
+        ebm.fit(X, y)
+        score = float(ebm.score(X, y))
+
+        g = ebm.explain_global()
+        overall = g.data()
+        term_names = [str(t) for t in overall["names"]]
+        term_scores = [float(s) for s in overall["scores"]]
+        imp_df = pd.DataFrame({
+            "term": term_names,
+            "importance": np.round(term_scores[: len(term_names)], 6),
+        }).sort_values("importance", ascending=False)
+        imp_df.to_csv(d / "ebm_importances.csv", index=False, encoding="utf-8")
+        files.append("ebm_importances.csv")
+
+        # --- shape functions for the top univariate terms ---------------------
+        univ = [i for i, tf in enumerate(ebm.term_features_) if len(tf) == 1]
+        univ.sort(key=lambda i: -float(ebm.term_importances()[i]))
+        top_terms = univ[: min(4, len(univ))]
+
+        def _mids_contribs(i):
+            data_i = g.data(i)
+            edges = [float(e) for e in data_i["names"]]
+            contrib = [float(c) for c in data_i["scores"]]
+            mids = [
+                (edges[j] + edges[j + 1]) / 2 if j + 1 < len(edges) else edges[j]
+                for j in range(len(contrib))
+            ]
+            return mids, contrib
+
+        shape_rows = []
+        for i in top_terms:
+            mids, contrib = _mids_contribs(i)
+            for mid, c in zip(mids, contrib):
+                shape_rows.append({
+                    "term": str(ebm.term_names_[i]),
+                    "bin_mid": round(mid, 6),
+                    "contribution": round(c, 6),
+                })
+        if shape_rows:
+            pd.DataFrame(shape_rows).to_csv(
+                d / "ebm_shape_functions.csv", index=False, encoding="utf-8"
+            )
+            files.append("ebm_shape_functions.csv")
+
+        # --- PNG: importance bar ----------------------------------------------
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            k = min(10, len(imp_df))
+            head = imp_df.head(k).iloc[::-1]
+            fig, ax = plt.subplots(figsize=(6.5, 0.4 * k + 1.0))
+            ax.barh(range(k), head["importance"], color="#4C72B0")
+            ax.set_yticks(range(k))
+            ax.set_yticklabels(head["term"], fontsize=8)
+            ax.set_xlabel("term importance (mean abs contribution)")
+            ax.set_title(f"EBM term importances — {outcome}", fontsize=10)
+            fig.tight_layout()
+            fig.savefig(d / "ebm_importances.png", dpi=150)
+            plt.close(fig)
+            files.append("ebm_importances.png")
+        except Exception:
+            pass
+
+        # --- PNG: shape-function small multiples ------------------------------
+        try:
+            if top_terms:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                ncol = min(2, len(top_terms))
+                nrow = int(np.ceil(len(top_terms) / ncol))
+                fig, axes = plt.subplots(nrow, ncol, figsize=(4.5 * ncol, 3.0 * nrow))
+                axes = np.atleast_1d(axes).ravel()
+                for ax_i, i in enumerate(top_terms):
+                    mids, contrib = _mids_contribs(i)
+                    axes[ax_i].plot(mids, contrib, color="#C44E52")
+                    axes[ax_i].axhline(0, color="0.6", lw=0.8)
+                    axes[ax_i].set_title(str(ebm.term_names_[i]), fontsize=9)
+                    axes[ax_i].set_xlabel("feature value")
+                    axes[ax_i].set_ylabel("contribution")
+                for j in range(len(top_terms), len(axes)):
+                    axes[j].axis("off")
+                fig.suptitle("EBM shape functions (top features)", fontsize=11)
+                fig.tight_layout(rect=(0, 0, 1, 0.96))
+                fig.savefig(d / "ebm_shape_functions.png", dpi=150)
+                plt.close(fig)
+                files.append("ebm_shape_functions.png")
+        except Exception:
+            pass
+
+        n_inter = sum(1 for tf in ebm.term_features_ if len(tf) > 1)
+        estimates["n_rows"] = float(len(X))
+        estimates["n_features"] = float(len(features))
+        estimates["train_score"] = round(score, 6)
+        estimates["n_terms"] = float(len(term_names))
+        estimates["n_interactions"] = float(n_inter)
+
+        score_name = "准确率" if is_clf else "R²"
+        top5 = "、".join(f"{r.term}({r.importance:.2f})" for r in imp_df.head(5).itertuples())
+        summary.append(
+            f"{entry.method} 完成（EBM 可解释提升机 glassbox，{'分类' if is_clf else '回归'}，"
+            f"结果={outcome}，{len(features)} 特征 × {len(X)} 行，含 {n_inter} 个自动交互项）："
+            f"样本内{score_name}={score:.3f}。特征重要性 Top：{top5}"
+            f"（详见 ebm_importances.csv + 形状函数 ebm_shape_functions.csv/.png）。"
+            f"⚠ EBM 是**可加**模型：每个特征的效应=它的形状函数（逐特征可读），准确度接近 boosting；"
+            f"但{score_name}是**样本内**（非泛化，未留出集）；交互项默认有限（少量二阶）；"
+            f"形状函数反映模型学到的关系、非因果，对分箱/预处理敏感。可用 config outcome/predictors 覆盖。"
+        )
+        code += [
+            "from interpret.glassbox import ExplainableBoostingRegressor",
+            f"ebm = ExplainableBoostingRegressor(random_state=0).fit(df[{features!r}], df[{outcome!r}])",
+            "g = ebm.explain_global(); print(g.data()['names'], g.data()['scores'])  # term importances",
+        ]
+    except Exception as e:
+        summary.append(f"EBM 可解释提升机失败：{type(e).__name__}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# 7. lime_explanation — LIME local surrogate explanations (per instance)
+# ---------------------------------------------------------------------------
+@register("lime_explanation")
+def _branch_lime_explanation(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+    import importlib.util
+
+    if importlib.util.find_spec("lime") is None:
+        summary.append("LIME 局部解释跳过：需要 lime 包（未检测到）。安装：pip install lime。")
+        return
+
+    info, err = _build_model(ctx, "LIME 局部解释")
+    if info is None:
+        summary.append(err)
+        return
+    model, X, features, is_clf = info["model"], info["X"], info["features"], info["is_clf"]
+    outcome, model_name, np, pd = info["outcome"], info["model_name"], info["np"], info["pd"]
+
+    try:
+        try:
+            n_explain = int(cfg.get("n_explain")) if cfg.get("n_explain") is not None else 3
+        except (TypeError, ValueError):
+            n_explain = 3
+        n_explain = max(1, min(n_explain, len(X)))
+        num_features = min(8, len(features))
+
+        from lime.lime_tabular import LimeTabularExplainer
+
+        explainer = LimeTabularExplainer(
+            X.values, feature_names=features,
+            mode="classification" if is_clf else "regression",
+            class_names=["class0", "class1"] if is_clf else None,
+            discretize_continuous=True, random_state=0,
+        )
+        predict_fn = model.predict_proba if is_clf else model.predict
+
+        # explain instances spanning the prediction range (low / mid / high)
+        preds = _predict_fn(info)(X.values)
+        order = np.argsort(preds)
+        picks = list(dict.fromkeys(
+            int(order[int(q * (len(order) - 1))]) for q in np.linspace(0, 1, n_explain)
+        ))
+
+        rows = []
+        for idx in picks:
+            kwargs = {"labels": (1,)} if is_clf else {}
+            exp = explainer.explain_instance(
+                X.iloc[idx].values, predict_fn, num_features=num_features, **kwargs
+            )
+            pairs = exp.as_list(**({"label": 1} if is_clf else {}))
+            for feat_desc, weight in pairs:
+                rows.append({
+                    "instance_row": int(X.index[idx]),
+                    "predicted": round(float(preds[idx]), 6),
+                    "feature_condition": feat_desc,
+                    "local_weight": round(float(weight), 6),
+                })
+        lime_df = pd.DataFrame(rows)
+        lime_df.to_csv(d / "lime_explanations.csv", index=False, encoding="utf-8")
+        files.append("lime_explanations.csv")
+
+        # --- PNG: per-instance local weights ----------------------------------
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            uniq_inst = list(dict.fromkeys(lime_df["instance_row"]))
+            m = len(uniq_inst)
+            fig, axes = plt.subplots(m, 1, figsize=(6.5, 2.3 * m))
+            axes = np.atleast_1d(axes).ravel()
+            for ax_i, inst in enumerate(uniq_inst):
+                sub = lime_df[lime_df["instance_row"] == inst].iloc[::-1]
+                colors = ["#55A868" if w > 0 else "#C44E52" for w in sub["local_weight"]]
+                axes[ax_i].barh(range(len(sub)), sub["local_weight"], color=colors)
+                axes[ax_i].set_yticks(range(len(sub)))
+                axes[ax_i].set_yticklabels(sub["feature_condition"], fontsize=7)
+                axes[ax_i].axvline(0, color="0.5", lw=0.8)
+                axes[ax_i].set_title(
+                    f"row {inst} (pred={sub['predicted'].iloc[0]:.2f})", fontsize=9
+                )
+            fig.suptitle(f"LIME local explanations — {outcome}", fontsize=11)
+            fig.tight_layout(rect=(0, 0, 1, 0.97))
+            fig.savefig(d / "lime_explanations.png", dpi=150)
+            plt.close(fig)
+            files.append("lime_explanations.png")
+        except Exception:
+            pass
+
+        estimates["n_explained"] = float(len(picks))
+        estimates["n_features"] = float(len(features))
+        estimates["num_features_per_explanation"] = float(num_features)
+
+        summary.append(
+            f"{entry.method} 完成（LIME 局部解释，{model_name.upper()} "
+            f"{'分类' if is_clf else '回归'}模型，结果={outcome}）：解释了 {len(picks)} 个样本"
+            f"（覆盖预测值低/中/高），每个给出 top {num_features} 个局部特征贡献"
+            f"（详见 lime_explanations.csv/.png）。"
+            f"⚠ LIME 是**局部**代理：解释针对**单个样本**、由其邻域扰动采样拟合的线性模型给出，"
+            f"不是全局规律；对扰动采样/核宽/离散化高度敏感，**同一样本不同运行可能不同**（已固定 seed=0）；"
+            f"局部权重反映模型行为、非因果。要全局看用 SHAP/PDP/EBM。可用 config outcome/predictors/n_explain 覆盖。"
+        )
+        code += [
+            "from lime.lime_tabular import LimeTabularExplainer",
+            "mode = 'classification' if is_clf else 'regression'",
+            f"expl = LimeTabularExplainer(X.values, feature_names={features!r}, mode=mode)",
+            "exp = expl.explain_instance(X.iloc[0].values, model.predict_proba if is_clf else model.predict)",
+            "print(exp.as_list())",
+        ]
+    except Exception as e:
+        summary.append(f"LIME 局部解释失败：{type(e).__name__}: {e}")
