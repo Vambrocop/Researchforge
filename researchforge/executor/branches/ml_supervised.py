@@ -623,3 +623,121 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
         ]
     except Exception as err:  # pragma: no cover - safety net
         summary.append(f"{method}失败：{err}")
+
+
+@register("naive_bayes")
+def _branch_naive_bayes(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    # Gaussian Naive Bayes — a classifier only. Its strong conditional-independence
+    # assumption is exactly why it needs so little data (few parameters), making it a
+    # strong SMALL-DATA baseline (Wave S). Degrades honestly on a continuous outcome.
+    method = "朴素贝叶斯"
+    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=15)
+    if prob:
+        summary.append(prob)
+        return
+    if not is_clf:
+        summary.append(
+            f"{method}跳过：朴素贝叶斯是分类器，需要分类/二值结果变量（当前 {outcome} 为连续）"
+            "——连续结果请用 ols_regression / regularized_regression。"
+        )
+        return
+
+    try:
+        import numpy as np
+        import pandas as pd
+        from sklearn.metrics import confusion_matrix
+        from sklearn.model_selection import StratifiedKFold, cross_val_predict, cross_val_score
+        from sklearn.naive_bayes import GaussianNB
+
+        X, y, names = _clean_xy(df, outcome, preds, is_clf)
+        n = int(X.shape[0])
+        if n < 15:
+            summary.append(f"{method}跳过：有效样本 {n}<15。")
+            return
+        k = _cv_folds(n, is_clf, y, default=5)
+        if k is None:
+            summary.append(f"{method}跳过：某一类样本数<2，无法做分层交叉验证。")
+            return
+
+        est = GaussianNB()
+        cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=_SEED)
+        acc = cross_val_score(est, X, y, cv=cv, scoring="accuracy")
+        f1 = cross_val_score(est, X, y, cv=cv, scoring="f1_macro")
+        y_oof = cross_val_predict(est, X, y, cv=cv)
+        cv_acc, cv_f1 = float(np.mean(acc)), float(np.mean(f1))
+        labels = np.unique(y)
+        cm = confusion_matrix(y, y_oof, labels=labels)
+
+        est.fit(X, y)  # full-data fit for the class priors (descriptive)
+        priors = np.asarray(est.class_prior_, dtype=float)
+
+        estimates["cv_accuracy"] = round(cv_acc, 4)
+        estimates["cv_f1_macro"] = round(cv_f1, 4)
+        estimates["n_classes"] = float(len(labels))
+        estimates["n"] = float(n)
+
+        try:
+            pd.DataFrame({"fold": np.arange(1, k + 1), "accuracy": np.round(acc, 6),
+                          "f1_macro": np.round(f1, 6)}).to_csv(
+                d / "nb_fold_scores.csv", index=False, encoding="utf-8")
+            files.append("nb_fold_scores.csv")
+            pd.DataFrame(cm, index=[f"true_{c}" for c in labels],
+                         columns=[f"pred_{c}" for c in labels]).to_csv(
+                d / "nb_confusion_matrix.csv", encoding="utf-8")
+            files.append("nb_confusion_matrix.csv")
+            pd.DataFrame({"class": labels, "prior": np.round(priors, 6)}).to_csv(
+                d / "nb_class_priors.csv", index=False, encoding="utf-8")
+            files.append("nb_class_priors.csv")
+        except Exception:
+            pass
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(figsize=(max(4, len(labels) * 0.8), max(3.5, len(labels) * 0.8)))
+            im = ax.imshow(cm, cmap="Blues")
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels([str(c) for c in labels], rotation=45, ha="right")
+            ax.set_yticks(range(len(labels)))
+            ax.set_yticklabels([str(c) for c in labels])
+            ax.set_xlabel("predicted")
+            ax.set_ylabel("actual")
+            ax.set_title(f"Confusion matrix (CV) — {outcome}")
+            for i in range(len(labels)):
+                for j in range(len(labels)):
+                    ax.text(j, i, int(cm[i, j]), ha="center", va="center",
+                            color="white" if cm[i, j] > cm.max() / 2 else "black", fontsize=9)
+            fig.colorbar(im, ax=ax, fraction=0.046)
+            fig.tight_layout()
+            fig.savefig(d / "nb_confusion_matrix.png", dpi=150)
+            plt.close(fig)
+            files.append("nb_confusion_matrix.png")
+        except Exception:
+            pass
+
+        base = float(pd.Series(y).value_counts(normalize=True).max())
+        warn = suspicious_fit_warnings(cv_accuracy=cv_acc, baseline_rate=base)
+        oos = "交叉验证，见下警告" if warn else "样本外"
+        summary.append(
+            f"{entry.method} 完成（高斯朴素贝叶斯，{k}-折分层交叉验证，seed={_SEED}）："
+            f"分类 {outcome}（{len(labels)} 类）；准确率={cv_acc:.3f}、macro-F1={cv_f1:.3f}"
+            f"（{oos}），基线（多数类）={base:.3f}；n={n}。"
+            + ("".join(warn) if warn else "")
+            + "⚠ 朴素贝叶斯假设各特征在给定类别下条件独立（强假设，现实常不成立，相关特征会双重计数）"
+            "——正因这个强假设它参数极少、对样本量依赖低，是**小数据分类的强基线**；高斯 NB 还假设"
+            "各特征类内近似高斯。可用 config outcome/predictors 覆盖。"
+        )
+        code += [
+            "from sklearn.naive_bayes import GaussianNB",
+            "from sklearn.model_selection import cross_val_score, StratifiedKFold",
+            f"X = df[{list(names)!r}].apply(pd.to_numeric, errors='coerce'); y = df['{outcome}']",
+            f"cv = StratifiedKFold({k}, shuffle=True, random_state={_SEED})",
+            "print(cross_val_score(GaussianNB(), X, y, cv=cv, scoring='accuracy').mean())",
+        ]
+    except Exception as err:  # pragma: no cover - safety net
+        summary.append(f"{method}失败：{type(err).__name__}: {err}")
