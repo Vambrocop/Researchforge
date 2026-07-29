@@ -84,3 +84,32 @@ def test_recommend_attaches_score(tmp_path: Path) -> None:
     for r in recs:
         assert hasattr(r, "score")
         assert 0 <= r.score.overall <= 100
+
+
+def test_small_data_tilt_demotes_high_capacity(tmp_path: Path) -> None:
+    # Wave S: on a small-data regime (few rows, or few rows per predictor) the fit tilt
+    # DEMOTES data-hungry learners (with an overfit ⚠) and BOOSTS regularized/Bayesian —
+    # the "由简到繁 / start simple" ladder. Outside the regime the tilt is zero.
+    import numpy as np
+
+    from researchforge.recommender.affinity import data_signals
+    from researchforge.recommender.scoring import _small_data_tilt
+
+    rng = np.random.default_rng(0)
+    gbm = _entry("gradient_boosting", "ml")
+    reg = _entry("regularized_regression", "regression")
+
+    small = pd.DataFrame({**{f"x{i}": rng.normal(0, 1, 50) for i in range(5)},
+                          "y": rng.normal(0, 1, 50)})
+    small.to_csv(tmp_path / "s.csv", index=False)
+    sig_small = data_signals(profile_dataset(tmp_path / "s.csv"))
+    d_gbm, note = _small_data_tilt(gbm, sig_small)
+    assert d_gbm < 0 and "过拟合" in note          # high-capacity demoted + disclosed
+    assert _small_data_tilt(reg, sig_small)[0] > 0  # regularized boosted
+
+    large = pd.DataFrame({**{f"x{i}": rng.normal(0, 1, 1500) for i in range(5)},
+                          "y": rng.normal(0, 1, 1500)})
+    large.to_csv(tmp_path / "l.csv", index=False)
+    sig_large = data_signals(profile_dataset(tmp_path / "l.csv"))
+    assert _small_data_tilt(gbm, sig_large) == (0.0, "")   # no tilt on ample data
+    assert _small_data_tilt(reg, sig_large)[0] == 0.0

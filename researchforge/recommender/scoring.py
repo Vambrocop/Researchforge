@@ -175,6 +175,53 @@ _RATER_FAMILIES = {"agreement", "psychometrics"}
 _RATER_FLOOR = 85.0
 
 
+# ── small-data model-tier tilt (Wave S) ──────────────────────────────────────────────
+# The "由简到繁 / start simple" philosophy for small data: with few rows (or few rows per
+# predictor), low-capacity, regularized and prior-regularized methods GENERALIZE better,
+# while data-hungry flexible learners OVERFIT. So on a small-data regime we tilt the
+# data-fit score toward the simple end of the ladder and disclose the overfit risk — this
+# is auto-selection encoding the model-capacity ladder, not just a bias-count.
+#
+# Data-hungry / high-variance learners: demoted on small data (+ an overfit ⚠).
+_HIGH_CAPACITY = {
+    "random_forest", "gradient_boosting", "xgboost", "bart",
+    "gaussian_process_regression", "surrogate_model", "explainable_boosting",
+    "svm_model",  # kernel SVM overfits small n without enough support-vector coverage
+}
+# Small-data-friendly: regularized / low-variance / bootstrap-validated → boosted.
+_SMALL_DATA_FRIENDLY = {
+    "regularized_regression", "naive_bayes", "robust_regression",
+    "ols_regression", "logistic_regression", "bootstrap_ci",
+}
+# Families whose members regularize via priors (small-data friendly by construction).
+_FRIENDLY_FAMILIES = {"bayesian"}
+
+
+def _small_data_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, disclosure note) for the small-data model-tier. Fires on a
+    small-data regime — few rows (n < ~100) OR few rows per predictor (n/p < ~10, the real
+    overfit measure). Demotes data-hungry learners (with an overfit ⚠), boosts
+    regularized / Bayesian ones. Returns (0.0, "") outside the small-data regime."""
+    n = int(signals.get("n_rows", 0) or 0)
+    if n <= 0:
+        return 0.0, ""
+    p = max(1, int(signals.get("n_numeric", 0) or 0))
+    ratio = n / p
+    sev_n = min(1.0, (100 - n) / 70.0) if n < 100 else 0.0
+    sev_r = min(1.0, (10 - ratio) / 8.0) if ratio < 10 else 0.0
+    sev = max(0.0, sev_n, sev_r)
+    if sev <= 0.0:
+        return 0.0, ""
+    if entry.id in _HIGH_CAPACITY:
+        return -14.0 * sev, (
+            f"⚠ 小数据（n={n}，约 {ratio:.0f} 行/预测变量）：{entry.method} 容量高、易过拟合——"
+            "小数据首选正则线性/贝叶斯；若用树/集成，限深(max_depth≤3)并 bootstrap 验稳。"
+        )
+    if entry.id in _SMALL_DATA_FRIENDLY or entry.family in _FRIENDLY_FAMILIES:
+        return 8.0 * sev, ""
+    return 0.0, ""
+
+
 def _precond_bonus(signals: dict, pre) -> float:
     """Per-method tailoring bonus (0–30): reward a method whose specific precondition
     matches this data's special structure."""
@@ -194,13 +241,17 @@ def _precond_bonus(signals: dict, pre) -> float:
     return min(bonus, 30.0)
 
 
-def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict) -> int:
+def _affinity_fit(
+    fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict, signals: dict | None = None
+) -> int:
     """Real data-fit (0–100): how well this method suits THIS dataset = family
     structure/outcome affinity (affinity.match_score) + per-method precondition
-    tailoring. Replaces the old fit = rigor.score (which was just bias-count). An
-    infeasible (red) method can't be a good fit no matter its affinity, so it stays
-    capped at its (low) rigor score; feasible methods are ranked by affinity."""
-    signals = data_signals(fp)
+    tailoring + the small-data model-tier tilt. Replaces the old fit = rigor.score (which
+    was just bias-count). An infeasible (red) method can't be a good fit no matter its
+    affinity, so it stays capped at its (low) rigor score; feasible methods are ranked by
+    affinity. `signals` may be passed in to avoid recomputing data_signals per call."""
+    if signals is None:
+        signals = data_signals(fp)
     base = match_score(signals, get_affinity(entry.family))
     pm = entry.preconditions.model_dump()
     if any(pm.get(flag) and signals.get(sig) for flag, sig in _STRUCTURE_PRECOND.items()):
@@ -208,6 +259,7 @@ def _affinity_fit(fp: DataFingerprint, entry: AnalysisEntry, rigor: RigorVerdict
     if signals.get("has_rater_block") and entry.family in _RATER_FAMILIES:
         base = max(base, _RATER_FLOOR)
     raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
+    raw = max(0.0, min(100.0, raw + _small_data_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
@@ -262,13 +314,15 @@ def score_method(
     else:
         trend_note = "流行·新颖为离线编辑先验，趋势引擎接入后将动态更新"
 
-    fit = _affinity_fit(fp, entry, rigor)
+    signals = data_signals(fp)
+    fit = _affinity_fit(fp, entry, rigor, signals)
     # overall display blend — fit and publishability weighted most; difficulty is a
     # cost and deliberately excluded (shown separately).
     overall = round(0.35 * fit + 0.25 * pub + 0.15 * pop + 0.15 * nov + 0.10 * aes)
+    sd_note = _small_data_tilt(entry, signals)[1]  # overfit disclosure on small data
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
-        f"难度 {diff}（越高越难）。{trend_note}。"
+        f"难度 {diff}（越高越难）。{trend_note}。{(' ' + sd_note) if sd_note else ''}"
     )
     return MethodologyScore(
         popularity=pop, publishability=pub, aesthetics=aes, difficulty=diff,
