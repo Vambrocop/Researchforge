@@ -188,10 +188,10 @@ _HIGH_CAPACITY = {
     "gaussian_process_regression", "surrogate_model", "explainable_boosting",
     "svm_model",  # kernel SVM overfits small n without enough support-vector coverage
 }
-# Small-data-friendly: regularized / low-variance / bootstrap-validated → boosted.
+# Small-data-friendly: regularized / low-variance / constraint- or prior-regularized → boosted.
 _SMALL_DATA_FRIENDLY = {
     "regularized_regression", "naive_bayes", "robust_regression",
-    "ols_regression", "logistic_regression", "bootstrap_ci",
+    "ols_regression", "logistic_regression", "bootstrap_ci", "monotonic_constraints",
 }
 # Families whose members regularize via priors (small-data friendly by construction).
 _FRIENDLY_FAMILIES = {"bayesian"}

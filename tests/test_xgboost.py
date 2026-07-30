@@ -116,3 +116,23 @@ def test_xgb_no_config_behavior_unchanged(tmp_path):
     feats = set(pd.read_csv(Path(res.output_dir) / "feature_importances.csv")["feature"])
     assert "y" not in feats
     assert "treated" in feats
+
+
+def test_xgboost_small_data_caps(tmp_path):
+    import importlib.util
+    if importlib.util.find_spec("xgboost") is None:
+        import pytest
+        pytest.skip("xgboost not installed")
+    import numpy as np
+    import pandas as pd
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+    rng = np.random.default_rng(0)
+    n = 60
+    df = pd.DataFrame({**{f"x{i}": rng.normal(0, 1, n) for i in range(4)}, "y": (np.arange(n) % 2)})
+    csv = tmp_path / "small.csv"
+    df.to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), Catalog.load().by_id("xgboost"),
+                       output_root=str(tmp_path / "o"), config={"outcome": "y"})
+    assert "自动限树容量" in res.summary and "min_child_weight" in res.summary

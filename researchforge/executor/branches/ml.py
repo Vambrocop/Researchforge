@@ -692,10 +692,18 @@ def _branch_xgboost(ctx: Ctx) -> None:
                 split_kwargs["stratify"] = y
             X_train, X_test, y_train, y_test = train_test_split(X, y, **split_kwargs)
 
+            # Wave S "树要阉割": xgboost overfits small data readily — auto-cap depth (≤3)
+            # and floor min_child_weight (≥5) unless the user set them (xgboost default
+            # depth = 6).
+            from researchforge.executor.branches.ml_supervised import _small_data_tree_caps
+            _max_depth, _min_cw, cap_note = _small_data_tree_caps(
+                int(len(X)), cfg, default_depth=6, leaf_param="min_child_weight"
+            )
+            _xgb = dict(n_estimators=200, random_state=0, verbosity=0,
+                        max_depth=_max_depth, min_child_weight=_min_cw)
             model = (
-                XGBClassifier(n_estimators=200, random_state=0, verbosity=0)
-                if is_clf
-                else XGBRegressor(n_estimators=200, random_state=0, verbosity=0)
+                XGBClassifier(**_xgb) if is_clf
+                else XGBRegressor(**_xgb)
             )
 
             model.fit(X_train, y_train)
@@ -729,7 +737,8 @@ def _branch_xgboost(ctx: Ctx) -> None:
             task_label = "分类" if is_clf else "回归"
             summary.append(
                 f"{entry.method} 完成：{task_label}预测 {outcome}，"
-                f"测试集得分={score:.4f}（{score_label}）"
+                f"测试集得分={score:.4f}（{score_label}）。"
+                + (cap_note if cap_note else "")
             )
             if is_clf:  # Wave K-F3: 可疑地完美/泄漏事后诊断（一等 ⚠，narrate 红线）
                 for _w in suspicious_fit_warnings(

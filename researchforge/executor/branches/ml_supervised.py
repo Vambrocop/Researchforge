@@ -148,12 +148,14 @@ def _cv_folds(n_samples, is_clf, y, default=5):
     return max(2, min(default, n_samples // 2))
 
 
-def _small_data_tree_caps(n: int, cfg: dict, *, default_depth):
-    """(max_depth, min_samples_leaf, note): small-data capacity caps for a tree/ensemble
-    (Wave S "树要阉割"). On small n (<120) cap depth to ≤3 and floor min_samples_leaf to
-    ≥5 to curb overfitting — UNLESS the user set them explicitly. ``default_depth`` may be
-    None (unlimited, e.g. RandomForest). Outside the small-data regime returns the plain
-    params and an empty note. Shared by gradient_boosting (here) and random_forest (ml.py)."""
+def _small_data_tree_caps(n: int, cfg: dict, *, default_depth, leaf_param="min_samples_leaf"):
+    """(max_depth, leaf_value, note): small-data capacity caps for a tree/ensemble (Wave S
+    "树要阉割"). On small n (<120) cap depth to ≤3 and floor the leaf-size parameter to ≥5
+    to curb overfitting — UNLESS the user set them explicitly. ``default_depth`` may be None
+    (unlimited, e.g. RandomForest); ``leaf_param`` is the estimator's leaf-size argument
+    name (min_samples_leaf for sklearn trees, min_child_weight for xgboost) — used for the
+    override lookup and the disclosure text. Outside the small-data regime returns the plain
+    params and an empty note. Shared by gradient_boosting, random_forest and xgboost."""
     def _int_or(v, fb):
         try:
             return int(v)
@@ -161,9 +163,9 @@ def _small_data_tree_caps(n: int, cfg: dict, *, default_depth):
             return fb
 
     user_depth = cfg.get("max_depth") is not None
-    user_leaf = cfg.get("min_samples_leaf") is not None
+    user_leaf = cfg.get(leaf_param) is not None
     depth = _int_or(cfg.get("max_depth"), default_depth) if user_depth else default_depth
-    leaf = _int_or(cfg.get("min_samples_leaf"), 1) if user_leaf else 1
+    leaf = _int_or(cfg.get(leaf_param), 1) if user_leaf else 1
     if n >= 120:
         return depth, leaf, ""
     cdepth = depth if user_depth else (3 if depth is None else min(depth, 3))
@@ -171,7 +173,7 @@ def _small_data_tree_caps(n: int, cfg: dict, *, default_depth):
     note = ""
     if (cdepth, cleaf) != (depth, leaf):
         note = (f"⚠ 小数据(n={n})自动限树容量抑过拟合：max_depth={cdepth}、"
-                f"min_samples_leaf={cleaf}（可 config 覆盖）。")
+                f"{leaf_param}={cleaf}（可 config 覆盖）。")
     return cdepth, cleaf, note
 
 
@@ -764,6 +766,161 @@ def _branch_naive_bayes(ctx: Ctx) -> None:
             f"X = df[{list(names)!r}].apply(pd.to_numeric, errors='coerce'); y = df['{outcome}']",
             f"cv = StratifiedKFold({k}, shuffle=True, random_state={_SEED})",
             "print(cross_val_score(GaussianNB(), X, y, cv=cv, scoring='accuracy').mean())",
+        ]
+    except Exception as err:  # pragma: no cover - safety net
+        summary.append(f"{method}失败：{type(err).__name__}: {err}")
+
+
+@register("monotonic_constraints")
+def _branch_monotonic_constraints(ctx: Ctx) -> None:
+    df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
+    files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
+
+    # Monotonic-constraint model (Wave S L3): encode a domain PRIOR — "feature X can only
+    # push the outcome up (or down)" — directly into a HistGradientBoosting fit. Fewer
+    # effective degrees of freedom → regularizes → good on small data when the direction is
+    # known. Directions from config increasing/decreasing, else inferred from the sign of
+    # each feature's correlation with the outcome (disclosed as data-inferred, NOT a prior).
+    method = "单调约束模型"
+    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=25)
+    if prob:
+        summary.append(prob)
+        return
+
+    try:
+        import numpy as np
+        import pandas as pd
+        from sklearn.ensemble import (
+            HistGradientBoostingClassifier, HistGradientBoostingRegressor,
+        )
+        from sklearn.inspection import partial_dependence
+        from sklearn.model_selection import (
+            KFold, StratifiedKFold, cross_val_score,
+        )
+
+        X, y, names = _clean_xy(df, outcome, preds, is_clf)
+        names = list(names)  # _clean_xy returns an ndarray; we need list.index() below
+        n = int(X.shape[0])
+        if n < 25:
+            summary.append(f"{method}跳过：有效样本 {n}<25。")
+            return
+        yv = pd.Series(y)
+        if is_clf and int(yv.nunique()) > 2:
+            summary.append(
+                f"{method}跳过：单调约束仅支持二值分类或连续回归（{outcome} 有 {int(yv.nunique())} 类）——"
+                "请二值化，或改用连续结果。"
+            )
+            return
+
+        # per-feature monotonic constraint: +1 increasing, -1 decreasing, 0 free.
+        inc = {str(c) for c in (cfg.get("increasing") or [])}
+        dec = {str(c) for c in (cfg.get("decreasing") or [])}
+        user_specified = bool(inc or dec)
+        y_num = pd.to_numeric(yv, errors="coerce").to_numpy(dtype=float)
+        Xarr = np.asarray(X, dtype=float)
+        cst, rows = [], []
+        for j, f in enumerate(names):
+            if f in inc:
+                c, src = 1, "config"
+            elif f in dec:
+                c, src = -1, "config"
+            elif user_specified:
+                c, src = 0, "config（未指定→无约束）"
+            else:
+                col = Xarr[:, j]
+                r = float(np.corrcoef(col, y_num)[0, 1]) if np.std(col) > 0 else 0.0
+                c = 1 if r > 0.05 else (-1 if r < -0.05 else 0)
+                src = f"数据推断（r={r:.2f}）"
+            cst.append(c)
+            rows.append({"feature": f, "constraint": {1: "increasing", -1: "decreasing", 0: "free"}[c],
+                         "source": src})
+
+        Est = HistGradientBoostingClassifier if is_clf else HistGradientBoostingRegressor
+        model = Est(monotonic_cst=cst, random_state=_SEED)
+
+        k = _cv_folds(n, is_clf, y, default=5)
+        if k is None:
+            summary.append(f"{method}跳过：某一类样本数<2，无法交叉验证。")
+            return
+        cv = (StratifiedKFold(n_splits=k, shuffle=True, random_state=_SEED) if is_clf
+              else KFold(n_splits=k, shuffle=True, random_state=_SEED))
+        scoring = "accuracy" if is_clf else "r2"
+        cv_scores = cross_val_score(model, X, y, cv=cv, scoring=scoring)
+        cv_score = float(np.mean(cv_scores))
+
+        model.fit(X, y)
+
+        # verify the fitted partial-dependence is actually monotone in the asked direction
+        for row, c in zip(rows, cst):
+            if c == 0:
+                row["pdp_monotone_ok"] = ""
+                continue
+            j = names.index(row["feature"])
+            try:
+                pdp = partial_dependence(model, X, [j], kind="average")["average"][0]
+                diffs = np.diff(np.asarray(pdp, dtype=float))
+                ok = bool(np.all(diffs >= -1e-9)) if c == 1 else bool(np.all(diffs <= 1e-9))
+            except Exception:
+                ok = None
+            row["pdp_monotone_ok"] = "" if ok is None else bool(ok)
+        cst_df = pd.DataFrame(rows)
+        cst_df.to_csv(d / "monotonic_constraints.csv", index=False, encoding="utf-8")
+        files.append("monotonic_constraints.csv")
+
+        # PNG: monotone partial-dependence curves for the constrained features
+        constrained = [r["feature"] for r, c in zip(rows, cst) if c != 0][:6]
+        try:
+            if constrained:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
+
+                ncol = min(2, len(constrained))
+                nrow = int(np.ceil(len(constrained) / ncol))
+                fig, axes = plt.subplots(nrow, ncol, figsize=(4.5 * ncol, 3.0 * nrow))
+                axes = np.atleast_1d(axes).ravel()
+                for ax_i, f in enumerate(constrained):
+                    j = names.index(f)
+                    res = partial_dependence(model, X, [j], kind="average")
+                    grid = np.asarray(res["grid_values"][0], dtype=float)
+                    vals = np.asarray(res["average"][0], dtype=float)
+                    axes[ax_i].plot(grid, vals, color="#4C72B0")
+                    axes[ax_i].set_title(f"{f} ({cst_df.loc[cst_df.feature == f, 'constraint'].iloc[0]})", fontsize=9)
+                    axes[ax_i].set_xlabel(f)
+                    axes[ax_i].set_ylabel("partial dependence")
+                for jx in range(len(constrained), len(axes)):
+                    axes[jx].axis("off")
+                fig.suptitle(f"Monotonic partial dependence — {outcome}", fontsize=11)
+                fig.tight_layout(rect=(0, 0, 1, 0.96))
+                fig.savefig(d / "monotonic_partial_dependence.png", dpi=150)
+                plt.close(fig)
+                files.append("monotonic_partial_dependence.png")
+        except Exception:
+            pass
+
+        n_inc = sum(1 for c in cst if c == 1)
+        n_dec = sum(1 for c in cst if c == -1)
+        estimates["n"] = float(n)
+        estimates["cv_score"] = round(cv_score, 4)
+        estimates["n_increasing"] = float(n_inc)
+        estimates["n_decreasing"] = float(n_dec)
+
+        score_name = "准确率" if is_clf else "R²"
+        src_txt = ("方向来自 config increasing/decreasing" if user_specified
+                   else "⚠ 方向由**数据相关**符号自动推断（非领域先验）——若你有明确领域方向，请用 config increasing/decreasing 指定")
+        summary.append(
+            f"{entry.method} 完成（HistGradientBoosting + 单调约束，"
+            f"{'二值分类' if is_clf else '回归'}，结果={outcome}，{len(names)} 特征 × {n} 行；"
+            f"{n_inc} 个递增约束、{n_dec} 个递减约束）：{k}-折交叉验证{score_name}={cv_score:.3f}。"
+            f"{src_txt}（详见 monotonic_constraints.csv，含各约束的 PDP 单调性核验）。"
+            f"⚠ 单调约束是把「方向先验」编进模型——**若真实关系并非单调**（如 U 型），约束会引入偏差；"
+            f"约束降低有效自由度、正因此在方向已知时对小数据更稳。可用 config outcome/predictors/increasing/decreasing 覆盖。"
+        )
+        code += [
+            "from sklearn.ensemble import HistGradientBoostingRegressor",
+            f"# monotonic_cst: +1 递增 / -1 递减 / 0 无约束，按特征顺序 {names!r}",
+            f"model = HistGradientBoostingRegressor(monotonic_cst={cst!r}, random_state={_SEED})",
+            f"model.fit(df[{list(names)!r}], df['{outcome}'])",
         ]
     except Exception as err:  # pragma: no cover - safety net
         summary.append(f"{method}失败：{type(err).__name__}: {err}")
