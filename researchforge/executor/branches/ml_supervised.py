@@ -148,6 +148,33 @@ def _cv_folds(n_samples, is_clf, y, default=5):
     return max(2, min(default, n_samples // 2))
 
 
+def _small_data_tree_caps(n: int, cfg: dict, *, default_depth):
+    """(max_depth, min_samples_leaf, note): small-data capacity caps for a tree/ensemble
+    (Wave S "树要阉割"). On small n (<120) cap depth to ≤3 and floor min_samples_leaf to
+    ≥5 to curb overfitting — UNLESS the user set them explicitly. ``default_depth`` may be
+    None (unlimited, e.g. RandomForest). Outside the small-data regime returns the plain
+    params and an empty note. Shared by gradient_boosting (here) and random_forest (ml.py)."""
+    def _int_or(v, fb):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return fb
+
+    user_depth = cfg.get("max_depth") is not None
+    user_leaf = cfg.get("min_samples_leaf") is not None
+    depth = _int_or(cfg.get("max_depth"), default_depth) if user_depth else default_depth
+    leaf = _int_or(cfg.get("min_samples_leaf"), 1) if user_leaf else 1
+    if n >= 120:
+        return depth, leaf, ""
+    cdepth = depth if user_depth else (3 if depth is None else min(depth, 3))
+    cleaf = leaf if user_leaf else max(leaf, 5)
+    note = ""
+    if (cdepth, cleaf) != (depth, leaf):
+        note = (f"⚠ 小数据(n={n})自动限树容量抑过拟合：max_depth={cdepth}、"
+                f"min_samples_leaf={cleaf}（可 config 覆盖）。")
+    return cdepth, cleaf, note
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # (A) regularized_regression — penalized linear regression (continuous outcome).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -493,10 +520,6 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
         learning_rate = float(cfg.get("learning_rate", 0.1))
     except (TypeError, ValueError):
         learning_rate = 0.1
-    try:
-        max_depth = max(1, int(cfg.get("max_depth", 3)))
-    except (TypeError, ValueError):
-        max_depth = 3
 
     try:
         import numpy as np
@@ -518,8 +541,10 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
             summary.append(f"{method}跳过：{'某一类样本数<2，分类' if is_clf else '样本太少，'}无法做交叉验证。")
             return
 
+        max_depth, min_samples_leaf, cap_note = _small_data_tree_caps(n, cfg, default_depth=3)
         common = dict(n_estimators=n_estimators, learning_rate=learning_rate,
-                      max_depth=max_depth, random_state=_SEED)
+                      max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                      random_state=_SEED)
         model = (GradientBoostingClassifier(**common) if is_clf
                  else GradientBoostingRegressor(**common))
 
@@ -605,8 +630,9 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
             f"{entry.method} 完成（GradientBoosting，{n_estimators} 树，lr={learning_rate:g}，depth={max_depth}，"
             f"{k}-折交叉验证，seed={_SEED}）：{task_txt}；交叉验证 {perf_txt}（{_perf_tag}）；"
             f"置换重要性最高的预测变量={top_name}（{top_importance:.4f}）；n={n}。"
+            + (cap_note if cap_note else "") +
             "⚠ 用**置换重要性**（非杂质重要性，后者偏向高基数特征）；" + _honest_note +
-            "GBM 在小样本上易过拟合（已披露 n）；除非 config 指定否则用默认（n_estimators/learning_rate/max_depth）；可用 config 设 outcome/predictors。"
+            "GBM 在小样本上易过拟合（已披露 n）；除非 config 指定否则用默认（n_estimators/learning_rate/max_depth/min_samples_leaf）；可用 config 设 outcome/predictors。"
         )
         for _w in _warn:
             summary.append(_w)

@@ -114,3 +114,33 @@ def test_degrade_no_predictor(tmp_path: Path) -> None:
     res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
     assert "跳过" in res.summary
     assert "cv_r2" not in res.estimates
+
+
+def test_small_data_tree_caps_helper():
+    # Wave S "树要阉割": on small n, cap depth ≤3 + floor min_samples_leaf ≥5 unless the
+    # user set them. RF passes default_depth=None (unlimited); GBM passes 3.
+    from researchforge.executor.branches.ml_supervised import _small_data_tree_caps
+
+    depth, leaf, note = _small_data_tree_caps(50, {}, default_depth=None)
+    assert depth == 3 and leaf == 5 and "自动限树容量" in note        # RF unlimited -> 3
+    depth, leaf, note = _small_data_tree_caps(50, {}, default_depth=3)
+    assert depth == 3 and leaf == 5 and note                          # GBM
+    assert _small_data_tree_caps(300, {}, default_depth=None) == (None, 1, "")  # ample data
+    # explicit user settings are honored (no cap, no note)
+    assert _small_data_tree_caps(40, {"max_depth": 10, "min_samples_leaf": 2},
+                                 default_depth=None) == (10, 2, "")
+
+
+def test_gbm_discloses_small_data_caps(tmp_path):
+    rng = np.random.default_rng(0)
+    n = 60
+    df = pd.DataFrame({**{f"x{i}": rng.normal(0, 1, n) for i in range(4)},
+                       "y": (np.arange(n) % 2)})
+    csv = tmp_path / "small.csv"
+    df.to_csv(csv, index=False)
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+    res = run_analysis(profile_dataset(csv), Catalog.load().by_id("gradient_boosting"),
+                       output_root=str(tmp_path / "o"), config={"outcome": "y"})
+    assert "自动限树容量" in res.summary                              # 阉割 disclosed on small n
