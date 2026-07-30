@@ -222,6 +222,27 @@ def _small_data_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     return 0.0, ""
 
 
+def small_data_advisory(fp: DataFingerprint) -> str:
+    """A once-per-dataset 由简到繁 (start-simple) guidance card when the data is small
+    (Wave S). Empty string on ample data. Surfaced by the CLI recommend/pick output so the
+    small-data model-tier philosophy is VISIBLE, not just baked into the ranking."""
+    signals = data_signals(fp)
+    n = int(signals.get("n_rows", 0) or 0)
+    if n <= 0:
+        return ""
+    p = max(1, int(signals.get("n_numeric", 0) or 0))
+    ratio = n / p
+    if n >= 100 and ratio >= 10:
+        return ""
+    return (
+        f"📐 小数据（n={n}，约 {ratio:.0f} 行/预测变量）——建议由简到繁选模：\n"
+        "   ① 线性/逻辑回归（配强正则）→ ② 朴素贝叶斯 → ③ SVM → ④ 受限/单调约束树 "
+        "→ ⑤ 贝叶斯方法（注入先验、量化不确定性）。\n"
+        "   引擎已把数据饥渴的集成（RF/GBM/xgboost）在小数据上相应降权；"
+        "若坚持用会自动限深，并请用 bootstrap 验稳。"
+    )
+
+
 def _precond_bonus(signals: dict, pre) -> float:
     """Per-method tailoring bonus (0–30): reward a method whose specific precondition
     matches this data's special structure."""

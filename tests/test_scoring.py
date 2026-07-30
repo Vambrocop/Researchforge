@@ -113,3 +113,21 @@ def test_small_data_tilt_demotes_high_capacity(tmp_path: Path) -> None:
     sig_large = data_signals(profile_dataset(tmp_path / "l.csv"))
     assert _small_data_tilt(gbm, sig_large) == (0.0, "")   # no tilt on ample data
     assert _small_data_tilt(reg, sig_large)[0] == 0.0
+
+
+def test_small_data_advisory_card(tmp_path: Path) -> None:
+    # Wave S③: a once-per-dataset 由简到繁 guidance card on small data, empty on ample data.
+    import numpy as np
+
+    from researchforge.recommender.scoring import small_data_advisory
+
+    small = pd.DataFrame({**{f"x{i}": np.random.default_rng(0).normal(0, 1, 50) for i in range(5)},
+                          "y": np.random.default_rng(1).normal(0, 1, 50)})
+    small.to_csv(tmp_path / "s.csv", index=False)
+    card = small_data_advisory(profile_dataset(tmp_path / "s.csv"))
+    assert "由简到繁" in card and "朴素贝叶斯" in card
+
+    large = pd.DataFrame({**{f"x{i}": np.random.default_rng(2).normal(0, 1, 1500) for i in range(5)},
+                          "y": np.random.default_rng(3).normal(0, 1, 1500)})
+    large.to_csv(tmp_path / "l.csv", index=False)
+    assert small_data_advisory(profile_dataset(tmp_path / "l.csv")) == ""

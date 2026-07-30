@@ -57,6 +57,10 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     nudge = _quality_nudge(fp)
     if nudge:
         print(nudge)
+    from researchforge.recommender.scoring import small_data_advisory
+    advisory = small_data_advisory(fp)
+    if advisory:
+        print(advisory)
     if fp.likely_outcome:
         hint = f"💡 可能的结果变量：{fp.likely_outcome}（{fp.role_hint_reason}）"
         if fp.likely_treatment:
