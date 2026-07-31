@@ -1,0 +1,41 @@
+# Bayesian Model Averaging (Wave N — pure Python; numpy, BIC-approximation BMA).
+# NOTE: biases/produces MUST be YAML lists (- lines); only description uses >-.
+
+- id: bayesian_model_averaging
+  method: Bayesian model averaging (BMA)
+  domain: statistics
+  family: bayesian
+  goal: explain
+  description: >-
+    Instead of SELECTING one regression model, average over the whole space of predictor
+    subsets weighted by each model's posterior probability — the honest answer to
+    variable-selection uncertainty. Over a continuous outcome, enumerates all 2^p predictor
+    subsets (p <= 12; truncated + disclosed beyond), fits each by OLS, approximates each
+    model's evidence from its BIC (Raftery 1995), and reports each predictor's Posterior
+    Inclusion Probability (PIP = summed posterior weight of the models that include it), the
+    model-averaged coefficient with its BMA posterior SD (within- + between-model variance),
+    and the top models by posterior weight. PIP near 1 means strong evidence the variable
+    belongs; near 0 means it does not. This is especially apt on small data, where model
+    uncertainty is high and picking a single model overstates confidence.
+  preconditions:
+    min_rows: 15
+    min_numeric_cols: 3
+  produces:
+    - per-predictor posterior inclusion probability (PIP) + model-averaged coefficient and SD (CSV)
+    - top models by posterior weight with R-squared and BIC (CSV)
+    - PIP bar chart (PNG)
+  executor_ref: py::bayesian_model_averaging
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 第一个连续列（或高置信检测到的结果）
+    - name: predictors
+      type: columns
+      description: 候选预测变量（BMA 在其子集空间上平均）
+      default: 其余数值列（超过 12 个则截断，可用本键控制）
+  biases:
+    - BMA quantifies VARIABLE-SELECTION uncertainty (averaging over models rather than committing to one) — a PIP is the posterior probability the variable belongs in the model, NOT a causal effect
+    - the model evidence uses the BIC approximation to the marginal likelihood (an implicit unit-information prior, equal model priors) — at small n this is approximate
+    - results depend on the SET of candidate predictors considered and the model prior; the model space is enumerated for p<=12 (predictors beyond that are truncated and disclosed)
+    - continuous outcome only (OLS-based model space); a binary/categorical outcome is declined honestly
