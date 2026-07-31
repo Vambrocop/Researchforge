@@ -62,7 +62,9 @@ def _bma_linear(y, X, np):
                   if cols else np.ones((n, 1)))
             beta, rss, se = _fit_ols(Xs, y, np)
             kparams = Xs.shape[1]
-            bic = n * np.log(rss / n) + kparams * np.log(n) if rss > 0 else -np.inf
+            # clamp rss so a (near-)perfect fit yields a very low BIC (very high weight)
+            # rather than -inf, which would poison the exp-normalized weights with NaN.
+            bic = n * np.log(max(rss, 1e-300) / n) + kparams * np.log(n)
             models.append((subset, kparams, rss, bic, beta, se))
 
     bics = np.array([m[3] for m in models], dtype=float)
@@ -106,19 +108,20 @@ def _branch_bayesian_model_averaging(ctx: Ctx) -> None:
         )
         return
     outcome = resolve_outcome(fp, cfg, cont)
-    predictors = resolve_predictors(
-        fp, cfg, outcome, kinds=("continuous", "count", "binary"), cap=_MAX_PREDICTORS, df=df
+    # resolve WITHOUT the cap so we can SEE how many were eligible and disclose the
+    # truncation honestly — resolve_predictors caps silently, which would hide it.
+    eligible = resolve_predictors(
+        fp, cfg, outcome, kinds=("continuous", "count", "binary"), cap=10**6, df=df
     )
-    if len(predictors) < 2:
+    if len(eligible) < 2:
         summary.append(
-            f"贝叶斯模型平均跳过：需要 ≥2 个预测变量（现有 {len(predictors)}）——BMA 对单变量无意义。"
+            f"贝叶斯模型平均跳过：需要 ≥2 个预测变量（现有 {len(eligible)}）——BMA 对单变量无意义。"
         )
         return
 
-    truncated = False
-    if len(predictors) > _MAX_PREDICTORS:
-        predictors = predictors[:_MAX_PREDICTORS]
-        truncated = True
+    over_cap = len(eligible) > _MAX_PREDICTORS      # too many candidates for 2^p enumeration
+    predictors = eligible[:_MAX_PREDICTORS]
+    shrunk_for_n = False
 
     try:
         cols = [outcome, *predictors]
@@ -129,7 +132,7 @@ def _branch_bayesian_model_averaging(ctx: Ctx) -> None:
             keep = max(2, n - 3)
             if keep < len(predictors):
                 predictors = predictors[:keep]
-                truncated = True
+                shrunk_for_n = True
                 data = df[[outcome, *predictors]].apply(pd.to_numeric, errors="coerce").dropna()
                 n = int(len(data))
         if len(predictors) < 2 or n < 15:
@@ -208,10 +211,20 @@ def _branch_bayesian_model_averaging(ctx: Ctx) -> None:
         for j, name in enumerate(predictors):
             estimates[f"pip_{name}"] = round(float(pip[j]), 6)
 
-        strong = [predictors[i] for i in order if pip[i] >= 0.5]
         weak = [predictors[i] for i in order if pip[i] < 0.5]
         strong_txt = "、".join(f"{predictors[i]}(PIP={pip[i]:.2f})" for i in order if pip[i] >= 0.5) or "（无变量 PIP≥0.5）"
-        trunc_txt = f"⚠ 预测变量超上限、已截断至前 {len(predictors)} 个（config predictors 可控）；" if truncated else ""
+        # disclose truncation honestly, distinguishing the two causes (>12 enumeration cap vs
+        # small-n dof shrink); dropped candidates are named so nothing is silently absent.
+        dropped = [c for c in eligible if c not in predictors]
+        trunc_parts = []
+        if over_cap:
+            trunc_parts.append(f"候选预测变量 {len(eligible)} 个超枚举上限、取前 {_MAX_PREDICTORS} 个")
+        if shrunk_for_n:
+            trunc_parts.append(f"样本量偏小、进一步缩至前 {len(predictors)} 个(保 OLS 自由度)")
+        trunc_txt = (
+            f"⚠ {'；'.join(trunc_parts)}（未纳入：{', '.join(dropped[:8])}{'…' if len(dropped) > 8 else ''}；"
+            f"config predictors 可控）；" if trunc_parts else ""
+        )
         summary.append(
             f"{entry.method} 完成（线性回归模型空间 BMA，BIC 近似，结果={outcome}，"
             f"{len(predictors)} 个预测变量 → {n_models} 个模型，n={n}）：{trunc_txt}"
@@ -219,7 +232,8 @@ def _branch_bayesian_model_averaging(ctx: Ctx) -> None:
             f"（{len(weak)} 个 PIP<0.5，证据弱）；最优模型后验权重={top_w:.2f}"
             f"（详见 bma_pip.csv 的模型平均系数±SD、bma_top_models.csv 的 top 模型）。"
             f"⚠ BMA 处理的是**变量选择的不确定性**（不预先选定一个模型，而按证据权重平均）——"
-            f"PIP 是「该变量属于真模型」的后验概率、**非因果**；用 BIC 近似边际似然（隐含单位信息先验、"
+            f"PIP 是「该变量属于真模型」的后验概率、**非因果**；模型平均系数是**无条件**均值"
+            f"（被 1−PIP 向 0 收缩；条件于纳入的系数≈ma_coef/PIP）；用 BIC 近似边际似然（隐含单位信息先验、"
             f"等模型先验），小样本下为近似；结果依赖所考虑的预测变量集与模型先验。"
             f"可用 config outcome/predictors 覆盖。"
         )

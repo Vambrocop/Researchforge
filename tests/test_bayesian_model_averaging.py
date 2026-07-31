@@ -78,3 +78,20 @@ def test_degrades_too_few_predictors(tmp_path):
     df.to_csv(csv, index=False)
     res = _run(csv, tmp_path, config={"outcome": "y"})
     assert "跳过" in res.summary and "n_models" not in res.estimates
+
+
+def test_truncation_beyond_12_predictors_disclosed(tmp_path):
+    # inference-reviewer SHOULD-FIX: with >12 candidate predictors the model space is capped
+    # at 2^12; the truncation (and which predictors were dropped) must be DISCLOSED, not silent.
+    rng = np.random.default_rng(4)
+    n = 200
+    X = {f"x{i}": rng.normal(0, 1, n) for i in range(15)}
+    y = 2.0 * X["x0"] - 1.5 * X["x1"] + rng.normal(0, 1, n)
+    df = pd.DataFrame({"y": y, **X})
+    csv = tmp_path / "wide.csv"
+    df.to_csv(csv, index=False)
+    res = _run(csv, tmp_path, config={"outcome": "y"})
+    assert res.estimates["n_predictors"] == 12.0
+    assert res.estimates["n_models"] == 4096.0          # 2^12 (enumeration capped)
+    assert "超枚举上限" in res.summary and "未纳入" in res.summary   # disclosed + names dropped
+    assert res.estimates["pip_x0"] > 0.9                # signal in the kept set still recovered
