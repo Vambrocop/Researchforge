@@ -95,21 +95,24 @@ def test_count_outcome_excludes_ordinal_likert(tmp_path: Path) -> None:
     assert s["has_count_outcome"] is False
 
 
-def test_rater_block_requires_rater_naming(tmp_path: Path) -> None:
-    # Wave M0 (anes96 real-data false positive): ≥3 ordinal (1-k) columns are a RATER BLOCK
-    # only when they look like PARALLEL ratings of one construct. A wide survey of DIFFERENT
-    # 1-7 questions (selfLR / ClinLR / DoleLR / educ) shares no rater naming → NOT a rater
-    # block (Fleiss κ between "TV-news days" and "education" is nonsense); rater1/rater2/… IS.
+def test_rater_block_vs_scale_items_vs_survey(tmp_path: Path) -> None:
+    # Wave M0 + rater/scale split: a ≥3 parallel-ordinal block is gated on naming, then
+    # SPLIT — PEOPLE raters (rater1/judge…) → has_rater_block (agreement κ/ICC); SCALE ITEMS
+    # (item1/q1…) → has_scale_items (psychometrics α/ω/EFA, NOT κ); a wide survey of DISTINCT
+    # 1-7 questions (selfLR/ClinLR/DoleLR/educ) is NEITHER (an ordinal outcome).
     rng = np.random.default_rng(41)
     survey = pd.DataFrame({name: rng.integers(1, 8, 200)
                            for name in ("selfLR", "ClinLR", "DoleLR", "educ")})
-    assert _signals(survey, tmp_path)["has_rater_block"] is False
+    s_survey = _signals(survey, tmp_path)
+    assert s_survey["has_rater_block"] is False and s_survey["has_scale_items"] is False
 
     raters = pd.DataFrame({f"rater{r}": rng.integers(1, 6, 200) for r in range(4)})
-    assert _signals(raters, tmp_path)["has_rater_block"] is True
+    s_raters = _signals(raters, tmp_path)
+    assert s_raters["has_rater_block"] is True and s_raters["has_scale_items"] is False
 
     items = pd.DataFrame({f"item{i}": rng.integers(1, 6, 200) for i in range(1, 5)})
-    assert _signals(items, tmp_path)["has_rater_block"] is True
+    s_items = _signals(items, tmp_path)
+    assert s_items["has_scale_items"] is True and s_items["has_rater_block"] is False
 
 
 def test_count_outcome_keeps_genuine_unbounded_count(tmp_path: Path) -> None:

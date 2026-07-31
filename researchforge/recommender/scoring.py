@@ -166,12 +166,12 @@ _STRUCTURE_PRECOND = {
 }
 _STRUCTURE_FLOOR = 72.0
 
-# A rater block (≥3 parallel rating columns) is a data STRUCTURE owned by the inter-rater
-# agreement (κ) and internal-consistency reliability (ICC / Cronbach / ω) families — just as
-# an edge list is owned by network methods. These families' members read those columns as
-# raters/items, so they're floored above the generic multi-numeric methods (correlation, IRT,
-# ML) that the ratings would otherwise attract. Only fires on a genuine rater block.
-_RATER_FAMILIES = {"agreement", "psychometrics"}
+# A ≥3-parallel-ordinal-column block is a data STRUCTURE owned by the reliability families —
+# just as an edge list is owned by network methods — so their members are floored above the
+# generic multi-numeric methods the ratings would otherwise attract. The block SPLITS (see
+# affinity.data_signals): PEOPLE raters (has_rater_block) → agreement (κ/ICC) AND
+# psychometrics; SCALE ITEMS (has_scale_items) → psychometrics only (α/ω/EFA), NOT κ. Applied
+# in _affinity_fit.
 _RATER_FLOOR = 85.0
 
 
@@ -277,7 +277,13 @@ def _affinity_fit(
     pm = entry.preconditions.model_dump()
     if any(pm.get(flag) and signals.get(sig) for flag, sig in _STRUCTURE_PRECOND.items()):
         base = max(base, _STRUCTURE_FLOOR)
-    if signals.get("has_rater_block") and entry.family in _RATER_FAMILIES:
+    # People raters → agreement (κ/ICC) AND psychometrics (α as inter-rater consistency);
+    # scale items → psychometrics only (α/ω/EFA), NOT agreement (there is no rater to agree).
+    if entry.family == "agreement" and signals.get("has_rater_block"):
+        base = max(base, _RATER_FLOOR)
+    if entry.family == "psychometrics" and (
+        signals.get("has_rater_block") or signals.get("has_scale_items")
+    ):
         base = max(base, _RATER_FLOOR)
     raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
     raw = max(0.0, min(100.0, raw + _small_data_tilt(entry, signals)[0]))

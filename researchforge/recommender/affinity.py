@@ -26,23 +26,27 @@ from dataclasses import dataclass, field
 from researchforge.profiler.fingerprint import DataFingerprint
 from researchforge.profiler.semantics import is_treatment_named
 
-# Words that mark a column as one of several PARALLEL raters/scale items (a genuine
-# rater/reliability block), used to gate has_rater_block below.
-_RATER_WORDS = (
+# A ≥3-parallel-ordinal-column block splits by WHO/WHAT the columns are:
+#  * PEOPLE raters (rater1/judge_a/coder…) rate the SAME objects → inter-rater AGREEMENT
+#    (Cohen/Fleiss κ, ICC).
+#  * SCALE ITEMS (item1/q1…, a shared stem) measure ONE construct across respondents →
+#    PSYCHOMETRICS (Cronbach α, McDonald ω, EFA, IRT) — NOT inter-rater κ (there is no rater).
+_PEOPLE_RATER_WORDS = (
     "rater", "judge", "coder", "observer", "reviewer", "annotator", "scorer",
-    "assessor", "item", "rating", "grader", "referee",
+    "assessor", "grader", "referee",
 )
+_SCALE_ITEM_WORDS = ("item", "question", "scale", "rating")
 
 
 def _rater_naming_signal(names: list[str]) -> bool:
-    """True if ≥3 of these ordinal columns look like PARALLEL ratings of ONE construct —
-    the signal that separates a real rater/reliability block (rater1/rater2/rater3,
-    item_1/item_2…, judge_a/judge_b/judge_c) from a wide survey of DIFFERENT ordinal
-    questions (selfLR / ClinLR / DoleLR / educ — all 1-7 but distinct constructs, where
-    inter-rater κ is nonsense). Two accepted signals: a rater/item WORD in ≥3 names, or a
-    shared STEM after stripping a trailing index in ≥3 names."""
+    """True if ≥3 of these ordinal columns form a PARALLEL block (raters of one object, or
+    items of one construct) — separating a block from a wide survey of DISTINCT ordinal
+    questions (selfLR / ClinLR / DoleLR / educ, where inter-rater κ is nonsense). Two
+    accepted signals: a rater/item WORD in ≥3 names, or a shared STEM after stripping a
+    trailing index in ≥3 names. Whether the block is people-raters or scale-items is then
+    decided by ``_is_people_rater_block``."""
     low = [n.lower() for n in names]
-    if sum(any(w in n for w in _RATER_WORDS) for n in low) >= 3:
+    if sum(any(w in n for w in _PEOPLE_RATER_WORDS + _SCALE_ITEM_WORDS) for n in low) >= 3:
         return True
     stems: dict[str, int] = {}
     for n in low:
@@ -50,6 +54,14 @@ def _rater_naming_signal(names: list[str]) -> bool:
         if stem and stem != n:  # only names that actually carried a trailing index
             stems[stem] = stems.get(stem, 0) + 1
     return any(v >= 3 for v in stems.values())
+
+
+def _is_people_rater_block(names: list[str]) -> bool:
+    """Within a parallel block, True when ≥3 columns are named for PEOPLE who RATE
+    (rater/judge/coder…) → inter-rater agreement. Otherwise the block is SCALE ITEMS of one
+    construct (item/q…, a shared stem) → internal-consistency / dimensionality."""
+    low = [n.lower() for n in names]
+    return sum(any(w in n for w in _PEOPLE_RATER_WORDS) for n in low) >= 3
 
 # outcome-kind vocabulary a family may target
 _OUTCOMES = {"continuous", "count", "binary", "categorical", "survival", "multi_numeric", "none"}
@@ -218,13 +230,18 @@ def data_signals(fp: DataFingerprint) -> dict:
     # exclusive so ordinal-regression and agreement methods never both float up on the same data.
     n_ordinal = sum(1 for c in cols if getattr(c, "ordinal_like", False))
     ordinal_names = [c.name for c in cols if getattr(c, "ordinal_like", False)]
-    # A rater block is ≥3 PARALLEL ratings of ONE construct. Structural count alone is a
-    # false positive on a wide survey of DIFFERENT ordinal questions (anes96: selfLR /
-    # ClinLR / DoleLR / educ profile as `count`/ordinal_like but are distinct constructs —
-    # Fleiss κ / ICC between "TV-news days" and "education" is nonsense). Gate on a
-    # rater-naming signal so κ / ICC / Cronbach only float up on a genuine rater/scale block.
-    has_rater_block = n_ordinal >= 3 and _rater_naming_signal(ordinal_names)
-    has_ordinal_outcome = n_ordinal >= 1 and not has_rater_block
+    # A ≥3-parallel-ordinal-column block is gated on a rater/item-naming signal (structural
+    # count alone is a false positive on a wide survey of DIFFERENT ordinal questions —
+    # anes96 selfLR/ClinLR/DoleLR/educ, where inter-rater κ is nonsense). The block then
+    # SPLITS by who/what the columns are: PEOPLE raters (rater1/judge…) → inter-rater
+    # AGREEMENT (κ/ICC); SCALE ITEMS (item1/q1…, shared stem) → PSYCHOMETRICS (α/ω/EFA), NOT
+    # κ (there's no rater). 1–2 ordinal columns are an ordinal OUTCOME. The three are
+    # mutually exclusive so they never all float up on the same data.
+    _is_block = n_ordinal >= 3 and _rater_naming_signal(ordinal_names)
+    _people_raters = _is_block and _is_people_rater_block(ordinal_names)
+    has_rater_block = _people_raters                 # → agreement (κ/ICC) + psychometrics
+    has_scale_items = _is_block and not _people_raters  # → psychometrics only (no rater κ)
+    has_ordinal_outcome = n_ordinal >= 1 and not _is_block
     # a REAL count column: count-kind AND NOT a bounded ordinal/Likert rating (see
     # types.is_ordinal_like). Poisson/NB/PERMANOVA/indicator-species etc. model an
     # unbounded count outcome — a bounded 1..k rating profiles as `count` too but is
@@ -283,6 +300,7 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
         "has_rater_block": has_rater_block,
+        "has_scale_items": has_scale_items,
         "outcome_is_binary": outcome_is_binary,
         "has_survival": has_survival,
         "has_group": has_group,
