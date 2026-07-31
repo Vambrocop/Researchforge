@@ -90,7 +90,7 @@
 - id: factor_analysis
   method: Exploratory factor analysis (EFA)
   domain: statistics
-  family: ml
+  family: psychometrics
   goal: explore
   description: >-
     Exploratory factor analysis (sklearn FactorAnalysis) modeling the common variance

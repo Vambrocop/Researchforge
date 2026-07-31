@@ -131,3 +131,25 @@ def test_small_data_advisory_card(tmp_path: Path) -> None:
                           "y": np.random.default_rng(3).normal(0, 1, 1500)})
     large.to_csv(tmp_path / "l.csv", index=False)
     assert small_data_advisory(profile_dataset(tmp_path / "l.csv")) == ""
+
+
+def test_factor_analysis_surfaces_for_likert_scale(tmp_path: Path) -> None:
+    # M3/EFA: factor analysis is a PSYCHOMETRIC method (was mis-filed as family=ml, which
+    # needs_predictors → penalized on a no-outcome Likert scale, burying it at ~#24). As
+    # psychometrics it is floored on scale data alongside Cronbach's α / ω. Assert it now
+    # surfaces near the top for a 2-factor Likert scale.
+    import numpy as np
+
+    from researchforge.recommender import recommend
+
+    rng = np.random.default_rng(0)
+    n = 200
+    f1, f2 = rng.normal(0, 1, n), rng.normal(0, 1, n)
+    def _item(f):
+        return np.clip(np.round(3 + 0.9 * f + rng.normal(0, 0.6, n)), 1, 5).astype(int)
+    df = pd.DataFrame({**{f"q{i}": _item(f1) for i in range(1, 5)},
+                       **{f"q{i}": _item(f2) for i in range(5, 9)}})
+    df.to_csv(tmp_path / "likert.csv", index=False)
+    ids = [r.entry.id for r in recommend(profile_dataset(tmp_path / "likert.csv"))]
+    assert "factor_analysis" in ids
+    assert ids.index("factor_analysis") < 8            # top-8, alongside cronbach/omega
