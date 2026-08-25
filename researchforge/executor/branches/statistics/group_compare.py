@@ -7,6 +7,7 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 from researchforge.profiler.semantics import role_hint
 
 
@@ -67,7 +68,9 @@ def _branch_group_comparison(ctx: Ctx) -> None:
     cat_cols = [c.name for c in fp.columns if c.kind == "categorical" and c.name not in _excl]
     group_candidates = bin_cols + cat_cols
     cont_cols = [c.name for c in fp.columns if c.kind == "continuous"]
-    outcome = cont_cols[0] if cont_cols else None
+    # bind the DETECTED outcome (config > high-confidence role > first continuous), not
+    # blindly cont_cols[0] — U3 resolver sweep (same class as the quantile/mixed dogfood bug).
+    outcome = resolve_outcome(fp, cfg, cont_cols) if cont_cols else None
 
     group_override = cfg.get("group")
     guessed_group = True

@@ -11,6 +11,7 @@ from researchforge.executor.run import (
     _knn_k,
     _kriging_via_r,
     _spatial_reg_via_r,
+    resolve_outcome,
 )
 
 
@@ -531,8 +532,10 @@ def _branch_spatial_regression(ctx: Ctx) -> None:
     geo = [c.name for c in fp.columns if c.kind == "geo"][:2]
     _exc = {fp.unit_col, fp.time_col, *geo}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc]
-    outcome = cont[0] if cont else None
-    predictors = cont[1:6]
+    # bind the DETECTED outcome (config > high-confidence role > first continuous), not
+    # blindly cont[0] — U3 resolver sweep (same class as the quantile/mixed dogfood bug).
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
+    predictors = [c for c in cont if c != outcome][:5]
     lon = next((g for g in geo if "lon" in g.lower() or "lng" in g.lower()), geo[-1] if geo else None)
     lat = next((g for g in geo if g != lon), geo[0] if geo else None)
     names_safe = outcome is not None and all(

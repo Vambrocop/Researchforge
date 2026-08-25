@@ -33,6 +33,7 @@ Column resolution (config overrides, else profiler convention):
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 # Reasonable upper bound on group levels for a categorical "grouping" column so a
 # high-cardinality id-like column isn't mistaken for groups.
@@ -82,9 +83,9 @@ def _branch_kruskal_wallis(ctx: Ctx) -> None:
 
     # ----- column resolution ------------------------------------------------- #
     cont = _numeric_outcome_cols(fp, df)
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont[0] if cont else None
-    )
+    # bind the DETECTED outcome (config > high-confidence role > first numeric), not blindly
+    # cont[0] — U3 resolver sweep (same class as the quantile/mixed dogfood bug).
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     group_col = cfg.get("group") if cfg.get("group") in df.columns else None
     if group_col is None:
         # prefer a categorical/binary column whose level count is 3..MAX
@@ -508,9 +509,9 @@ def _branch_mann_whitney(ctx: Ctx) -> None:
 
     # ----- column resolution ------------------------------------------------- #
     cont = _numeric_outcome_cols(fp, df)
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        cont[0] if cont else None
-    )
+    # bind the DETECTED outcome (config > high-confidence role > first numeric), not blindly
+    # cont[0] — U3 resolver sweep (same class as the quantile/mixed dogfood bug).
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     group_col = cfg.get("group") if cfg.get("group") in df.columns else None
     if group_col is None:
         for cand in _group_candidates(fp, df, exclude=(outcome,) if outcome else ()):
