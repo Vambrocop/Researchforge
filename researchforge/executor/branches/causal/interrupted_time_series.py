@@ -11,6 +11,7 @@ is reported. Pure Python (statsmodels OLS + HAC).
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 def _resolve_intervention(cfg, time_vals, n):
@@ -46,7 +47,8 @@ def _branch_interrupted_time_series(ctx: Ctx) -> None:
 
     excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in excl]
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    # U3: bind the DETECTED outcome (config > high-conf role > first continuous) not raw cont[0].
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     if outcome is None:
         summary.append("中断时间序列跳过：未找到连续结果变量（outcome）。")
         return

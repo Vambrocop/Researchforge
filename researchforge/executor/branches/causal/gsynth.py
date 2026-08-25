@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _gsynth_via_r
+from researchforge.executor.run import _gsynth_via_r, resolve_outcome
 
 
 @register("gsynth")
@@ -16,7 +16,9 @@ def _branch_gsynth(ctx: Ctx) -> None:
     unit, time = fp.unit_col, fp.time_col
     _excl = {unit, time, *fp.treatment_candidates}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # U3: bind the DETECTED outcome (config > high-conf role > first continuous), skipping
+    # treatment-named columns — safer than the old raw cont[0] fallback.
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     treat = cfg.get("treatment") or next((c for c in fp.treatment_candidates if c in df.columns), None)
     try:
         n_boots = max(100, int(cfg.get("nboots", 200)))

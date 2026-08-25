@@ -11,6 +11,7 @@ event_study branches.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 def _callaway_santanna_via_r(
@@ -138,7 +139,8 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
     _excl = {unit, time}
     bins_ = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (cont[0] if cont else None)
+    # U3: bind the DETECTED outcome (config > high-conf role > first continuous) not raw cont[0].
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     if outcome is None:
         summary.append('Callaway-Sant\'Anna 失败：需要连续结果变量。config={"outcome":..}。')
         return

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _cic_via_r
+from researchforge.executor.run import _cic_via_r, resolve_outcome
 
 
 @register("changes_in_changes")
@@ -18,7 +18,9 @@ def _branch_changes_in_changes(ctx: Ctx) -> None:
     time = cfg.get("time") or fp.time_col
     _excl = {fp.unit_col, time}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # U3: bind the DETECTED outcome (config > high-conf role > first continuous), skipping
+    # treatment-named columns — safer than the old raw cont[0] fallback.
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     treat = cfg.get("treatment")
     if treat is None:
         treat = next(
