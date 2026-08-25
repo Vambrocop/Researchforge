@@ -7,7 +7,12 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _coef_plot, _quantile_process_plot
+from researchforge.executor.run import (
+    _coef_plot,
+    _quantile_process_plot,
+    resolve_outcome,
+    resolve_predictors,
+)
 
 
 @register("quantile_regression")
@@ -18,19 +23,17 @@ def _branch_quantile_regression(ctx: Ctx) -> None:
     import pandas as pd
 
     _excl = {fp.unit_col, fp.time_col}
-    outcome = next(
-        (c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl),
-        None,
-    )
-    if outcome is None:
+    cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
+    if not cont:
         summary.append("分位数回归失败：未找到连续型结果变量。")
     else:
-        exclude = {outcome, fp.unit_col, fp.time_col}
-        predictors = [
-            c.name
-            for c in fp.columns
-            if c.kind in {"continuous", "binary", "count"} and c.name not in exclude
-        ][:5]
+        # Bind the DETECTED outcome (config > high-confidence role name > first continuous),
+        # not blindly cont[0] — on diabetes cont[0] is `age` (a feature), so it modeled age
+        # instead of `target` (dogfood bug). resolve_predictors also honors config predictors.
+        outcome = resolve_outcome(fp, cfg, cont)
+        predictors = resolve_predictors(
+            fp, cfg, outcome, kinds=("continuous", "binary", "count"), cap=5, df=df
+        )
         rhs = [f"Q('{v}')" for v in predictors]
         formula = f"Q('{outcome}') ~ " + (" + ".join(rhs) if rhs else "1")
         taus = [0.25, 0.50, 0.75]

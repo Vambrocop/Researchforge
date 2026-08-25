@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
 from researchforge.executor._helpers.formula import safe_formula_terms
+from researchforge.executor.run import resolve_outcome
 
 
 @register("mixed_effects")
@@ -16,11 +17,14 @@ def _branch_mixed_effects(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     import statsmodels.formula.api as smf
 
-    # outcome: first continuous column
-    outcome = next((c.name for c in fp.columns if c.kind == "continuous"), None)
-    if outcome is None:
+    # outcome: the DETECTED outcome (config > high-confidence role name > first continuous),
+    # NOT blindly cont[0] — same dogfood bug as quantile_regression (on diabetes cont[0] is
+    # `age`, a feature, so it modeled age instead of `target`). config outcome now honored.
+    cont = [c.name for c in fp.columns if c.kind == "continuous"]
+    if not cont:
         summary.append("混合模型失败：未找到连续结果变量。")
     else:
+        outcome = resolve_outcome(fp, cfg, cont)
         # group_col: prefer unit_col; else first categorical/binary that is not outcome
         if fp.unit_col:
             group_col = fp.unit_col
