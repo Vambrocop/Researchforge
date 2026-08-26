@@ -123,20 +123,23 @@ def _date_seasonal_period(ctx: Ctx, n: int):
 
 
 def _seasonal_strength_ok(y, period: int) -> bool:
-    """True iff the linearly-detrended series shows significant positive autocorrelation at
-    the seasonal lag — a lightweight confirmation that a CANDIDATE calendar period carries
-    real seasonal signal, so a non-seasonal monthly series is not forced into an (11-param)
-    seasonal Holt-Winters model. Threshold = one-sided 95% white-noise band 1.64/√n, floored
-    at 0.15 so large n does not make a trivial autocorrelation "significant"."""
+    """True iff the FIRST-DIFFERENCED series shows significant positive autocorrelation at the
+    seasonal lag — a lightweight confirmation that a CANDIDATE calendar period carries real
+    seasonal signal, so a non-seasonal series is not forced into an (11-param) seasonal
+    Holt-Winters model. Threshold = one-sided 95% white-noise band 1.64/√n, floored at 0.15
+    so large n does not make a trivial autocorrelation "significant".
+
+    First-differencing (not linear detrending) is essential: a random walk / unit-root series
+    keeps strong autocorrelation at EVERY lag after mere linear detrending, which spuriously
+    "detects" seasonality (dogfood: a daily stock price got a fake weekly period-7 season).
+    Differencing turns a random walk into ~white noise (ACF≈0 at the seasonal lag) while a
+    genuine seasonal series keeps its seasonal-lag autocorrelation in the differences."""
     import numpy as np
 
-    y = np.asarray(y, dtype=float)
-    n = len(y)
+    r = np.diff(np.asarray(y, dtype=float))   # removes deterministic AND stochastic trend
+    n = len(r)
     if n <= period + 3:
         return False
-    idx = np.arange(n)
-    c = np.polyfit(idx, y, 1)
-    r = y - (c[0] * idx + c[1])          # linear detrend (a trend inflates all autocorr)
     r = r - r.mean()
     denom = float(np.sum(r * r))
     if denom <= 0:

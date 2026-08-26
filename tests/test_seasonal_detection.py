@@ -45,6 +45,17 @@ def _monthly_trend_only(n: int = 60, seed: int = 11) -> pd.DataFrame:
                          "y": (100 + 1.2 * t + rng.normal(0, 3, n)).round(1)})
 
 
+def _daily_random_walk(n: int = 500, seed: int = 88) -> pd.DataFrame:
+    # a daily unit-root series (stock-price-like). GUARD: a random walk keeps strong
+    # autocorrelation at every lag after mere linear detrending — it must NOT be handed a
+    # spurious weekly (period-7) season (regression the first M8 cut introduced; fixed by
+    # first-differencing before the ACF check).
+    rng = np.random.default_rng(seed)
+    price = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    return pd.DataFrame({"date": pd.bdate_range("2022-01-03", periods=n).strftime("%Y-%m-%d"),
+                         "close": price.round(3)})
+
+
 def _daily_weekly(n: int = 140, seed: int = 5) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     t = np.arange(n)
@@ -88,6 +99,15 @@ def test_daily_weekly_season_detected(tmp_path):
     ctx, y = _ctx_and_y(df, tmp_path)
     assert _date_seasonal_period(ctx, len(y)) == 7
     assert _detect_period(ctx, y) == 7
+
+
+def test_random_walk_not_given_spurious_season(tmp_path):
+    # regression guard: a unit-root daily series must NOT get a fake weekly period-7 season.
+    df = _daily_random_walk()
+    ctx, y = _ctx_and_y(df, tmp_path)
+    assert _date_seasonal_period(ctx, len(y)) == 7  # calendar candidate exists (daily)
+    assert _seasonal_strength_ok(y, 7) is False     # but differencing shows no real season
+    assert _detect_period(ctx, y) is None
 
 
 def test_config_seasonal_periods_overrides(tmp_path):
