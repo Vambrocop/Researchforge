@@ -25,6 +25,10 @@ from dataclasses import dataclass, field
 
 from researchforge.profiler.fingerprint import DataFingerprint
 from researchforge.profiler.semantics import is_treatment_named
+# single source for the class-label vocabulary (target/class/label/species/…) — shared with
+# profiler.types.infer_kind (Wave M1), so the "is this a classification target" word list
+# never drifts between the type inference and the recommender.
+from researchforge.profiler.types import _is_class_label_name
 
 # A ≥3-parallel-ordinal-column block splits by WHO/WHAT the columns are:
 #  * PEOPLE raters (rater1/judge_a/coder…) rate the SAME objects → inter-rater AGREEMENT
@@ -277,6 +281,29 @@ def data_signals(fp: DataFingerprint) -> dict:
     outcome_is_binary = (lo_col is not None and lo_col.kind == "binary") or (
         n_bin >= 1 and n_cont == 0 and n_count == 0
     )
+    # A trustworthy CONTINUOUS outcome = the role-detected outcome is a continuous column
+    # named with a real dependent-variable word (roles.py HIGH/MED tiers). A LOW-confidence
+    # "last numeric column" guess (roles.py positional fallback) does NOT count — that is the
+    # very false signal that made regression methods model an arbitrary feature on a
+    # classification table (dogfood: wine's proline, confidence=low).
+    lo_conf = str(getattr(fp, "likely_outcome_confidence", "") or "")
+    has_continuous_outcome = (
+        lo_col is not None and lo_col.kind == "continuous" and lo_conf in {"high", "medium"}
+    )
+    # A genuine MULTICLASS classification TARGET: a categorical column (≥3 levels, not an
+    # edge endpoint / unit / time) that is class-label-named (target/class/species/…) OR the
+    # role-detected outcome, WITH no trustworthy continuous outcome to model instead. On such
+    # data the continuous columns are FEATURES, so classification / discriminant methods
+    # (which model the target) are the right fit — a regression modeling an arbitrary feature
+    # is semantically weak. Binary targets are handled separately (outcome_is_binary), so this
+    # is the multiclass gap. Gated on has_continuous_outcome=False so it can never misfire on
+    # ordinary regression data that merely carries a category column (Wave M5).
+    has_class_target = (not has_continuous_outcome) and any(
+        c.kind == "categorical" and c.name not in edge_cols
+        and getattr(c, "n_unique", 0) >= 3
+        and (_is_class_label_name(str(c.name).lower()) or c.name == lo)
+        for c in cols
+    )
     return {
         "n_rows": fp.n_rows,
         "is_panel": bool(fp.is_panel),
@@ -302,6 +329,10 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_rater_block": has_rater_block,
         "has_scale_items": has_scale_items,
         "outcome_is_binary": outcome_is_binary,
+        # a genuine MULTICLASS categorical target with no trustworthy continuous outcome →
+        # classification/discriminant methods (model the target) beat a regression modeling
+        # an arbitrary continuous feature. Drives the Wave-M5 class-target tilt in scoring.
+        "has_class_target": has_class_target,
         "has_survival": has_survival,
         "has_group": has_group,
         # A treatment for RANKING purposes = a TREATMENT-NAMED column (treated/arm/exposed/

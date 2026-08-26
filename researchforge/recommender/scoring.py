@@ -222,6 +222,56 @@ def _small_data_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     return 0.0, ""
 
 
+# ── classification-target-first tilt (Wave M5) ───────────────────────────────────────
+# When the data's natural outcome is a MULTICLASS categorical TARGET and there is no
+# trustworthy continuous outcome (signals["has_class_target"]), the continuous columns are
+# FEATURES. The analyses that answer the data's real question MODEL / DISCRIMINATE that
+# target; a regression modeling an arbitrary feature is semantically weak (dogfood: on wine
+# — target=cultivar, 13 continuous features — mixed_effects/robust_regression modeled
+# `alcohol`, and the study's ≤1-per-family filter buried discriminant/manova behind them).
+# So on such data we boost the target-modeling methods and mildly demote feature-only
+# regressions. Tightly gated on has_class_target (class-label name + no high/med-confidence
+# continuous outcome) so it cannot misfire on ordinary regression data that merely carries a
+# category column. Binary targets are handled elsewhere (outcome_is_binary) — this is the
+# multiclass gap.
+#
+# Model / discriminate the categorical target directly (features → target): boosted.
+_CLASSIFY_TARGET = {
+    "discriminant_analysis", "linear_discriminant", "naive_bayes",
+    "multinomial_logistic", "manova", "hotelling_t2",
+}
+# Model a continuous FEATURE as outcome, ignoring / nuisance-ing the categorical target:
+# demoted (on a classification table this analysis answers a question nobody asked).
+_FEATURE_MODEL = {
+    "mixed_effects", "glmm", "quantile_regression", "robust_regression",
+    "influence_diagnostics",
+}
+_FEATURE_MODEL_FAMILIES = {"regression"}
+
+
+def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, disclosure note) for the classification-target-first tilt. Fires
+    only when the data has a genuine multiclass categorical target and no trustworthy
+    continuous outcome (signals["has_class_target"]). Boosts methods that model/discriminate
+    the target, mildly demotes feature-only regressions, and gives a small lift to
+    across-group comparisons (which at least use the target as a grouping). Returns (0.0, "")
+    off a class-target regime."""
+    if not signals.get("has_class_target"):
+        return 0.0, ""
+    if entry.id in _CLASSIFY_TARGET:
+        return 12.0, ""
+    if entry.id in _FEATURE_MODEL or entry.family in _FEATURE_MODEL_FAMILIES:
+        return -8.0, (
+            "⚠ 本数据的天然结果是多类别目标（分类），本法却建模某连续特征、未以目标为核心——"
+            "语义偏弱；分类/判别（discriminant/naive_bayes/MANOVA）更契合该数据。"
+        )
+    # compares a continuous feature ACROSS the target's groups (ANOVA/Kruskal-style) — not a
+    # classifier, but it does center the target, so a small lift over feature-only regressions.
+    if entry.preconditions.requires_group:
+        return 5.0, ""
+    return 0.0, ""
+
+
 def small_data_advisory(fp: DataFingerprint) -> str:
     """A once-per-dataset 由简到繁 (start-simple) guidance card when the data is small
     (Wave S). Empty string on ample data. Surfaced by the CLI recommend/pick output so the
@@ -287,6 +337,7 @@ def _affinity_fit(
         base = max(base, _RATER_FLOOR)
     raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
     raw = max(0.0, min(100.0, raw + _small_data_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _class_target_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
@@ -347,9 +398,11 @@ def score_method(
     # cost and deliberately excluded (shown separately).
     overall = round(0.35 * fit + 0.25 * pub + 0.15 * pop + 0.15 * nov + 0.10 * aes)
     sd_note = _small_data_tilt(entry, signals)[1]  # overfit disclosure on small data
+    ct_note = _class_target_tilt(entry, signals)[1]  # class-target semantic disclosure
+    extra = " ".join(n for n in (sd_note, ct_note) if n)
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
-        f"难度 {diff}（越高越难）。{trend_note}。{(' ' + sd_note) if sd_note else ''}"
+        f"难度 {diff}（越高越难）。{trend_note}。{(' ' + extra) if extra else ''}"
     )
     return MethodologyScore(
         popularity=pop, publishability=pub, aesthetics=aes, difficulty=diff,

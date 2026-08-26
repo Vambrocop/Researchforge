@@ -202,6 +202,22 @@ def _id_plus_measurement() -> pd.DataFrame:
                          "x1": x1.round(3), "x2": x2.round(3)})
 
 
+def _multiclass_target() -> pd.DataFrame:
+    # continuous features that SEPARATE 3 classes + a class-label-named multiclass `target`,
+    # and NO continuous outcome (wine-shape). GUARD (Wave M5): classification / discriminant
+    # methods (which MODEL the target) must top the menu — a regression modeling an arbitrary
+    # feature (mixed_effects with target as a nuisance random effect, robust/quantile on a
+    # feature) is semantically pointless here and must NOT surface as a primary choice.
+    rng = np.random.default_rng(40)
+    n = 180
+    y = rng.integers(0, 3, n)
+    cols = {}
+    for i in range(6):
+        cols[f"feat{i}"] = (rng.normal(0, 1, n) + y * (0.8 if i % 2 == 0 else -0.6)).round(3)
+    cols["target"] = y
+    return pd.DataFrame(cols)
+
+
 def _case(name, build, accept, currently_ok, why, reject=None):
     payload = {"name": name, "build": build, "accept": set(accept), "reject": set(reject or ())}
     marks = () if currently_ok else (pytest.mark.xfail(reason=why, strict=True),)
@@ -289,6 +305,15 @@ GOLDEN = [
           {"factorial_anova", "anova_oneway", "ancova"},
           currently_ok=True,
           why=""),
+    # a multiclass class-label target (target/species/…) with continuous FEATURES and no
+    # continuous outcome surfaces classification/discriminant — Wave M5: has_class_target
+    # boosts target-modeling methods and demotes feature-only regressions, so the study's
+    # ≤1-per-family pick no longer runs a regression on an arbitrary feature (dogfood: wine
+    # ran mixed_effects/robust on `alcohol`). reject = the feature-only regressions.
+    _case("multiclass_target", _multiclass_target,
+          {"discriminant_analysis", "linear_discriminant", "manova", "naive_bayes"},
+          currently_ok=True, why="",
+          reject={"mixed_effects", "robust_regression", "quantile_regression"}),
 ]
 
 
