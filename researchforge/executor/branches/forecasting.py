@@ -83,8 +83,72 @@ def _ses(y, alpha: float):
     return lvl, float(last)
 
 
+def _date_seasonal_period(ctx: Ctx, n: int):
+    """Calendar seasonal period from the time column's spacing (daily→7, weekly→52,
+    monthly→12, quarterly→4, hourly→24; annual / irregular / unknown → None). A short series
+    gives the periodogram too few cycles to certify a season it plainly has (dogfood: 48
+    monthly points, clear 12-month season, Fisher g-test → None); the CALENDAR frequency is a
+    reliable prior for that period. Returned only as a CANDIDATE — the caller still confirms
+    real seasonal signal at this period before using it. None on no usable date column."""
+    import numpy as np
+    import pandas as pd
+
+    fp, df = ctx.fp, ctx.df
+    tcol = fp.time_col
+    if not tcol or tcol not in df.columns:
+        return None
+    try:
+        dt = pd.to_datetime(df[tcol], errors="coerce").dropna().sort_values()
+    except Exception:
+        return None
+    if len(dt) < 3:
+        return None
+    deltas = dt.diff().dropna().dt.total_seconds().to_numpy() / 86400.0  # spacing in days
+    if len(deltas) == 0:
+        return None
+    med = float(np.median(deltas))
+    if 0.9 <= med <= 1.1:        # daily → weekly season
+        period = 7
+    elif 6.0 <= med <= 8.0:      # weekly → yearly season
+        period = 52
+    elif 27.0 <= med <= 32.0:    # monthly → yearly season
+        period = 12
+    elif 88.0 <= med <= 93.0:    # quarterly → yearly season
+        period = 4
+    elif 0.02 <= med <= 0.06:    # hourly → daily season
+        period = 24
+    else:
+        return None              # annual / irregular → no sub-period seasonality
+    return period if 2 <= period <= n // 2 else None
+
+
+def _seasonal_strength_ok(y, period: int) -> bool:
+    """True iff the linearly-detrended series shows significant positive autocorrelation at
+    the seasonal lag — a lightweight confirmation that a CANDIDATE calendar period carries
+    real seasonal signal, so a non-seasonal monthly series is not forced into an (11-param)
+    seasonal Holt-Winters model. Threshold = one-sided 95% white-noise band 1.64/√n, floored
+    at 0.15 so large n does not make a trivial autocorrelation "significant"."""
+    import numpy as np
+
+    y = np.asarray(y, dtype=float)
+    n = len(y)
+    if n <= period + 3:
+        return False
+    idx = np.arange(n)
+    c = np.polyfit(idx, y, 1)
+    r = y - (c[0] * idx + c[1])          # linear detrend (a trend inflates all autocorr)
+    r = r - r.mean()
+    denom = float(np.sum(r * r))
+    if denom <= 0:
+        return False
+    acf = float(np.sum(r[period:] * r[:-period]) / denom)
+    thr = max(0.15, 1.64 / float(np.sqrt(n)))
+    return bool(acf > thr)
+
+
 def _detect_period(ctx: Ctx, y):
-    """Seasonal period: config seasonal_periods else periodogram auto-detect, else None."""
+    """Seasonal period: config seasonal_periods, else a calendar period CONFIRMED by seasonal
+    strength, else periodogram auto-detect, else None."""
     cfg = ctx.cfg
     n = len(y)
     sp = cfg.get("seasonal_periods")
@@ -94,6 +158,12 @@ def _detect_period(ctx: Ctx, y):
         sp = None
     if sp and 2 <= sp <= n // 2:
         return sp
+    # Calendar frequency gives a strong seasonal-period candidate that a short-series
+    # periodogram misses; use it only when a seasonal-strength check at that period confirms
+    # real seasonality (so a trend-only monthly series is not forced into a seasonal model).
+    per_cal = _date_seasonal_period(ctx, n)
+    if per_cal and _seasonal_strength_ok(y, per_cal):
+        return per_cal
     # reuse the timeseries family's periodogram detector (>=3 cycles, Fisher g-test)
     try:
         from researchforge.executor.branches.timeseries import _periodogram_period
@@ -153,7 +223,8 @@ def _branch_exponential_smoothing(ctx: Ctx) -> None:
             r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0.0
             trend = "add" if r2 > 0.10 else None
 
-        # seasonal: config override else periodogram auto-detect (additive only here)
+        # seasonal: config override else auto-detect (calendar frequency confirmed by
+        # seasonal strength, else periodogram); additive only here
         seasonal_cfg = cfg.get("seasonal")
         sp = _detect_period(ctx, y)
         if seasonal_cfg in {"none", "no", "off"}:
@@ -283,7 +354,8 @@ def _branch_exponential_smoothing(ctx: Ctx) -> None:
             + f"；AIC={aic:.2f}、SSE={sse:.3g}；未来 {h} 期预测见 forecast.csv（含 95% 预测区间），"
             f"下一期点预测={fc[0]:.4g}。{time_warn}"
             f" ⚠ 指数平滑假定平滑结构稳定、外推延续历史模式；{pi_zh}；"
-            "季节周期需正确（自动取周期图主峰，可 config seasonal_periods 覆盖）；"
+            "季节周期自动判定（优先按日期列频率取日历周期[月→12/季→4/周→52/日→7]并经季节强度确认，"
+            "否则退周期图；可 config seasonal_periods 覆盖）；"
             "趋势/季节自动判定为启发式，可用 config trend/seasonal 强制。"
         )
         code += [
