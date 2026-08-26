@@ -166,6 +166,36 @@ _SURV_EVT = ("event", "status", "censor", "death", "dead", "fail", "relapse", "r
 _COUNT_OUTCOME_HINTS = ("count", "n_", "num_", "events", "cases", "freq", "times",
                         "visits", "claims", "incidents")
 
+# High-precision FINANCIAL-ASSET vocabulary — a column named for a security's price/return
+# series. The finance family (VaR / extreme-value / risk-adjusted-return) is otherwise
+# indistinguishable from the generic time-series family (same timeseries affinity), so on ANY
+# continuous series it ties ARIMA at the ceiling — floating "Value at Risk" onto a plain sales
+# forecast (dogfood). This vocabulary is the finance SIGNAL that keeps those methods at full
+# rank; absent it they are demoted below generic forecasting (Wave M7).
+#
+# TOKEN-matched (name split on non-alphanumeric), NOT substring — so `livestock`/`disclosure`/
+# `navigation`/`closed` do not false-match `stock`/`close`/`nav`. Bare `price` is deliberately
+# EXCLUDED (product price is common in non-finance data — dogfood sales_ts has a `price`
+# covariate); a security series is caught by return/close/stock/ticker/... instead.
+_FINANCE_TOKENS = frozenset({
+    "return", "returns", "logreturn", "close", "adjclose", "stock", "stocks",
+    "ticker", "tickers", "portfolio", "dividend", "dividends", "nav", "sharpe",
+    "volatility", "drawdown", "garch",
+})
+
+
+def has_finance_signal(fp: DataFingerprint) -> bool:
+    """True iff any column name carries high-precision financial-asset vocabulary (a stock
+    price / return / portfolio series). The single source for "is this genuinely financial
+    data" — consumed by the Wave-M7 finance-relevance tilt so VaR/extreme-value/Sharpe stay
+    top-ranked on real financial series but sink below ARIMA/ETS on a plain sales/temperature
+    series. Token-matched, deterministic, never raises."""
+    for c in fp.columns:
+        toks = re.split(r"[^a-z0-9]+", str(c.name).lower())
+        if any(t in _FINANCE_TOKENS for t in toks):
+            return True
+    return False
+
 
 def is_count_outcome(col, fp: DataFingerprint) -> bool:
     """True iff a single count-kind column is a genuine count OUTCOME (Poisson/NB/ZIP),
@@ -343,6 +373,9 @@ def data_signals(fp: DataFingerprint) -> dict:
         # an arbitrary continuous feature. Drives the Wave-M5 class-target tilt in scoring.
         "has_class_target": has_class_target,
         "has_survival": has_survival,
+        # genuine financial-asset data (a return/close/stock/portfolio series). Absent it, the
+        # finance family (VaR/EVT/Sharpe) is demoted below generic forecasting (Wave M7 tilt).
+        "has_finance_signal": has_finance_signal(fp),
         "has_group": has_group,
         # A treatment for RANKING purposes = a TREATMENT-NAMED column (treated/arm/exposed/
         # dose…, word-boundary via semantics), NOT merely "some binary column exists"

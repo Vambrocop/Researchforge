@@ -175,3 +175,55 @@ def test_likert_survey_demotes_count_models(tmp_path):
     for cid in ("negative_binomial_regression", "poisson_regression"):
         if cid in pos:
             assert pos[cid] > 20, f"{cid} should be demoted on a Likert survey, got #{pos[cid]}"
+
+
+# ── Wave M7: finance methods only headline on a financial-asset series ─────────────────
+def _sales_ts_frame() -> pd.DataFrame:
+    rng = np.random.default_rng(42)
+    n = 60
+    t = np.arange(n)
+    return pd.DataFrame({
+        "month": pd.date_range("2020-01-01", periods=n, freq="MS").strftime("%Y-%m"),
+        "sales": (200 + 2.5 * t + 8 * np.sin(2 * np.pi * t / 12) + rng.normal(0, 6, n)).round(1),
+        "price": (20 - 0.03 * t + rng.normal(0, 0.5, n)).round(2),  # product price, NOT finance
+        "promo": rng.binomial(1, 0.3, n),
+    })
+
+
+def _stock_ts_frame() -> pd.DataFrame:
+    rng = np.random.default_rng(9)
+    n = 200
+    return pd.DataFrame({
+        "date": pd.date_range("2020-01-01", periods=n).strftime("%Y-%m-%d"),
+        "close": (100 + np.cumsum(rng.normal(0, 1, n))).round(2),
+        "volume": rng.integers(1_000_000, 5_000_000, n),
+    })
+
+
+def test_finance_signal_off_on_sales_on_for_stock(tmp_path):
+    assert data_signals(_fp(_sales_ts_frame(), tmp_path))["has_finance_signal"] is False
+    assert data_signals(_fp(_stock_ts_frame(), tmp_path))["has_finance_signal"] is True
+
+
+def test_finance_not_false_triggered_by_lookalike_tokens(tmp_path):
+    # `livestock`/`disclosure`/`navigation` must not token-match stock/close/nav.
+    rng = np.random.default_rng(3)
+    n = 60
+    df = pd.DataFrame({
+        "month": pd.date_range("2020-01-01", periods=n, freq="MS").strftime("%Y-%m"),
+        "livestock_count": rng.integers(50, 200, n),
+        "disclosure_flag": rng.integers(0, 2, n),
+        "navigation_hours": rng.normal(10, 2, n).round(2),
+    })
+    assert data_signals(_fp(df, tmp_path))["has_finance_signal"] is False
+
+
+def test_finance_demoted_on_sales_kept_on_stock(tmp_path):
+    sales = recommend(_fp(_sales_ts_frame(), tmp_path))
+    stock = recommend(_fp(_stock_ts_frame(), tmp_path))
+    p_sales = {r.entry.id: i for i, r in enumerate(sales)}
+    p_stock = {r.entry.id: i for i, r in enumerate(stock)}
+    # on sales the finance methods sink below generic forecasting; on stock they stay near top.
+    assert p_sales["value_at_risk"] > p_sales["arima"]
+    assert p_sales["value_at_risk"] > 5, "VaR should be demoted on a non-financial series"
+    assert p_stock["value_at_risk"] <= 5, "VaR should stay top on a real financial series"

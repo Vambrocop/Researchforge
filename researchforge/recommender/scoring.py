@@ -272,6 +272,32 @@ def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]
     return 0.0, ""
 
 
+# ── finance-relevance tilt (Wave M7) ─────────────────────────────────────────────────
+# The finance family (value_at_risk / extreme_value / risk_adjusted_return) has the same
+# timeseries affinity as the generic time-series family, so on ANY continuous series it ties
+# ARIMA/ETS at the ceiling — surfacing "Value at Risk" as a headline analysis on a plain
+# monthly SALES series (dogfood: sales_ts). These methods presuppose a security's return
+# series; without a financial signal (a return/close/stock/portfolio-named column) they are
+# off-target. So absent that signal we demote the finance family below generic forecasting.
+# They stay FEASIBLE (still run if the user picks them, or sets the branch's is_returns) — the
+# tilt only reorders, and the disclosure says why.
+_FINANCE_DEMOTE = -18.0
+
+
+def _finance_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, disclosure note) for the finance-relevance tilt: demote finance-family
+    methods on a series with no financial-asset signal, so a plain sales/temperature series
+    gets generic forecasting (ARIMA/ETS) as its headline, not VaR/EVT/Sharpe. Returns (0.0,"")
+    for non-finance families or when a finance signal is present."""
+    if entry.family != "finance" or signals.get("has_finance_signal"):
+        return 0.0, ""
+    return _FINANCE_DEMOTE, (
+        "⚠ 未检测到金融资产信号（收益/收盘价/股票/组合类列名）——本法（VaR/极值/风险调整收益）"
+        "假定的是证券收益序列，用在一般时序（如销量/温度）上语义偏弱；已降到通用预测法之下。"
+        "若这确是金融序列，可直接选它并按需设 config['is_returns']。"
+    )
+
+
 def small_data_advisory(fp: DataFingerprint) -> str:
     """A once-per-dataset 由简到繁 (start-simple) guidance card when the data is small
     (Wave S). Empty string on ample data. Surfaced by the CLI recommend/pick output so the
@@ -338,6 +364,7 @@ def _affinity_fit(
     raw = min(100.0, base + _precond_bonus(signals, entry.preconditions))
     raw = max(0.0, min(100.0, raw + _small_data_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _class_target_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _finance_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
@@ -399,7 +426,8 @@ def score_method(
     overall = round(0.35 * fit + 0.25 * pub + 0.15 * pop + 0.15 * nov + 0.10 * aes)
     sd_note = _small_data_tilt(entry, signals)[1]  # overfit disclosure on small data
     ct_note = _class_target_tilt(entry, signals)[1]  # class-target semantic disclosure
-    extra = " ".join(n for n in (sd_note, ct_note) if n)
+    fin_note = _finance_relevance_tilt(entry, signals)[1]  # finance-relevance disclosure
+    extra = " ".join(n for n in (sd_note, ct_note, fin_note) if n)
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
         f"难度 {diff}（越高越难）。{trend_note}。{(' ' + extra) if extra else ''}"

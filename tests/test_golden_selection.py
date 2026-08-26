@@ -202,6 +202,23 @@ def _id_plus_measurement() -> pd.DataFrame:
                          "x1": x1.round(3), "x2": x2.round(3)})
 
 
+def _nonfinancial_timeseries() -> pd.DataFrame:
+    # a monthly SALES series (trend + a price covariate + promo). GUARD (Wave M7): the finance
+    # family (VaR / extreme_value / risk_adjusted_return) must NOT headline a non-financial
+    # series just because it is a timeseries — generic forecasting (ARIMA / ETS / theta) does.
+    # The `price` column must NOT be read as a financial signal (it is a product price).
+    rng = np.random.default_rng(42)
+    n = 60
+    t = np.arange(n)
+    sales = (200 + 2.5 * t + 8 * np.sin(2 * np.pi * t / 12) + rng.normal(0, 6, n)).round(1)
+    return pd.DataFrame({
+        "month": pd.date_range("2020-01-01", periods=n, freq="MS").strftime("%Y-%m"),
+        "sales": sales,
+        "price": (20 - 0.03 * t + rng.normal(0, 0.5, n)).round(2),
+        "promo": rng.binomial(1, 0.3, n),
+    })
+
+
 def _likert_survey() -> pd.DataFrame:
     # 6 Likert items (1-5) of one construct + a demographic integer `age`. GUARD (Wave M6):
     # `age` is the LAST numeric column, so roles.py guesses it as a LOW-confidence outcome —
@@ -339,6 +356,13 @@ GOLDEN = [
            "irt_2pl", "icc"},
           currently_ok=True, why="",
           reject={"negative_binomial_regression", "poisson_regression"}),
+    # a non-financial monthly series surfaces generic forecasting, not finance risk methods —
+    # Wave M7: absent a financial-asset signal (return/close/stock/…) the finance family is
+    # demoted below ARIMA/ETS/theta (dogfood: VaR headlined a plain sales forecast).
+    _case("nonfinancial_timeseries", _nonfinancial_timeseries,
+          {"arima", "exponential_smoothing", "theta_method", "bayesian_state_space"},
+          currently_ok=True, why="",
+          reject={"value_at_risk", "extreme_value", "risk_adjusted_return"}),
 ]
 
 
