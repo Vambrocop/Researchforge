@@ -202,6 +202,23 @@ def _id_plus_measurement() -> pd.DataFrame:
                          "x1": x1.round(3), "x2": x2.round(3)})
 
 
+def _likert_survey() -> pd.DataFrame:
+    # 6 Likert items (1-5) of one construct + a demographic integer `age`. GUARD (Wave M6):
+    # `age` is the LAST numeric column, so roles.py guesses it as a LOW-confidence outcome —
+    # that must NOT promote it to a count OUTCOME (which floated negative_binomial/poisson to
+    # #1 and modeled a Likert item as an overdispersed count). Psychometrics / IRT (which the
+    # item block calls for) must top instead.
+    rng = np.random.default_rng(41)
+    n = 260
+    latent = rng.normal(0, 1, n)
+    cols = {}
+    for i, load in enumerate([0.9, 0.8, 0.85, 0.7, 0.75, 0.6], start=1):
+        x = load * latent + rng.normal(0, 1, n)
+        cols[f"sat_q{i}"] = np.clip(np.round(3 + 1.1 * x), 1, 5).astype(int)
+    cols["age"] = rng.integers(18, 66, n)
+    return pd.DataFrame(cols)
+
+
 def _multiclass_target() -> pd.DataFrame:
     # continuous features that SEPARATE 3 classes + a class-label-named multiclass `target`,
     # and NO continuous outcome (wine-shape). GUARD (Wave M5): classification / discriminant
@@ -314,6 +331,14 @@ GOLDEN = [
           {"discriminant_analysis", "linear_discriminant", "manova", "naive_bayes"},
           currently_ok=True, why="",
           reject={"mixed_effects", "robust_regression", "quantile_regression"}),
+    # a Likert item block + a demographic integer `age` surfaces psychometrics / IRT — Wave
+    # M6: a LOW-confidence positional outcome (age, last numeric) no longer counts as a count
+    # OUTCOME, so negative_binomial/poisson stop floating up to model a rating as a count.
+    _case("likert_survey", _likert_survey,
+          {"cronbach_alpha", "mcdonald_omega", "factor_analysis", "efa", "dif_detection",
+           "irt_2pl", "icc"},
+          currently_ok=True, why="",
+          reject={"negative_binomial_regression", "poisson_regression"}),
 ]
 
 

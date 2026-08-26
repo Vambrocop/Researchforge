@@ -411,5 +411,16 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **验证**：wine 上 manova/discriminant/hotelling 冲到 fit=97、study 改跑 **manova + linear_discriminant + ancova**（三者全以 target 为核心，不再建模 alcohol）；三个误伤门（price+segment / 纯回归 target / region 分组）全部 `has_class_target=False` 未误伤；golden 加 `multiclass_target` case（accept 判别族、reject 特征回归）+ 专项 `tests/test_class_target_tilt.py`（10 测，含双向 + 过火门）；全量 recommender/golden 簇 134 绿、fast 套件绿。**确定性选模逻辑，实测验证充分，未派冷审**（CLAUDE.md 允许）。
 - **剩余好点子（backlog）**：① `+5 requires_group` 是粗档——mixed_effects/glmm 也有 requires_group，只因列进 `_FEATURE_MODEL` id 集才被排除；未来若加 requires_group 方法要记得判断它是「按组比较特征」还是「target 当随机效应建模特征」；② RF/GBM/xgboost 能分类多类别 target 但**未 boost**（刻意——遵「由简到繁」优先可解释判别器，且与 Wave S 小数据降权不打架），若想让集成也进分类头条需另设信号；③ `multinomial_logistic` catalog **尚不存在**（已放进 `_CLASSIFY_TARGET` 待其上线即生效）——多类别逻辑回归是这类数据的经典缺失入口，值得补一个分析；④ 2026-07-10 那条的 binary 侧建议（logistic 默认 predictors 漏掉二值协变量、epi 三角 `--goal epi`）仍独立开着，与本修互补但未一并做。
 
+**Wave M6（2026-08-26）：深度产物 dogfood #3（Likert 问卷）——低置信位置猜测被当计数结果，NB 冲上问卷头条（已上线）：**
+- **现象**：一份教科书问卷（6 个 Likert 项 sat_q1..q6[1-5] 一构念 + age + gender + region）跑 `study`，头条是 **negative_binomial_regression（fit 92，#1）**，选它的理由写「计数结果 age 过离散」，可**执行时却建模 sat_q1**（首计数列，1 预测变量）——选模诊断说 age、执行却是 sat_q1，两码事。6 个 Likert 项虽被正确判 `ordinal_like`，却仍集体算进「7 个计数列」。
+- **根因**：`is_count_outcome(age)` 里 `if lo and col.name == lo: return True` **不看置信度**——age 是 roles.py 的 last-numeric 位置回退（likely_outcome，**low** 置信），于是被当成真计数结果 → `has_count_outcome=True` → NB 拿到计数结果加成 + age 过离散诊断 → 冲 #1。这与 M5 是**同一条原则**（低置信位置猜测不该驱动选模路由），也正是 2026-07-10 epi 队列「age 被误判计数、路由成对年龄做计数回归」的同根。
+- **修法（Wave M6）**：`is_count_outcome` 的 `likely_outcome` 路径加置信门——`col.name == lo and lo_conf in {"high","medium"}` 才算计数结果；**名字命中路径不变**（visits/events/count… 仍算，高置信 DV 名 y 仍算）。一行原则，复用 M5 的 `likely_outcome_confidence`。
+- **验证**：survey 上 `has_count_outcome` True→False，NB 从 #1 跌到 **#208**、poisson #207，**心理测量/IRT 登顶**（dif_detection #1 / factor_analysis #2 / cronbach #3 / omega / icc）；study 改跑 **dif_detection + factor_analysis + glmm**（EFA+DIF 正是问卷头条）。计数 golden（visits/events 靠名字、y 靠高置信）全存活；golden 加 `likert_survey` case（reject NB/poisson）+ 4 项专项测试；计数/诊断/epi 测试 75 绿、recommender 簇 64 绿。确定性逻辑实测充分，未派冷审。
+- **附带**：study 第 3 名 glmm 略勉强（心理测量家族名额被 factor_analysis 占、cronbach/omega/icc 被 ≤1/family 去重挤掉，glmm 填 statistics 名额）——同 wine 的 diversity-filter 现象，非本 bug。
+
+**时序销售 dogfood #2 的两处观察（2026-08-26，sales_ts.csv：month/sales/price/promo，未修·留待决策）：**
+- **finance 法上非金融时序头条（选模相关性缺口，wine/M5 的更轻孪生）**：月度销售序列跑 study，头条含 **value_at_risk（VaR/CVaR，finance 族）**——因为 finance 家族亲和度 `_a("timeseries",("continuous",))` 与 time-series 家族**完全相同**，任何连续时序上 VaR/GARCH 都与 arima 并列 fit=100。引擎诚实披露「sales 被判价格已转对数收益」且建模的是**对**的列（sales），比 wine（建模错列）轻，但一个销售分析师拿到「风险价值」当头条仍偏。**补全方向**：finance 族需「金融信号」门控——序列名含 price/return/close/asset/stock/portfolio/yield 或 config `is_returns`，缺则把 VaR/GARCH 降到通用预测法之下（与 M5 同范式，但要谨慎：金融序列未必都这么命名）。
+- **季节自动检测漏掉明显的 12 月季节（分析质量缺口）**：sales_ts 有清晰 12 月+6 月季节，`exponential_smoothing` 却判「无季节」、α=β=0 退化拟合（forecasting.py `_detect_period` **只用 periodogram**，48 点 4 周期下主峰被趋势盖过），ARIMA(1,1,1) 也非季节。**补全方向**：月度/季度/周/日**日期列频率**（profiler 已知 `month` 是 freq="MS"）应作为 seasonal_periods 的强默认（月→12、季→4、周→52、日→7），比 48 点周期图稳得多；顺带 ARIMA 可升 SARIMA。属 executor/forecasting 分支的中等改动（异于选模层），单独一波做 + 可能值 inference 双审。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

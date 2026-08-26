@@ -19,7 +19,7 @@ import pandas as pd
 
 from researchforge.catalog import Catalog
 from researchforge.profiler import profile_dataset
-from researchforge.recommender.affinity import data_signals
+from researchforge.recommender.affinity import data_signals, is_count_outcome
 from researchforge.recommender.recommend import recommend
 from researchforge.recommender.scoring import _class_target_tilt
 
@@ -130,3 +130,48 @@ def test_ranking_classifiers_beat_feature_regressions(tmp_path):
         for bad in ("mixed_effects", "robust_regression"):
             if good in pos and bad in pos:
                 assert pos[good] < pos[bad], f"{good} should rank above {bad}"
+
+
+# ── Wave M6: a LOW-confidence positional outcome is not a count outcome ────────────────
+def _likert_survey_frame(seed: int = 41) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    n = 260
+    latent = rng.normal(0, 1, n)
+    cols = {}
+    for i, load in enumerate([0.9, 0.8, 0.85, 0.7, 0.75, 0.6], start=1):
+        x = load * latent + rng.normal(0, 1, n)
+        cols[f"sat_q{i}"] = np.clip(np.round(3 + 1.1 * x), 1, 5).astype(int)
+    cols["age"] = rng.integers(18, 66, n)
+    return pd.DataFrame(cols)
+
+
+def test_low_conf_positional_age_is_not_count_outcome(tmp_path):
+    # age is the last numeric column → likely_outcome at LOW confidence; it must NOT be read
+    # as a count OUTCOME (that mis-routed a Likert survey to NB/Poisson on a rating).
+    fp = _fp(_likert_survey_frame(), tmp_path)
+    assert fp.likely_outcome == "age" and fp.likely_outcome_confidence == "low"
+    age_col = fp.column("age")
+    assert age_col.kind == "count"  # profiles as count (integer, many distinct)
+    assert is_count_outcome(age_col, fp) is False  # but not a count OUTCOME (low-conf guess)
+    assert data_signals(fp)["has_count_outcome"] is False
+
+
+def test_count_outcome_still_detected_by_name_and_high_conf(tmp_path):
+    # a count column named count-ish (visits) stays a count outcome; and a HIGH-confidence
+    # DV-named count (y) stays one too — the gate only drops the LOW-confidence positional case.
+    rng = np.random.default_rng(4)
+    n = 200
+    x1 = rng.normal(0, 1, n)
+    df = pd.DataFrame({"visits": rng.poisson(np.exp(0.6 + 0.4 * x1)), "x1": x1.round(3),
+                       "x2": rng.normal(0, 1, n).round(3)})
+    assert data_signals(_fp(df, tmp_path))["has_count_outcome"] is True
+
+
+def test_likert_survey_demotes_count_models(tmp_path):
+    fp = _fp(_likert_survey_frame(), tmp_path)
+    recs = recommend(fp)
+    pos = {r.entry.id: i for i, r in enumerate(recs)}
+    # psychometrics/IRT should top; NB/Poisson must not be in the top handful.
+    for cid in ("negative_binomial_regression", "poisson_regression"):
+        if cid in pos:
+            assert pos[cid] > 20, f"{cid} should be demoted on a Likert survey, got #{pos[cid]}"

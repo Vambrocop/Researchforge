@@ -171,13 +171,22 @@ def is_count_outcome(col, fp: DataFingerprint) -> bool:
     """True iff a single count-kind column is a genuine count OUTCOME (Poisson/NB/ZIP),
     not a demographic integer covariate that only profiles as `count` (age/year/code).
     Ordinal_like ratings are never count outcomes (excluded upstream, K-A1). A column
-    qualifies when it is the role-detected ``likely_outcome`` OR its name is count-ish."""
+    qualifies when it is the role-detected ``likely_outcome`` at HIGH/MEDIUM confidence, OR
+    its name is count-ish.
+
+    The confidence gate is the Wave-M6 calibration: a LOW-confidence ``likely_outcome`` is
+    just roles.py's positional "last numeric column" fallback, which on a survey/cohort lands
+    on a demographic integer (age) — promoting THAT to a count outcome floated NB/Poisson to
+    #1 and modeled a Likert item as an overdispersed count (survey dogfood; the 2026-07-10
+    epi-cohort "count regression on age" finding is the same root). A real count outcome is
+    either count-named or a confident role detection, never a positional guess on age/year."""
     if col.kind != "count" or getattr(col, "ordinal_like", False):
         return False
     if col.name in {fp.unit_col, fp.time_col}:
         return False
     lo = getattr(fp, "likely_outcome", None)
-    if lo and col.name == lo:
+    lo_conf = str(getattr(fp, "likely_outcome_confidence", "") or "")
+    if lo and col.name == lo and lo_conf in {"high", "medium"}:
         return True
     name = str(col.name).lower()
     return any(h in name for h in _COUNT_OUTCOME_HINTS)
