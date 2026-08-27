@@ -167,12 +167,16 @@ def _detect_period(ctx: Ctx, y):
     per_cal = _date_seasonal_period(ctx, n)
     if per_cal and _seasonal_strength_ok(y, per_cal):
         return per_cal
-    # reuse the timeseries family's periodogram detector (>=3 cycles, Fisher g-test)
+    # reuse the timeseries family's periodogram detector (>=3 cycles, Fisher g-test), but
+    # STRENGTH-CHECK its result too: on a random walk the periodogram's low-frequency power
+    # yields a spurious long "period" (~n/3) that the Fisher test wrongly certifies (dogfood:
+    # a daily random walk got period≈133 → a garbage SARIMA(…,133)). The differenced-ACF check
+    # rejects it, just as it does for the calendar candidate.
     try:
         from researchforge.executor.branches.timeseries import _periodogram_period
 
         per = _periodogram_period(y, n)
-        if per and 2 <= per <= n // 2:
+        if per and 2 <= per <= n // 2 and _seasonal_strength_ok(y, per):
             return per
     except Exception:
         pass

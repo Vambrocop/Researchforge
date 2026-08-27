@@ -67,7 +67,49 @@ def _branch_arima(ctx: Ctx) -> None:
             if y.nunique() < 2 or len(y) < 10:
                 raise ValueError(f"序列有效观测不足或近常数（n={len(y)}），无法拟合 ARIMA")
 
-            model = ARIMA(y, order=(1, 1, 1)).fit()
+            # Seasonal upgrade (SARIMA): reuse the calendar-aware, strength-confirmed period
+            # detector (forecasting._detect_period; lazy import breaks the timeseries↔forecasting
+            # cycle). A confirmed seasonal period P lifts ARIMA(1,1,1) to SARIMA(1,1,1)(1,1,1)[P]
+            # — otherwise ARIMA misses obvious calendar seasonality (dogfood: retail). Honest
+            # degrade to the non-seasonal fit if SARIMAX cannot converge.
+            from researchforge.executor.branches.forecasting import _detect_period
+
+            n = len(y)
+            sp = _detect_period(ctx, y.to_numpy())
+            if cfg.get("seasonal") in {"none", "no", "off"}:
+                sp = None
+            seasonal_used = 0
+            degrade_note = ""
+            model = None
+            if sp and n >= 2 * sp:
+                try:
+                    from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+                    model = SARIMAX(
+                        y, order=(1, 1, 1), seasonal_order=(1, 1, 1, sp),
+                        enforce_stationarity=False, enforce_invertibility=False,
+                    ).fit(disp=False)
+                    seasonal_used = sp
+                    # Near-deterministic / strong seasonality makes the MLE surface singular
+                    # (statsmodels ConvergenceWarning, se→0). The state-space FORECAST still
+                    # tracks the season, but AIC/SE at a non-converged optimum are unreliable —
+                    # disclose rather than silently trust them.
+                    if not bool(getattr(model, "mle_retvals", {}).get("converged", True)):
+                        degrade_note = (
+                            " ⚠ 季节参数优化未完全收敛（近确定性/强季节数据常见）：预测仍反映季节结构，"
+                            "但 AIC 与标准误可能不可靠。"
+                        )
+                except Exception as serr:
+                    degrade_note = (
+                        f" ⚠ 季节 SARIMA(周期={sp}) 拟合未收敛（{type(serr).__name__}），"
+                        "已回退非季节 ARIMA(1,1,1)。"
+                    )
+                    model = None
+            if model is None:
+                model = ARIMA(y, order=(1, 1, 1)).fit()
+            model_label = (
+                f"SARIMA(1,1,1)(1,1,1)[{seasonal_used}]" if seasonal_used else "ARIMA(1,1,1)"
+            )
 
             (d / "model_summary.txt").write_text(str(model.summary()), encoding="utf-8")
             files.append("model_summary.txt")
@@ -90,7 +132,7 @@ def _branch_arima(ctx: Ctx) -> None:
                 ax.plot(fc_x, fc.tolist(), color="red", linestyle="--", label="forecast")
                 ax.set_xlabel("period index")
                 ax.set_ylabel(value_col)
-                ax.set_title(f"ARIMA(1,1,1) — {value_col}")
+                ax.set_title(f"{model_label} — {value_col}")
                 ax.legend()
                 fig.tight_layout()
                 fig.savefig(d / "forecast.png", dpi=150)
@@ -100,18 +142,34 @@ def _branch_arima(ctx: Ctx) -> None:
                 pass
 
             estimates["aic"] = float(model.aic)
-            summary.append(
-                f"{entry.method} 完成：对 {value_col} 拟合 ARIMA(1,1,1)，"
-                f"AIC={model.aic:.2f}，预测未来 {steps} 期。"
-                "⚠ 阶数固定为 (1,1,1)（未做自动定阶/单位根检验，AIC 仅供参考）。"
+            estimates["seasonal_periods"] = float(seasonal_used)
+            season_zh = (
+                f"季节周期={seasonal_used}（按日期频率+季节强度自动判定，可 config seasonal_periods "
+                "覆盖 / config seasonal=none 关闭）；非季节与季节阶数均固定 (1,1,1)（未自动定阶/单位根检验）。"
+                if seasonal_used else
+                "⚠ 阶数固定为 (1,1,1)（未做自动定阶/单位根检验，AIC 仅供参考）；未检出可靠季节（如为季节数据可 config seasonal_periods 指定）。"
             )
-            code += [
-                "from statsmodels.tsa.arima.model import ARIMA",
-                f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
-                "model = ARIMA(y, order=(1, 1, 1)).fit()",
-                "print(model.summary())",
-                f"fc = model.forecast(steps={steps})",
-            ]
+            summary.append(
+                f"{entry.method} 完成：对 {value_col} 拟合 {model_label}，"
+                f"AIC={model.aic:.2f}，预测未来 {steps} 期。{season_zh}{degrade_note}"
+            )
+            if seasonal_used:
+                code += [
+                    "from statsmodels.tsa.statespace.sarimax import SARIMAX",
+                    f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
+                    f"model = SARIMAX(y, order=(1,1,1), seasonal_order=(1,1,1,{seasonal_used}),"
+                    " enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)",
+                    "print(model.summary())",
+                    f"fc = model.forecast(steps={steps})",
+                ]
+            else:
+                code += [
+                    "from statsmodels.tsa.arima.model import ARIMA",
+                    f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
+                    "model = ARIMA(y, order=(1, 1, 1)).fit()",
+                    "print(model.summary())",
+                    f"fc = model.forecast(steps={steps})",
+                ]
         except Exception as err:
             summary.append(f"ARIMA 拟合失败：{err}")
 
