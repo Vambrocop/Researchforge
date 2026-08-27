@@ -81,7 +81,14 @@ def _branch_arima(ctx: Ctx) -> None:
             seasonal_used = 0
             degrade_note = ""
             model = None
-            if sp and n >= 2 * sp:
+            # Seasonal DIFFERENCING (D=1) consumes `sp` observations on top of the two cycles
+            # Holt-Winters needs, so require ≥3 full cycles: (n - sp) >= 2*sp ⇔ n >= 3*sp.
+            # Below this the seasonal AR/MA at lag `sp` is not identifiable — SARIMAX still
+            # returns converged=True with a boundary (llf≈0) AIC, which would be silently
+            # reported as a valid, spuriously-excellent model (inference-review MUST-FIX). The
+            # `2*sp` rule that exp_smoothing/theta use is NOT safe here (they don't seasonally
+            # difference).
+            if sp and n >= 3 * sp:
                 try:
                     from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -105,6 +112,11 @@ def _branch_arima(ctx: Ctx) -> None:
                         "已回退非季节 ARIMA(1,1,1)。"
                     )
                     model = None
+            elif sp:  # season detected but too few cycles to estimate a seasonal-diff model
+                degrade_note = (
+                    f" ⚠ 已检出季节周期={sp}，但样本不足以稳健估计季节差分模型"
+                    f"（季节差分需 ≥3 个完整周期，n={n}<{3 * sp}），已用非季节 ARIMA(1,1,1)。"
+                )
             if model is None:
                 model = ARIMA(y, order=(1, 1, 1)).fit()
             model_label = (
@@ -146,6 +158,7 @@ def _branch_arima(ctx: Ctx) -> None:
             season_zh = (
                 f"季节周期={seasonal_used}（按日期频率+季节强度自动判定，可 config seasonal_periods "
                 "覆盖 / config seasonal=none 关闭）；非季节与季节阶数均固定 (1,1,1)（未自动定阶/单位根检验）。"
+                "⚠ 此 SARIMA 的 AIC 因含季节差分，不可与非季节 ARIMA 或其他方法的 AIC 直接比较。"
                 if seasonal_used else
                 "⚠ 阶数固定为 (1,1,1)（未做自动定阶/单位根检验，AIC 仅供参考）；未检出可靠季节（如为季节数据可 config seasonal_periods 指定）。"
             )

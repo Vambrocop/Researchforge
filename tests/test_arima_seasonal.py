@@ -91,3 +91,37 @@ def test_config_seasonal_periods_override(tmp_path):
     res = _run(_monthly_seasonal(), tmp_path, cfg={"seasonal_periods": 4})
     assert res.estimates.get("seasonal_periods") == 4
     assert "SARIMA(1,1,1)(1,1,1)[4]" in res.summary
+
+
+def test_small_sample_seasonal_falls_back_to_arima(tmp_path):
+    # inference-review MUST-FIX: a season is confirmed but there are < 3 full cycles, so the
+    # seasonal-difference model is non-identifiable (SARIMAX would report converged=True with a
+    # boundary AIC). The branch must fall back to non-seasonal ARIMA with an honest disclosure —
+    # NOT silently emit a degenerate SARIMA.
+    rng = np.random.default_rng(1)
+    t = np.arange(30)  # 2.5 cycles of a monthly season → < 3*sp=36
+    strong = np.array([-20, -15, -5, 5, 15, 25, 20, 12, 2, 10, 30, 45])[t % 12]
+    df = pd.DataFrame({"month": pd.date_range("2020-01-01", periods=30, freq="MS").strftime("%Y-%m"),
+                       "rev": (100 + 0.5 * t + strong + rng.normal(0, 1.0, 30)).round(1)})
+    res = _run(df, tmp_path)
+    assert res.estimates.get("seasonal_periods") in (0, 0.0)
+    assert "SARIMA" not in res.summary
+    assert "样本不足" in res.summary  # honest disclosure that the season was seen but not modeled
+
+
+def test_convergence_section_excludes_incomparable_aic():
+    # inference-review SHOULD-FIX: AIC/SSE/loglik are not comparable across methods (esp. across
+    # differencing structures) — a shared key name must not produce a cross-method numeric claim.
+    from types import SimpleNamespace
+
+    from researchforge.study_report import _convergence_section
+
+    def _entry(mid, est):
+        return {"result": SimpleNamespace(estimates=est),
+                "rec": SimpleNamespace(entry=SimpleNamespace(id=mid))}
+
+    entries = [_entry("arima", {"aic": 12.0, "shared_stat": 1.0}),
+               _entry("exponential_smoothing", {"aic": 500.0, "shared_stat": 1.1})]
+    text = "\n".join(_convergence_section(entries))
+    assert "`aic`" not in text          # AIC excluded from the cross-method table
+    assert "`shared_stat`" in text      # a genuinely comparable shared key still appears

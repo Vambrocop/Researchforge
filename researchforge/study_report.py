@@ -178,12 +178,24 @@ def _selection_table(chosen: list, plan, requested_k: int) -> list[str]:
     return lines
 
 
+# Information criteria / arbitrary-scale fit keys are NOT comparable across methods: AIC/BIC
+# are relative criteria whose absolute magnitude and sign depend on scale and model-specific
+# constants (e.g. a SARIMA's seasonal differencing shifts AIC by an arbitrary diffuse-variance
+# constant vs a non-seasonal ARIMA), and SSE/log-likelihood are scale-dependent. Sharing the
+# key name across methods does NOT make the numbers commensurable — comparing them by
+# sign/magnitude-ratio would be a false "convergence" claim (inference-review SHOULD-FIX). They
+# belong in each method's own summary, not the cross-method table.
+_NON_COMPARABLE_KEYS = frozenset({"aic", "bic", "aicc", "sse", "loglik", "log_likelihood", "llf"})
+
+
 def _convergence_section(run_entries: list[dict]) -> list[str]:
     """Pure-rule cross-method comparison — zero LLM, zero network (§3, §6 STOP#1).
     Only estimate keys LITERALLY shared (exact string match) by >=2 methods that
     actually produced a RunResult are compared; anything else is honestly left
     alone rather than fuzzy-matched (fuzzy matching is exactly the kind of thing
-    that would misfire and trip STOP point 1)."""
+    that would misfire and trip STOP point 1). Information criteria / arbitrary-scale
+    fit keys (_NON_COMPARABLE_KEYS) are excluded — a shared key name does not make AIC/SSE
+    commensurable across methods (esp. across differencing structures)."""
     lines = ["## §跨方法收敛信号", ""]
     by_key: dict[str, list[tuple[str, float]]] = {}
     for e in run_entries:
@@ -191,6 +203,8 @@ def _convergence_section(run_entries: list[dict]) -> list[str]:
         if res is None:
             continue
         for k, v in (res.estimates or {}).items():
+            if k.lower() in _NON_COMPARABLE_KEYS:
+                continue
             try:
                 fv = float(v)
             except (TypeError, ValueError):
