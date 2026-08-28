@@ -68,7 +68,13 @@
 - id: garch
   method: GARCH(1,1) volatility model
   domain: economics
-  family: time-series
+  # finance, not time-series: GARCH models conditional VOLATILITY (a finance/risk tool
+  # alongside VaR/EVT/Sharpe), not the series MEAN (arima/ets/theta). Keeping it in the
+  # time-series family made the study's ≤1-per-family pick shadow it behind ARIMA even when
+  # a confirmed ARCH effect argued for it; as finance it competes with VaR/EVT for the
+  # finance slot and the volatility_clustering diagnostic lifts it there (and it correctly
+  # inherits the M7 finance-relevance gate).
+  family: finance
   goal: explain
   description: Model time-varying volatility (conditional heteroskedasticity / volatility clustering) in a single series with a GARCH(1,1) via the arch package. Reports the ARCH and GARCH coefficients, the volatility persistence (alpha+beta — how long shocks to volatility last), an ARCH-LM test that justifies whether GARCH is needed at all, the unconditional volatility, and a conditional-volatility plot over time. For returns / prices / any series where calm and turbulent periods cluster (finance, commodity prices, climate variability).
   preconditions:

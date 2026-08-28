@@ -308,19 +308,32 @@ def _diag_timeseries(df: pd.DataFrame, fp: DataFingerprint) -> list[Diagnostic]:
             over=["correlation", "ols_regression"],
         ))
 
-    lb_p = float("nan")
+    # ARCH effect = volatility clustering in the RETURNS, not the level. Testing the squared
+    # LEVEL deviations (old impl) fires on ANY trending / unit-root series — the trend makes the
+    # end-points' squared deviations autocorrelated — so a plain random walk or a trend+noise
+    # line falsely "clustered" (dogfood: it fired on all three of random-walk / GARCH /
+    # trend+noise). The textbook test is Engle's ARCH LM on the returns: strip the trend by
+    # differencing (log-returns for a positive price series, else first differences), which
+    # turns a random walk into iid noise (no ARCH) while preserving genuine volatility clustering.
+    arch_p = float("nan")
     try:
-        from statsmodels.stats.diagnostic import acorr_ljungbox
+        from statsmodels.stats.diagnostic import het_arch
 
-        sq = (y - y.mean()) ** 2  # squared deviations (avoid shadowing the module _r2 helper)
-        lb_p = float(acorr_ljungbox(sq, lags=[min(10, n // 5)], return_df=True)["lb_pvalue"].iloc[0])
+        yv = y[np.isfinite(y)]
+        # A strictly-positive series is a PRICE/level → test its log-returns; a signed series is
+        # already returns/stationary → test it directly (differencing it would be wrong).
+        r = np.diff(np.log(yv)) if np.all(yv > 0) else yv
+        r = r[np.isfinite(r)]
+        if len(r) >= 30 and r.std(ddof=1) > 0:
+            arch_p = float(het_arch(r - r.mean(), nlags=min(10, len(r) // 5))[1])
     except Exception:
         pass
-    if lb_p == lb_p and lb_p < 0.05:
+    if arch_p == arch_p and arch_p < 0.05:
         out.append(Diagnostic(
             code="volatility_clustering",
-            finding=f"时间序列「{col}」存在波动聚集（ARCH 效应）",
-            detail=f"平方序列 Ljung-Box p={lb_p:.3g}（<0.05 表条件异方差/波动随时间成簇）",
+            finding=f"时间序列「{col}」的收益存在波动聚集（ARCH 效应）",
+            detail=f"收益的 Engle ARCH LM 检验 p={arch_p:.3g}"
+                   "（<0.05 表条件异方差/波动随时间成簇；对价格序列在对数收益上检验）",
             prefer=["garch"],
             over=[],
         ))
