@@ -345,7 +345,8 @@ GOLDEN = [
     # ≤1-per-family pick no longer runs a regression on an arbitrary feature (dogfood: wine
     # ran mixed_effects/robust on `alcohol`). reject = the feature-only regressions.
     _case("multiclass_target", _multiclass_target,
-          {"discriminant_analysis", "linear_discriminant", "manova", "naive_bayes"},
+          {"discriminant_analysis", "linear_discriminant", "manova", "naive_bayes",
+           "multinomial_logit"},
           currently_ok=True, why="",
           reject={"mixed_effects", "robust_regression", "quantile_regression"}),
     # a Likert item block + a demographic integer `age` surfaces psychometrics / IRT — Wave

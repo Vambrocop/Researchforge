@@ -98,6 +98,18 @@ def test_no_class_target_on_low_card_grouping_not_named_target(tmp_path):
 
 
 # ── tilt deltas ───────────────────────────────────────────────────────────────────────
+def test_class_target_method_ids_are_live_catalog_ids():
+    # guard against dead-id drift: the curated method sets must reference REAL catalog ids
+    # (the tilt is silently a no-op for a typo'd id — this is how `multinomial_logistic`, which
+    # does not exist, sat in _CLASSIFY_TARGET while the real method `multinomial_logit` got no
+    # class-target boost). Families/`regression` are validated separately (they are not ids).
+    from researchforge.recommender.scoring import _CLASSIFY_TARGET, _FEATURE_MODEL
+
+    ids = {e.id for e in Catalog.load().all()}
+    dead = (_CLASSIFY_TARGET | _FEATURE_MODEL) - ids
+    assert not dead, f"curated class-target sets reference non-existent catalog ids: {sorted(dead)}"
+
+
 def test_tilt_zero_when_signal_off():
     cat = Catalog.load()
     off = {"has_class_target": False}

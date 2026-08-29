@@ -238,7 +238,7 @@ def _small_data_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
 # Model / discriminate the categorical target directly (features → target): boosted.
 _CLASSIFY_TARGET = {
     "discriminant_analysis", "linear_discriminant", "naive_bayes",
-    "multinomial_logistic", "manova", "hotelling_t2",
+    "multinomial_logit", "manova", "hotelling_t2",  # multinomial_logit = the real catalog id
 }
 # Model a continuous FEATURE as outcome, ignoring / nuisance-ing the categorical target:
 # demoted (on a classification table this analysis answers a question nobody asked).
