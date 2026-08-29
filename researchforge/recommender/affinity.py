@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 
 from researchforge.profiler.fingerprint import DataFingerprint
-from researchforge.profiler.semantics import is_treatment_named
+from researchforge.profiler.semantics import is_treatment_named, looks_like_survival
 # single source for the class-label vocabulary (target/class/label/species/…) — shared with
 # profiler.types.infer_kind (Wave M1), so the "is this a classification target" word list
 # never drifts between the type inference and the recommender.
@@ -152,10 +152,6 @@ _DEFAULT = _a("any", ("continuous", "none"), min_rows=10)
 def get_affinity(family: str) -> FamilyAffinity:
     return FAMILY_AFFINITY.get(family, _DEFAULT)
 
-
-# name hints for the (otherwise structure-invisible) survival signal
-_SURV_DUR = ("dur", "time", "tenure", "surv", "lifetime", "follow", "age_at", "tte", "los")
-_SURV_EVT = ("event", "status", "censor", "death", "dead", "fail", "relapse", "recur")
 
 # A count column means one of two very different things: a genuine EVENT/abundance count
 # (a Poisson/NB/ZIP response) or a demographic integer that merely profiles as `count`
@@ -294,14 +290,10 @@ def data_signals(fp: DataFingerprint) -> dict:
     n_count_real = sum(
         1 for c in cols if c.kind == "count" and not getattr(c, "ordinal_like", False)
     )
-    names = [str(c.name).lower() for c in fp.columns]
-
-    def _hint(words):
-        return any(any(w in nm for w in words) for nm in names)
-
-    has_survival = (
-        n_bin >= 1 and (n_cont + n_count) >= 1 and _hint(_SURV_DUR) and _hint(_SURV_EVT)
-    )
+    # Survival SHAPE (a duration column + an event/censoring indicator) via the single-source
+    # semantics vocabulary — the SAME check the profiler uses to withhold is_timeseries, so the
+    # two never drift. Still requires a binary (the event) + a numeric (the duration).
+    has_survival = n_bin >= 1 and (n_cont + n_count) >= 1 and looks_like_survival(fp)
     # a genuine GROUP/arm = a binary/categorical column that is NOT the (role-detected)
     # outcome, and not an edge endpoint. Lets grouping methods (group_comparison, A/B)
     # fire when there's a real grouping variable, but NOT when the only binary is the

@@ -9,6 +9,7 @@ import pandas as pd
 from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
 from researchforge.profiler.ingest import read_table as _robust_read_table
 from researchforge.profiler.quality import diagnose
+from researchforge.profiler.semantics import looks_like_survival
 from researchforge.profiler.types import infer_kind, is_ordinal_like
 
 _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day", "week"}
@@ -84,6 +85,14 @@ def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     time_col = _find_time_col(df, fp)
     fp.time_col = time_col
     if time_col is None:
+        return
+
+    # Survival data: the `time`-named column is a follow-up DURATION, not a panel/series time
+    # axis. Keep it as time_col (survival branches read it as the duration — see CLAUDE.md) but
+    # infer NO panel/timeseries structure from it: otherwise a repeating covariate (age) is
+    # picked as a panel UNIT and the near-unique durations as a series, surfacing DID /
+    # forecasting methods that model the durations — nonsense (dogfood: clinical survival.csv).
+    if looks_like_survival(fp):
         return
 
     n = len(df)

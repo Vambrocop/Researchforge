@@ -92,6 +92,27 @@ def test_regular_series_is_timeseries(tmp_path):
     assert fp.is_timeseries is True
 
 
+def test_survival_duration_named_time_is_not_timeseries(tmp_path):
+    """A survival follow-up DURATION named `time` (≈one value per subject) plus an event
+    indicator must NOT be flagged timeseries — otherwise forecasting methods ARIMA the
+    durations. time_col stays set (survival branches use it), only the flag is withheld."""
+    import numpy as np
+
+    rng = np.random.default_rng(15)
+    n = 260
+    df = pd.DataFrame({
+        "time": rng.exponential(9, n).round(2),      # duration, ~unique per subject
+        "event": rng.binomial(1, 0.7, n),            # the event/censoring indicator
+        "age": rng.integers(40, 80, n),
+    })
+    csv = tmp_path / "surv.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    assert fp.is_timeseries is False        # survival shape → not a forecastable series
+    assert fp.time_col == "time"            # but the duration is still available to survival branches
+
+
 def test_name_anchored_bare_integer_year_still_detected(tmp_path):
     """A bare integer column with year-like values IS still picked up by the
     fallback when its name carries a temporal anchor (e.g. 'obs_year') --

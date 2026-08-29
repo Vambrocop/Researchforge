@@ -428,5 +428,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
     - **仍 defer**：SARIMA 非季节+季节阶数都固定 (1,1,1)，未自动定阶（pmdarima/auto_arima 或 AIC 网格）；ARIMA/SARIMA 未附预测区间（exp_smoothing 有）。
   - ✅ **GARCH 波动聚集浮现已修（2026-08-27，Wave M9）**：dogfood 说「加 ARCH 诊断」，实查发现**诊断已存在但有两个 bug**：① `_diag_timeseries` 的 volatility_clustering 测的是**平方价格离差** `(price-mean)²` 的 Ljung-Box——被趋势主导，**随机游走/趋势+噪声/真 GARCH 三者全触发**（误报机器）；② `garch` 的 catalog family 是 `time-series`，与 arima 同族，被 study 的 ≤1/family 去重挤掉（即便 ARCH 已确认，garch 仍 #5 输给 arima）。**修**：① 诊断改用 **Engle het_arch 检验收益**（价格→对数收益、已是收益则直接测）——干净区分（iid p=0.72 不触发、真 GARCH p=1e-9 触发；随机游走误报率降到 ~5% α 水平，rate-based 测试守卫）；② garch family `time-series`→`finance`（它是波动/风险模型，同 VaR/EVT/Sharpe，非均值预测），改后与 VaR 争 finance 名额、ARCH 诊断（+12）把它拔到 VaR 之上、并正确继承 M7 finance 门。验证：真 GARCH 股票 study 现挑 **arima+garch+exp_smoothing**（garch 浮现！），非金融/非 ARCH 时序 garch 不出现。
 
+**Wave M10（2026-08-29）：dogfood 新域（survival/panel/spatial）——survival 数据被误判时序/面板：**
+- **dogfood 三域**：造教科书 survival（time/event/age/treatment/stage）、panel（firm-year DID）、spatial（lat/lon/temp）跑 study。**spatial 完美**（moran_i+kriging+spatial_regression 全对）；**panel 基本对**（did+panel_fixed_effects，malmquist 略怪但无害）；**survival 逮到真 bug**。
+- **survival 现象**：study 头条给 **stratified_cox + arima + exponential_smoothing**——`arima`「对 time 拟合 ARIMA(1,1,1)」把病人**随访时长**当时间序列预测未来时长（纯无意义）。深挖发现更糟：profiler 还把它误判**面板**（`unit_col=age`：重复的 count 协变量当面板单位；`time` 四舍五入有碰撞使 `n>time.nunique` → is_panel=True → study 挑 did/synthetic_control/goodman_bacon）。
+- **根因**：`time` 列名命中 `_TIME_NAMES` → 当时间轴；生存时长~逐行唯一（n/nunique≈1）→ is_timeseries；重复协变量 → 面板单位。区分信号=**存在 event/删失列**（survival shape）。
+- **修（Wave M10）**：① semantics.py 加 `duration`/`event` 单源词表（英文与 recommender 原 `_SURV_DUR/_SURV_EVT` 完全一致，has_survival 不变）+ `looks_like_survival(fp)` 助手；② profiler `_detect_structure` 检出 survival shape 时**整体跳过 panel/timeseries 推断**（保留 time_col 给 survival 分支——CLAUDE.md 有注，只是不推结构）；③ affinity `has_survival` 迁到共享 `looks_like_survival`（删 `_SURV_DUR/_SURV_EVT/_hint`，DRY 防漂移）。验证：survival study 现挑 **stratified_cox+survival_analysis+competing_risks+parametric_survival+rmst**（全对，arima/did 消失）；真面板/真时序不受影响。加 golden `survival_time_named`（reject arima/ets/theta）+ profiler 单元测试。
+- **仍 defer**：panel 的 malmquist（效率法）在 DID 面板上作第 3 多样性选略怪，非错（无害）；未深究。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

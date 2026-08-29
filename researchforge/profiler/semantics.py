@@ -19,6 +19,13 @@ ROLE_HINTS: dict[str, tuple[str, ...]] = {
                   "水平", "施肥", "组别"),
     "time": ("year", "yr", "date", "time", "month", "quarter", "period",
              "day", "week", "wave", "日期", "年份", "月份", "季度"),
+    # survival SHAPE vocabulary (a time-to-event duration + an event/censoring indicator).
+    # English hints are the SAME set the recommender used, so has_survival is unchanged; the
+    # Chinese synonyms only add coverage. Consumed by looks_like_survival (below).
+    "duration": ("dur", "time", "tenure", "surv", "lifetime", "follow", "age_at", "tte",
+                 "los", "时长", "生存", "存活", "随访"),
+    "event": ("event", "status", "censor", "death", "dead", "fail", "relapse", "recur",
+              "事件", "删失", "死亡", "复发"),
 }
 
 # Word-boundary treatment/arm/exposure regex — a DIFFERENT concept from ROLE_HINTS["treatment"]
@@ -49,6 +56,17 @@ def is_treatment_named(name: str) -> bool:
     falling back to the "first candidate". Consumed by executor _helpers.core / epidemiology;
     re-exported by profiler.roles for backward compatibility."""
     return bool(_TREATMENT_RE.search(str(name)))
+
+
+def looks_like_survival(fp) -> bool:
+    """True when the data has a survival SHAPE: a duration-named column (time/tenure/surv…) AND
+    an event/censoring-named column (event/status/censor/death…). Single source for "is this
+    time-to-event data", so a survival DURATION column named ``time`` is NOT read as a
+    forecastable time index (dogfood: a clinical follow-up ``time`` got ARIMA-forecasted), and
+    the recommender's has_survival stays in lockstep with this profiler-side guard."""
+    names = [str(c.name) for c in fp.columns]
+    return (any(role_hint(nm, "duration") for nm in names)
+            and any(role_hint(nm, "event") for nm in names))
 
 
 def has_design_signal(fp) -> bool:

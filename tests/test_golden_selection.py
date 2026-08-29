@@ -75,6 +75,21 @@ def _survival() -> pd.DataFrame:
                          "age": (60 + 10 * rng.normal(0, 1, n)).round(2)})
 
 
+def _survival_time_named() -> pd.DataFrame:
+    # survival with the duration column literally named `time` (matches the time-name list) +
+    # an event indicator. GUARD: it must NOT be read as a timeseries and ARIMA-forecast the
+    # durations — the event column marks it as survival, so forecasting methods stay out and
+    # survival models lead (dogfood: clinical survival.csv).
+    rng = np.random.default_rng(15)
+    n = 260
+    return pd.DataFrame({
+        "time": rng.exponential(9, n).round(2),
+        "event": rng.binomial(1, 0.7, n),
+        "age": rng.integers(40, 80, n),
+        "treatment": rng.binomial(1, 0.5, n),
+    })
+
+
 def _two_group() -> pd.DataFrame:
     rng = np.random.default_rng(6)
     n = 160
@@ -277,6 +292,12 @@ GOLDEN = [
           {"survival_analysis", "parametric_survival", "cox_ph_diagnostics", "stratified_cox",
            "time_varying_cox", "competing_risks", "rmst", "bayesian_survival"},
           currently_ok=True, why=""),  # Stage 4: survival family affinity surfaces these
+    _case("survival_time_named", _survival_time_named,
+          {"survival_analysis", "parametric_survival", "cox_ph_diagnostics", "stratified_cox",
+           "time_varying_cox", "competing_risks", "rmst", "bayesian_survival"},
+          currently_ok=True, why="",
+          # a duration named `time` must NOT surface forecasting methods (would ARIMA the durations)
+          reject={"arima", "exponential_smoothing", "theta_method"}),
     _case("two_group", _two_group,
           {"group_comparison", "anova_oneway", "mann_whitney", "kruskal_wallis"},
           currently_ok=True, why=""),  # Stage 4: requires_group precondition bonus
