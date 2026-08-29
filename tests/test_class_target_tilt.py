@@ -103,10 +103,14 @@ def test_class_target_method_ids_are_live_catalog_ids():
     # (the tilt is silently a no-op for a typo'd id — this is how `multinomial_logistic`, which
     # does not exist, sat in _CLASSIFY_TARGET while the real method `multinomial_logit` got no
     # class-target boost). Families/`regression` are validated separately (they are not ids).
-    from researchforge.recommender.scoring import _CLASSIFY_TARGET, _FEATURE_MODEL
+    from researchforge.recommender.scoring import (
+        _CLASSIFY_TARGET,
+        _COMPARE_BY_TARGET,
+        _FEATURE_MODEL,
+    )
 
     ids = {e.id for e in Catalog.load().all()}
-    dead = (_CLASSIFY_TARGET | _FEATURE_MODEL) - ids
+    dead = (_CLASSIFY_TARGET | _FEATURE_MODEL | _COMPARE_BY_TARGET) - ids
     assert not dead, f"curated class-target sets reference non-existent catalog ids: {sorted(dead)}"
 
 

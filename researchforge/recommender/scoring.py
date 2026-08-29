@@ -241,12 +241,25 @@ _CLASSIFY_TARGET = {
     "multinomial_logit", "manova", "hotelling_t2",  # multinomial_logit = the real catalog id
 }
 # Model a continuous FEATURE as outcome, ignoring / nuisance-ing the categorical target:
-# demoted (on a classification table this analysis answers a question nobody asked).
+# demoted (on a classification table this analysis answers a question nobody asked). Includes
+# the mixed / random-effect models (mixed_effects/glmm/gamm) — they too regress a continuous
+# outcome with the target as a mere nuisance grouping (NEW mixed-model methods belong here).
 _FEATURE_MODEL = {
-    "mixed_effects", "glmm", "quantile_regression", "robust_regression",
+    "mixed_effects", "glmm", "gamm", "quantile_regression", "robust_regression",
     "influence_diagnostics",
 }
 _FEATURE_MODEL_FAMILIES = {"regression"}
+
+# Compare a continuous outcome ACROSS the target's groups (ANOVA/Kruskal/effect-size style):
+# not a classifier, but it centers the target, so a small lift over feature-only regressions.
+# An EXPLICIT allow-list (not "any requires_group method"): a catch-all wrongly lifted future
+# mixed / design / ecology / survival methods that merely carry a group precondition without
+# answering the target-classification question. New comparison methods opt in here.
+_COMPARE_BY_TARGET = {
+    "group_comparison", "anova_oneway", "kruskal_wallis", "mann_whitney",
+    "permutation_test", "ancova", "repeated_measures_anova", "factorial_anova",
+    "cohens_d", "hedges_g", "cliffs_delta", "bayesian_ab_test",
+}
 
 
 def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
@@ -265,9 +278,7 @@ def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]
             "⚠ 本数据的天然结果是多类别目标（分类），本法却建模某连续特征、未以目标为核心——"
             "语义偏弱；分类/判别（discriminant/naive_bayes/MANOVA）更契合该数据。"
         )
-    # compares a continuous feature ACROSS the target's groups (ANOVA/Kruskal-style) — not a
-    # classifier, but it does center the target, so a small lift over feature-only regressions.
-    if entry.preconditions.requires_group:
+    if entry.id in _COMPARE_BY_TARGET:
         return 5.0, ""
     return 0.0, ""
 
