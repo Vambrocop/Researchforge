@@ -117,3 +117,26 @@ def is_ordinal_like(s: pd.Series) -> bool:
     if uniq[0] < 1:  # a 0-based / negative scale reads as a count, not a rating
         return False
     return uniq == list(range(uniq[0], uniq[-1] + 1))  # consecutive levels
+
+
+def is_text_like(s: pd.Series) -> bool:
+    """A FREE-TEXT hint: does this column hold prose (reviews / open-ends / documents)
+    rather than a category label? True for a non-numeric column whose values average ≥3
+    whitespace tokens OR ≥20 characters, with enough distinct values to be text rather than a
+    handful of repeated labels.
+
+    Free text profiles as ``categorical`` / ``id`` (non-numeric strings), so nothing downstream
+    can tell "great product, works well" from a "region" label — the recommender then never
+    surfaces the text-mining family (dogfood: a reviews table got IRT/agreement, not TF-IDF /
+    sentiment / topics). This flag is the single "is this text" signal; the CJK-aware branch-side
+    tokenizer (text_mining._find_text_col) refines WHICH column to model."""
+    nn = s.dropna()
+    if len(nn) < 5 or pd.api.types.is_numeric_dtype(nn) or pd.api.types.is_bool_dtype(nn):
+        return False
+    vals = nn.astype(str)
+    mean_tokens = float(vals.str.split().map(len).mean())
+    mean_len = float(vals.str.len().mean())
+    n_distinct = int(vals.nunique())
+    texty = mean_tokens >= 3.0 or mean_len >= 20.0
+    high_card = n_distinct >= max(10, int(0.3 * len(nn)))
+    return texty and high_card

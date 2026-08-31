@@ -365,6 +365,10 @@ def data_signals(fp: DataFingerprint) -> dict:
         # an arbitrary continuous feature. Drives the Wave-M5 class-target tilt in scoring.
         "has_class_target": has_class_target,
         "has_survival": has_survival,
+        # a FREE-TEXT column is present (reviews / open-ends / documents) → the text-mining
+        # family (TF-IDF / sentiment / topics) is the right fit, not contingency/agreement on
+        # the text read as a category (Wave M11 tilt).
+        "has_text": any(getattr(c, "is_text", False) for c in cols),
         # genuine financial-asset data (a return/close/stock/portfolio series). Absent it, the
         # finance family (VaR/EVT/Sharpe) is demoted below generic forecasting (Wave M7 tilt).
         "has_finance_signal": has_finance_signal(fp),

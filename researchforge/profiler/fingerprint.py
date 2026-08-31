@@ -30,6 +30,10 @@ class ColumnInfo(BaseModel):
     # 0 / has many levels), so ordinal-regression and rater-agreement methods can be
     # surfaced without changing the coarse `count` type. Defaults False (additive).
     ordinal_like: bool = False
+    # True for a FREE-TEXT column (prose: reviews / open-ends / documents), which profiles as
+    # `kind="categorical"`/`"id"` but should route to the text-mining family (TF-IDF / sentiment
+    # / topics), not to contingency/agreement methods. See types.is_text_like. Defaults False.
+    is_text: bool = False
 
 
 class Issue(BaseModel):

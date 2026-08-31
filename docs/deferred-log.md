@@ -435,5 +435,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **修（Wave M10）**：① semantics.py 加 `duration`/`event` 单源词表（英文与 recommender 原 `_SURV_DUR/_SURV_EVT` 完全一致，has_survival 不变）+ `looks_like_survival(fp)` 助手；② profiler `_detect_structure` 检出 survival shape 时**整体跳过 panel/timeseries 推断**（保留 time_col 给 survival 分支——CLAUDE.md 有注，只是不推结构）；③ affinity `has_survival` 迁到共享 `looks_like_survival`（删 `_SURV_DUR/_SURV_EVT/_hint`，DRY 防漂移）。验证：survival study 现挑 **stratified_cox+survival_analysis+competing_risks+parametric_survival+rmst**（全对，arima/did 消失）；真面板/真时序不受影响。加 golden `survival_time_named`（reject arima/ets/theta）+ profiler 单元测试。
 - **仍 defer**：panel 的 malmquist（效率法）在 DID 面板上作第 3 多样性选略怪，非错（无害）；未深究。
 
+**Wave M11 起（2026-08-29）：dogfood 新域第二轮（text/segmentation/choice/ecology）——四域各缺一个 shape 信号：**
+系统性扫未测域,造教科书数据跑 study。**四个域全有选模问题**,共性=「某 family 该在某数据形状上浮现却没有,因缺 shape 信号」。已修 1 / 待修 3：
+- ✅ **text→nlp（Wave M11 已修）**：产品评论(review_text 自由文本)跑 study 头条给 dif_detection/proportional_odds/fleiss_kappa,**文本挖掘六法(tfidf/sentiment/lda/word_freq/content_analysis/semantic_network)全没浮现**(#28-36)——自由文本被判 `categorical`,选模层无文本信号。修：types.`is_text_like`(非数值+均≥3 词或≥20 字+高基数)→ ColumnInfo.`is_text` 标志(profiling 时算)→ affinity `has_text` 信号 → scoring `_text_relevance_tilt`(nlp 族 +14)。纯文本数据现在 top 全是文本法;评论表 content_analysis 进 3 选;region 等普通类别不误判。
+- 🔴 **待修 choice→分类**：出行方式选择(`chosen_mode` 4 类名义字符串 + 属性)跑 study 给 tweedie_glm/latent_class/robust_regression——**名义结果没触发分类**(multinomial_logit/mnl_choice/判别没浮现)。根因:`chosen_mode` 非 class-label 命名(target/class/species…)→ M5 `has_class_target` 不触发(它要类命名 or 角色判定结果);而 roles.py 的结果检测偏数值,不认名义字符串结果。**补全方向**:①roles 认「低基数名义字符串且像结果」;②或 has_class_target 放宽到「唯一的低基数名义列且无连续结果」。
+- 🔴 **待修 segmentation→聚类**：客户特征(全连续,无结果)跑 study 给 NB/diversity_indices/zinb——**聚类/PCA/kmeans 没浮现**,且 `visits_per_month`(count)触发计数模型、误用 `diversity_indices`(生态)。根因:无结果的纯特征表应路由降维/聚类,但缺「no-outcome 多连续 → 聚类」信号(有 many_continuous→correlation/pca 的 golden,但 study 里被计数模型盖过)。
+- 🔴 **待修 ecology→群落**：物种计数矩阵(sp_0..7 + habitat + ph)跑 study 给 dif_detection/mixed_effects/latent_class——**permanova/diversity/nmds/rda/indicator_species 没浮现**;≥3 平行物种计数列疑被当 rater/scale 块 → dif_detection。根因:物种×站点计数矩阵 + 分组列的「群落」形状无专用信号。**注**:golden 有 community_matrix case 过,但那用 select_top、study 的诊断+多样性把 dif/mixed 顶上来了——需查 study 路径。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

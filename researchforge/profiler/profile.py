@@ -10,7 +10,7 @@ from researchforge.profiler.fingerprint import ColumnInfo, DataFingerprint
 from researchforge.profiler.ingest import read_table as _robust_read_table
 from researchforge.profiler.quality import diagnose
 from researchforge.profiler.semantics import looks_like_survival
-from researchforge.profiler.types import infer_kind, is_ordinal_like
+from researchforge.profiler.types import infer_kind, is_ordinal_like, is_text_like
 
 _TIME_NAMES = {"year", "yr", "date", "time", "month", "quarter", "period", "day", "week"}
 
@@ -34,6 +34,7 @@ def profile_dataset(path: str | Path) -> DataFingerprint:
             n_missing=int(df[c].isna().sum()),
             n_unique=int(df[c].nunique(dropna=True)),
             ordinal_like=is_ordinal_like(df[c]),
+            is_text=is_text_like(df[c]),
         )
         for c in df.columns
     ]

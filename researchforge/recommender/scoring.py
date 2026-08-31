@@ -295,6 +295,18 @@ def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]
 _FINANCE_DEMOTE = -18.0
 
 
+def _text_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for the free-text tilt (Wave M11). A free-text column (reviews /
+    open-ends / documents) profiles as `categorical`/`id`, so without this signal the text-mining
+    family stays buried and the recommender surfaces IRT / agreement / contingency on the text
+    read as a bland category (dogfood: a reviews table got dif_detection / fleiss_kappa, never
+    TF-IDF / sentiment / topics). When a text column is present, boost the nlp family. Returns
+    (0.0, "") when there is no text column."""
+    if not signals.get("has_text") or entry.family != "nlp":
+        return 0.0, ""
+    return 14.0, ""
+
+
 def _finance_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, disclosure note) for the finance-relevance tilt: demote finance-family
     methods on a series with no financial-asset signal, so a plain sales/temperature series
@@ -376,6 +388,7 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _small_data_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _class_target_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _finance_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _text_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
