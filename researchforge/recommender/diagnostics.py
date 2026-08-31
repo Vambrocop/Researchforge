@@ -100,14 +100,20 @@ def _diag_count(df: pd.DataFrame, fp: DataFingerprint, outcome: Optional[str]) -
     and excess-zero comparison vs the Poisson-implied zero rate)."""
     from scipy import stats
 
+    from researchforge.recommender.affinity import is_count_outcome
+
     out: list[Diagnostic] = []
-    # the count column: the role-hinted outcome if it's count, else first count column
+    # the count column must be a GENUINE count OUTCOME (is_count_outcome: count-named OR a
+    # high/med-confidence role detection), not a demographic integer that merely profiles as
+    # `count` — otherwise overdispersion on a low-confidence positional `age`/`tenure` guess
+    # spuriously prefers NB on a table with no count outcome (dogfood: customer segmentation
+    # routed to NB/ZINB instead of clustering). Diagnostic-side twin of the Wave-M6 signal gate.
     col = None
-    if outcome and (ci := fp.column(outcome)) and ci.kind == "count":
+    if outcome and (ci := fp.column(outcome)) and ci.kind == "count" and is_count_outcome(ci, fp):
         col = outcome
     else:
         for c in _analysis_cols(fp):
-            if c.kind == "count" and c.name in df.columns:
+            if c.kind == "count" and c.name in df.columns and is_count_outcome(c, fp):
                 col = c.name
                 break
     if col is None:

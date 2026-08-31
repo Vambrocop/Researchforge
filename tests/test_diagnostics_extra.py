@@ -71,6 +71,29 @@ def test_missingness(tmp_path: Path) -> None:
     assert "mice_imputation" in codes["missing_data"].prefer
 
 
+def test_overdispersion_not_fired_on_demographic_count(tmp_path: Path) -> None:
+    # Wave M13 (diagnostic twin of M6): a demographic integer (age) that merely profiles as
+    # `count` and is only a LOW-confidence positional outcome must NOT trigger the overdispersion
+    # → NB nudge — otherwise a no-count-outcome table (customer features) gets routed to count
+    # models instead of the intended analysis.
+    rng = np.random.default_rng(3)
+    n = 220
+    df = pd.DataFrame({"spend": rng.normal(3000, 800, n).round(0),
+                       "basket": rng.normal(50, 12, n).round(1),
+                       "age": rng.integers(18, 70, n)})   # age = last numeric, low-conf, count-kind
+    assert "overdispersion" not in _codes(df, tmp_path)
+
+
+def test_overdispersion_still_fires_on_named_count(tmp_path: Path) -> None:
+    # …but a genuinely count-named outcome still triggers it (guard against over-correction).
+    rng = np.random.default_rng(4)
+    n = 220
+    x = rng.normal(0, 1, n)
+    mu = np.exp(0.6 + 0.4 * x)
+    df = pd.DataFrame({"visits": rng.poisson(mu) + rng.poisson(mu * 2), "x1": x.round(3)})
+    assert "overdispersion" in _codes(df, tmp_path)
+
+
 def test_silent_on_plain_cross_section(tmp_path: Path) -> None:
     rng = np.random.default_rng(4)
     n = 150
