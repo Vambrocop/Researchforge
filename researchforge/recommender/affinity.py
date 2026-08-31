@@ -322,18 +322,30 @@ def data_signals(fp: DataFingerprint) -> dict:
         lo_col is not None and lo_col.kind == "continuous" and lo_conf in {"high", "medium"}
     )
     # A genuine MULTICLASS classification TARGET: a categorical column (≥3 levels, not an
-    # edge endpoint / unit / time) that is class-label-named (target/class/species/…) OR the
-    # role-detected outcome, WITH no trustworthy continuous outcome to model instead. On such
-    # data the continuous columns are FEATURES, so classification / discriminant methods
-    # (which model the target) are the right fit — a regression modeling an arbitrary feature
-    # is semantically weak. Binary targets are handled separately (outcome_is_binary), so this
-    # is the multiclass gap. Gated on has_continuous_outcome=False so it can never misfire on
-    # ordinary regression data that merely carries a category column (Wave M5).
+    # edge endpoint / unit / time / free text) that is class-label-named (target/class/…) OR
+    # the role-detected outcome OR the LONE nominal column amid numeric features, WITH no
+    # trustworthy continuous outcome to model instead. On such data the continuous columns are
+    # FEATURES, so classification / discriminant methods (which model the target) are the right
+    # fit. Binary targets are handled separately (outcome_is_binary) — this is the multiclass
+    # gap. Gated on has_continuous_outcome=False so it can't misfire on regression data that
+    # merely carries a category column (Wave M5; the lone-nominal clause = Wave M12 for a
+    # non-class-named nominal target like choice's `chosen_mode`).
+    nominal_cats = [
+        c for c in cols
+        if c.kind == "categorical" and c.name not in edge_cols
+        and getattr(c, "n_unique", 0) >= 3 and not getattr(c, "is_text", False)
+    ]
+
+    def _is_class_target_col(c) -> bool:
+        if _is_class_label_name(str(c.name).lower()) or c.name == lo:
+            return True
+        # a LONE nominal column amid ≥2 numeric features is the natural classification target
+        # even without a class-label name; require exactly one so a table of several
+        # categoricals (ambiguous which is the target) does not trigger it.
+        return len(nominal_cats) == 1 and c is nominal_cats[0] and (n_cont + n_count) >= 2
+
     has_class_target = (not has_continuous_outcome) and any(
-        c.kind == "categorical" and c.name not in edge_cols
-        and getattr(c, "n_unique", 0) >= 3
-        and (_is_class_label_name(str(c.name).lower()) or c.name == lo)
-        for c in cols
+        _is_class_target_col(c) for c in nominal_cats
     )
     return {
         "n_rows": fp.n_rows,

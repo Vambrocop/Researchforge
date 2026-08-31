@@ -234,6 +234,23 @@ def _nonfinancial_timeseries() -> pd.DataFrame:
     })
 
 
+def _nominal_target_unnamed() -> pd.DataFrame:
+    # a nominal STRING outcome (chosen_mode) that is NOT class-label-named, amid numeric
+    # feature columns — a discrete-choice / classification table. GUARD (Wave M12): the lone
+    # nominal amid numerics is the target, so classification/discriminant surface, not a
+    # regression modeling an arbitrary numeric feature (dogfood: transport-mode choice).
+    rng = np.random.default_rng(43)
+    n = 300
+    cost = rng.normal(15, 6, n)
+    time = rng.normal(35, 12, n)
+    # mode depends on cost/time (classification is learnable) — terciles give 3 balanced classes
+    score = -0.1 * cost - 0.05 * time + rng.normal(0, 1, n)
+    q1, q2 = np.quantile(score, [1 / 3, 2 / 3])
+    mode = np.where(score <= q1, "train", np.where(score <= q2, "bus", "car"))
+    return pd.DataFrame({"chosen_mode": mode, "travel_cost": cost.round(2),
+                         "travel_time": time.round(1), "income": rng.normal(50000, 15000, n).round(0)})
+
+
 def _likert_survey() -> pd.DataFrame:
     # 6 Likert items (1-5) of one construct + a demographic integer `age`. GUARD (Wave M6):
     # `age` is the LAST numeric column, so roles.py guesses it as a LOW-confidence outcome —
@@ -370,6 +387,11 @@ GOLDEN = [
            "multinomial_logit"},
           currently_ok=True, why="",
           reject={"mixed_effects", "robust_regression", "quantile_regression"}),
+    _case("nominal_target_unnamed", _nominal_target_unnamed,
+          {"discriminant_analysis", "linear_discriminant", "manova", "naive_bayes",
+           "multinomial_logit"},
+          currently_ok=True, why="",
+          reject={"robust_regression", "quantile_regression", "tweedie_glm"}),
     # a Likert item block + a demographic integer `age` surfaces psychometrics / IRT — Wave
     # M6: a LOW-confidence positional outcome (age, last numeric) no longer counts as a count
     # OUTCOME, so negative_binomial/poisson stop floating up to model a rating as a count.
