@@ -295,6 +295,17 @@ def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]
 _FINANCE_DEMOTE = -18.0
 
 
+def _efficiency_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for the efficiency tilt (Wave M14). On a DEA/SFA input→output DMU
+    table (has_efficiency_signal), boost the efficiency family (DEA / SFA / Malmquist) so it
+    leads over generic regressors — the outlier diagnostic otherwise buries it because a
+    frontier's efficient units read as outliers and boost robust/influence (dogfood: bank-branch
+    efficiency got robust_regression, not DEA). Returns (0.0, "") without the input↔output shape."""
+    if not signals.get("has_efficiency_signal") or entry.family != "efficiency":
+        return 0.0, ""
+    return 16.0, ""
+
+
 def _text_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, note) for the free-text tilt (Wave M11). A free-text column (reviews /
     open-ends / documents) profiles as `categorical`/`id`, so without this signal the text-mining
@@ -389,6 +400,7 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _class_target_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _finance_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _text_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _efficiency_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))

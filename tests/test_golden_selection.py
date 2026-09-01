@@ -217,6 +217,23 @@ def _id_plus_measurement() -> pd.DataFrame:
                          "x1": x1.round(3), "x2": x2.round(3)})
 
 
+def _efficiency_dmu() -> pd.DataFrame:
+    # a DEA/SFA decision-making-unit table: INPUT columns + OUTPUT columns (bank branches).
+    # GUARD (Wave M14): the efficiency family (DEA/SFA) must lead — the outlier diagnostic
+    # otherwise buries it (a frontier's efficient units read as outliers → robust/influence).
+    rng = np.random.default_rng(44)
+    n = 90
+    staff = rng.integers(10, 100, n)
+    assets = rng.gamma(3, 50, n).round(0)
+    return pd.DataFrame({
+        "branch_id": [f"b{i}" for i in range(n)],
+        "input_staff": staff,
+        "input_assets": assets,
+        "output_loans": np.maximum(0.4 * staff + 0.01 * assets + rng.normal(0, 5, n), 1).round(1),
+        "output_deposits": np.maximum(0.6 * staff + 0.02 * assets + rng.normal(0, 8, n), 1).round(1),
+    })
+
+
 def _nonfinancial_timeseries() -> pd.DataFrame:
     # a monthly SALES series (trend + a price covariate + promo). GUARD (Wave M7): the finance
     # family (VaR / extreme_value / risk_adjusted_return) must NOT headline a non-financial
@@ -407,6 +424,9 @@ GOLDEN = [
           {"arima", "exponential_smoothing", "theta_method", "bayesian_state_space"},
           currently_ok=True, why="",
           reject={"value_at_risk", "extreme_value", "risk_adjusted_return"}),
+    _case("efficiency_dmu", _efficiency_dmu,
+          {"dea", "sfa", "malmquist"},
+          currently_ok=True, why=""),  # Wave M14: input→output shape surfaces the efficiency family
 ]
 
 

@@ -442,5 +442,12 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - 🟡 **部分修 segmentation→聚类（Wave M13 修了一半根因）**：客户特征(无结果)跑 study 给 NB/diversity_indices/zinb——聚类/PCA/kmeans 没浮现。**M13 已修**：`_diag_count` 用 `likely_outcome`(age,低置信)当计数列跑过离散→NB,现改用 `is_count_outcome`(M6 门,查置信+命名)——诊断侧的 M6 孪生,全局防 age/tenure 误触发过离散。**但没完全修**:`visits_per_month`(count 命名)使 `has_count_outcome=True` → count 族靠家族亲和度仍上位;生态法(diversity/beta_diversity/nmds)因多 count 列像丰度矩阵而误浮现。**真修需**:①「聚类意图」信号(无指定结果 + 同质数值特征 → 优先 kmeans/gmm/pca/factor,降 count 族);②生态法需真「物种×站点丰度矩阵」信号门控(非任意多 count 列)。较大,单独一波。
 - 🔴 **待修 ecology→群落**：物种计数矩阵(sp_0..7 + habitat + ph)跑 study 给 dif_detection/mixed_effects/latent_class——**permanova/diversity/nmds/rda/indicator_species 没浮现**;≥3 平行物种计数列疑被当 rater/scale 块 → dif_detection。根因:物种×站点计数矩阵 + 分组列的「群落」形状无专用信号。**注**:golden 有 community_matrix case 过,但那用 select_top、study 的诊断+多样性把 dif/mixed 顶上来了——需查 study 路径。
 
+**Wave M14 起（2026-08-29）：dogfood 新域第三轮（network/experiment/ordinal/efficiency）：**
+- ✅ **robust_regression 字符串预测变量崩溃已修**：A/B 实验(variant='control'/'treatment' 字符串二值)跑 study,robust_regression 崩 `ValueError: could not convert string to float`——未 dummy 编码就 to_numpy(float)。修:get_dummies(数值透传)+ 低基数类别纳入预测(≤15 级、非文本)+ Theil-Sen/绘图单预测特例改判设计矩阵宽度。其它 5 回归分支(influence/quantile/ols/regularized/gam)实测无同类崩溃(robust 独有)。commit bda994d。
+- ✅ **efficiency/DEA 浮现已修（Wave M14）**：银行网点 input_*/output_* DMU 数据跑 study 给 robust/influence/tweedie——DEA/SFA(plain recommend 里 #3/#4)被 study 的**离群诊断**顶下去(前沿的高效单位天然是"离群"→robust/influence +12)。修:`has_efficiency_signal`(列名 token input↔output 配对)→ efficiency 族 +16。study 现挑 dea 头条;plain regression 守卫不误伤。
+- 🟡 **network 小观察(未修)**:边列表跑 study 给 network_analysis+community_detection(对)+ NB 蹭 `weight`(count 列)。NB 建模边权是小语义瑕,2/3 对,暂不修。
+- 🟡 **ordinal 小观察(未修)**:单序数满意度(1-5)跑 study proportional_odds_logit 正确领先(对),robust/influence 次要。可接受。
+- 🔴 **ecology 待修(第二轮遗留)**:物种×站点计数矩阵给 dif_detection/mixed_effects,群落法(permanova/nmds/diversity)没浮现——需真「丰度矩阵」信号门控(非任意多 count 列);与 segmentation 的聚类信号是同类「无/多结果形状」大活,单独一波。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

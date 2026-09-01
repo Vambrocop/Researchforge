@@ -180,6 +180,28 @@ _FINANCE_TOKENS = frozenset({
 })
 
 
+# DEA / SFA efficiency shape: a decision-making-unit table with INPUT columns and OUTPUT
+# columns (bank branches with staff/assets → loans/deposits; farms with land/labor → yield).
+# High-precision TOKEN match (input/output split on non-alphanumeric), requiring BOTH — a lone
+# "output" could be an ordinary outcome; the input↔output pairing is what says "frontier".
+_EFF_INPUT_TOKENS = frozenset({"input", "inputs"})
+_EFF_OUTPUT_TOKENS = frozenset({"output", "outputs"})
+
+
+def has_efficiency_signal(fp: DataFingerprint) -> bool:
+    """True iff the columns carry the DEA/SFA input→output shape (≥1 input-named AND ≥1
+    output-named column). The efficiency family (DEA/SFA/Malmquist) otherwise ties generic
+    regressors on a multi-numeric table and gets buried under the outlier diagnostic (a
+    frontier's efficient units read as outliers → robust/influence boosted); this signal lifts
+    it on data that is unmistakably a productivity/efficiency study (Wave M14)."""
+    has_in = has_out = False
+    for c in fp.columns:
+        toks = set(re.split(r"[^a-z0-9]+", str(c.name).lower()))
+        has_in = has_in or bool(toks & _EFF_INPUT_TOKENS)
+        has_out = has_out or bool(toks & _EFF_OUTPUT_TOKENS)
+    return has_in and has_out
+
+
 def has_finance_signal(fp: DataFingerprint) -> bool:
     """True iff any column name carries high-precision financial-asset vocabulary (a stock
     price / return / portfolio series). The single source for "is this genuinely financial
@@ -384,6 +406,9 @@ def data_signals(fp: DataFingerprint) -> dict:
         # genuine financial-asset data (a return/close/stock/portfolio series). Absent it, the
         # finance family (VaR/EVT/Sharpe) is demoted below generic forecasting (Wave M7 tilt).
         "has_finance_signal": has_finance_signal(fp),
+        # DEA/SFA input→output DMU shape → boost the efficiency family over generic regressors
+        # (Wave M14 tilt), which the outlier diagnostic otherwise buries on frontier data.
+        "has_efficiency_signal": has_efficiency_signal(fp),
         "has_group": has_group,
         # A treatment for RANKING purposes = a TREATMENT-NAMED column (treated/arm/exposed/
         # dose…, word-boundary via semantics), NOT merely "some binary column exists"
