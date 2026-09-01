@@ -295,6 +295,61 @@ def _class_target_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]
 _FINANCE_DEMOTE = -18.0
 
 
+# ── clustering-intent tilt (Wave M16) ────────────────────────────────────────────────
+# On an UNSUPERVISED wide-numeric table (has_cluster_shape: ≥4 numeric features, no target /
+# structure) the natural analysis is segmentation / dimension reduction — modeling one
+# arbitrary feature (a count-named `visits`, the first continuous) is not what the data asks
+# for (dogfood: customer segmentation got NB/ZINB on `visits`). Boost clustering / dim-reduction
+# and demote the single-feature count / regression models.
+_CLUSTER_METHODS = {
+    "kmeans_clustering", "gaussian_mixture", "dbscan_clustering", "hierarchical_clustering",
+    "latent_profile_analysis", "finite_mixture", "pca", "factor_analysis", "mds",
+    "tsne", "umap", "correlation", "correlation_matrix",
+}
+# model one arbitrary feature / count on a no-outcome table → demoted on cluster-shape data.
+_UNSUPERVISED_DEMOTE = {
+    "negative_binomial_regression", "poisson_regression", "zero_inflated_poisson",
+    "zero_inflated_negbin", "tweedie_glm", "bayesian_poisson_rate",
+}
+
+
+def _cluster_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for the clustering-intent tilt (Wave M16). Fires only on an
+    unsupervised wide-numeric table (has_cluster_shape). Boosts clustering / dim-reduction,
+    demotes the single-feature count / regression models that would otherwise model an arbitrary
+    column. Returns (0.0, "") on supervised / structured data."""
+    if not signals.get("has_cluster_shape"):
+        return 0.0, ""
+    if entry.id in _CLUSTER_METHODS:
+        return 14.0, ""
+    if entry.id in _UNSUPERVISED_DEMOTE or entry.family == "regression":
+        return -12.0, (
+            "⚠ 本数据是宽数值表、无可辨识的结果变量——自然分析是分群(聚类)/降维,"
+            "本法却建模某单一特征;已降权,优先 kmeans/GMM/PCA/因子分析。"
+        )
+    return 0.0, ""
+
+
+def _ecology_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for the ecology community tilt (Wave M15). Community methods
+    (PERMANOVA / NMDS / diversity / β-diversity / indicator-species) declare only
+    min_count_cols≥2, so they fire on ANY 2+ count columns — a customer table's heterogeneous
+    visits/tenure/age got diversity_indices (dogfood: segmentation). When the data is NOT a
+    species×site abundance matrix (has_community_matrix False), demote the count-matrix ecology
+    methods. Returns (0.0, "") on a real community matrix or for non-count-matrix ecology methods
+    (capture_recapture / occupancy_model, which don't need the matrix)."""
+    # only the count-matrix ecology methods are gated (capture_recapture / occupancy_model
+    # don't need an abundance matrix, so they're left neutral).
+    if entry.family != "ecology" or not getattr(entry.preconditions, "min_count_cols", 0):
+        return 0.0, ""
+    if signals.get("has_community_matrix"):
+        return 14.0, ""  # a real species×site abundance matrix → community methods are the fit
+    return -16.0, (
+        "⚠ 未检测到物种×站点丰度矩阵（宽/平行计数块）——群落多样性/排序法(PERMANOVA/NMDS/"
+        "diversity)假定的是丰度矩阵，用在少数异质计数列上语义偏弱；已降权。"
+    )
+
+
 def _efficiency_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, note) for the efficiency tilt (Wave M14). On a DEA/SFA input→output DMU
     table (has_efficiency_signal), boost the efficiency family (DEA / SFA / Malmquist) so it
@@ -401,6 +456,8 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _finance_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _text_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _efficiency_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _ecology_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _cluster_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
@@ -463,7 +520,9 @@ def score_method(
     sd_note = _small_data_tilt(entry, signals)[1]  # overfit disclosure on small data
     ct_note = _class_target_tilt(entry, signals)[1]  # class-target semantic disclosure
     fin_note = _finance_relevance_tilt(entry, signals)[1]  # finance-relevance disclosure
-    extra = " ".join(n for n in (sd_note, ct_note, fin_note) if n)
+    eco_note = _ecology_relevance_tilt(entry, signals)[1]  # community-matrix disclosure
+    cl_note = _cluster_relevance_tilt(entry, signals)[1]  # clustering-intent disclosure
+    extra = " ".join(n for n in (sd_note, ct_note, fin_note, eco_note, cl_note) if n)
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
         f"难度 {diff}（越高越难）。{trend_note}。{(' ' + extra) if extra else ''}"

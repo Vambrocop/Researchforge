@@ -447,7 +447,9 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - ✅ **efficiency/DEA 浮现已修（Wave M14）**：银行网点 input_*/output_* DMU 数据跑 study 给 robust/influence/tweedie——DEA/SFA(plain recommend 里 #3/#4)被 study 的**离群诊断**顶下去(前沿的高效单位天然是"离群"→robust/influence +12)。修:`has_efficiency_signal`(列名 token input↔output 配对)→ efficiency 族 +16。study 现挑 dea 头条;plain regression 守卫不误伤。
 - 🟡 **network 小观察(未修)**:边列表跑 study 给 network_analysis+community_detection(对)+ NB 蹭 `weight`(count 列)。NB 建模边权是小语义瑕,2/3 对,暂不修。
 - 🟡 **ordinal 小观察(未修)**:单序数满意度(1-5)跑 study proportional_odds_logit 正确领先(对),robust/influence 次要。可接受。
-- 🔴 **ecology 待修(第二轮遗留)**:物种×站点计数矩阵给 dif_detection/mixed_effects,群落法(permanova/nmds/diversity)没浮现——需真「丰度矩阵」信号门控(非任意多 count 列);与 segmentation 的聚类信号是同类「无/多结果形状」大活,单独一波。
+- ✅ **ecology→群落 已修(Wave M15)** + **segmentation→聚类 已修(Wave M16)**：两块「大活」都啃下了(用户点名)。
+  - **M15 群落矩阵信号**：`has_community_matrix`(n_count_real≥6 或 ≥3 计数列共享命名词干如 sp_0/sp_1)→ `_ecology_relevance_tilt`:真丰度矩阵时 community 法(permanova/nmds/diversity/indicator_species,凡 min_count_cols≥2)+14、非丰度矩阵时 −16(capture_recapture/occupancy 不需矩阵,中性)。验证:ecology study 挑 permanova 头条;segmentation/heterogeneous-counts 的 ecology 误触发清除。
+  - **M16 聚类意图信号**：`has_cluster_shape`(≥4 数值特征 + 无强结果[命名DV/class-target/binary/survival/ordinal 都无]+ 无特殊结构[ts/panel/geo/edge/community/efficiency])→ `_cluster_relevance_tilt`:聚类/降维法(kmeans/gmm/dbscan/hierarchical/pca/factor/latent_profile/finite_mixture/mds/tsne/umap)+14、单特征 count/回归模型 −12。**关键**:count-hint 名(visits/tenure)不算强结果,故 count-named 特征表也能识别为无监督。验证:segmentation study 挑 gaussian_mixture+factor_analysis+latent_profile;named-target 回归/efficiency/community 守卫都不误伤;many_continuous→聚类。golden 加 customer_segmentation(accept 聚类/reject 计数)+ heterogeneous_counts(reject 生态)。
 
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

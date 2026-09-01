@@ -206,6 +206,36 @@ def _three_factor() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _customer_segmentation() -> pd.DataFrame:
+    # customer features (spend / visits / basket / tenure / age), NO outcome → the natural
+    # analysis is segmentation. GUARD (Wave M16): clustering / dimension-reduction leads, not a
+    # count/regression model on an arbitrary feature (dogfood: it got NB/ZINB on `visits`).
+    rng = np.random.default_rng(46)
+    n = 400
+    seg = rng.integers(0, 3, n)
+    return pd.DataFrame({
+        "annual_spend": (seg * 2000 + rng.normal(3000, 800, n)).round(0),
+        "visits_per_month": (seg * 3 + rng.poisson(4, n)).astype(int),
+        "avg_basket": (seg * 15 + rng.normal(50, 12, n)).round(1),
+        "tenure_months": rng.integers(1, 60, n),
+        "age": rng.integers(18, 70, n),
+    })
+
+
+def _heterogeneous_counts() -> pd.DataFrame:
+    # a customer table with a FEW HETEROGENEOUS count metrics (visits/tenure) + continuous —
+    # NOT a species×site abundance matrix. GUARD (Wave M15): the ecology community family
+    # (diversity / PERMANOVA / NMDS) must NOT surface just because ≥2 count columns exist.
+    rng = np.random.default_rng(45)
+    n = 300
+    return pd.DataFrame({
+        "annual_spend": rng.normal(3000, 800, n).round(0),
+        "visits_per_month": rng.poisson(5, n),
+        "avg_basket": rng.normal(50, 12, n).round(1),
+        "tenure_months": rng.integers(1, 60, n),
+    })
+
+
 def _id_plus_measurement() -> pd.DataFrame:
     # a unique-integer id column FIRST + a continuous outcome + predictors. GUARD:
     # the id must NOT derail selection (it profiles as `id`) — a real regressor stays on top.
@@ -369,6 +399,18 @@ GOLDEN = [
     _case("community_matrix", _community_matrix,
           {"permanova", "diversity_indices", "beta_diversity", "nmds", "rda", "indicator_species"},
           currently_ok=True, why=""),  # species×site count matrix → ecology community method
+    _case("heterogeneous_counts", _heterogeneous_counts,
+          {"correlation", "correlation_matrix", "pca", "kmeans_clustering", "gaussian_mixture",
+           "factor_analysis", "hierarchical_clustering", "latent_profile_analysis"},
+          currently_ok=True, why="",  # a few heterogeneous counts → NOT a community matrix
+          reject={"diversity_indices", "beta_diversity", "nmds", "permanova", "species_richness",
+                  "rarefaction"}),
+    _case("customer_segmentation", _customer_segmentation,
+          {"kmeans_clustering", "gaussian_mixture", "hierarchical_clustering",
+           "latent_profile_analysis", "finite_mixture", "pca", "factor_analysis"},
+          currently_ok=True, why="",  # no outcome, wide numeric → clustering / dim-reduction
+          reject={"negative_binomial_regression", "poisson_regression", "zero_inflated_negbin",
+                  "diversity_indices"}),
     _case("id_plus_measurement", _id_plus_measurement,
           {"ols_regression", "robust_regression", "regularized_regression", "correlation",
            "gradient_boosting", "random_forest", "gam", "quantile_regression"},

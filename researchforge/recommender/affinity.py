@@ -312,6 +312,17 @@ def data_signals(fp: DataFingerprint) -> dict:
     n_count_real = sum(
         1 for c in cols if c.kind == "count" and not getattr(c, "ordinal_like", False)
     )
+    # A species×site ABUNDANCE MATRIX (the ecology community shape): many PARALLEL count
+    # columns. Community methods (PERMANOVA / NMDS / diversity / β-diversity) declare only
+    # min_count_cols≥2, so they fire on ANY 2+ count columns — including a customer table's
+    # heterogeneous visits/tenure/age (dogfood: segmentation got diversity_indices). A real
+    # abundance matrix is WIDE (≥6 count columns) or a parallel block (≥3 count columns sharing
+    # a naming stem, e.g. sp_0/sp_1/…). Gates the Wave-M15 ecology-relevance tilt.
+    _count_names = [c.name for c in cols
+                    if c.kind == "count" and not getattr(c, "ordinal_like", False)]
+    has_community_matrix = n_count_real >= 6 or (
+        n_count_real >= 3 and _rater_naming_signal(_count_names)
+    )
     # Survival SHAPE (a duration column + an event/censoring indicator) via the single-source
     # semantics vocabulary — the SAME check the profiler uses to withhold is_timeseries, so the
     # two never drift. Still requires a binary (the event) + a numeric (the duration).
@@ -369,6 +380,27 @@ def data_signals(fp: DataFingerprint) -> dict:
     has_class_target = (not has_continuous_outcome) and any(
         _is_class_target_col(c) for c in nominal_cats
     )
+    # UNSUPERVISED / clustering shape: a WIDE all-numeric table (≥4 numeric features) with NO
+    # identifiable target or special structure — the natural analysis is segmentation
+    # (clustering) / dimension reduction, not a regression modeling one arbitrary feature. A
+    # LOW-confidence count-hint name (visits/tenure) is NOT a strong outcome, so it does not
+    # block this (dogfood: customer segmentation was routed to NB on `visits`). Gated on the
+    # ABSENCE of every strong-outcome / special-structure signal so it can't fire on supervised
+    # data (a named DV / class target / binary / survival / ordinal / panel / series / geo /
+    # edge list / abundance matrix / efficiency DMU) (Wave M16).
+    _has_strong_outcome = (
+        has_continuous_outcome or has_class_target or outcome_is_binary
+        or has_survival or has_ordinal_outcome
+    )
+    has_cluster_shape = (
+        (n_cont + n_count) >= 4
+        and not _has_strong_outcome
+        and not bool(fp.is_timeseries) and not bool(fp.is_panel)
+        and not bool(getattr(fp, "has_geo", False))
+        and n_id < 2
+        and not has_community_matrix
+        and not has_efficiency_signal(fp)
+    )
     return {
         "n_rows": fp.n_rows,
         "is_panel": bool(fp.is_panel),
@@ -391,6 +423,12 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_count_outcome": has_count_outcome(fp),
         "has_ordinal": n_ordinal >= 1,
         "has_ordinal_outcome": has_ordinal_outcome,
+        # a wide/parallel species×site abundance matrix → the ecology community family is apt;
+        # absent it, community methods are demoted off ordinary multi-count data (Wave M15).
+        "has_community_matrix": has_community_matrix,
+        # a wide all-numeric table with NO identifiable target/structure → clustering /
+        # dimension-reduction is the natural analysis, not modeling one arbitrary feature (M16).
+        "has_cluster_shape": has_cluster_shape,
         "has_rater_block": has_rater_block,
         "has_scale_items": has_scale_items,
         "outcome_is_binary": outcome_is_binary,
