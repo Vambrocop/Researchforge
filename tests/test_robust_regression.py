@@ -154,6 +154,45 @@ def test_robust_resolver_picks_high_confidence_outcome_not_first(tmp_path: Path)
     assert abs(float(row["robust_coef"]) - 3.0) < 0.4
 
 
+def test_robust_dummy_encodes_string_predictor(tmp_path: Path) -> None:
+    # dogfood (A/B experiment): a STRING binary predictor (variant='control'/'treatment') must
+    # be dummy-encoded, not crash float() with "could not convert string to float". The single
+    # design column also takes the Theil-Sen 1-predictor path.
+    rng = np.random.default_rng(4)
+    n = 200
+    grp = rng.choice(["control", "treatment"], n)
+    y = np.where(grp == "treatment", 2.0, 0.0) + rng.normal(0, 1, n)
+    df = pd.DataFrame({"y": y.round(3), "variant": grp})
+    csv = tmp_path / "ab.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    assert "完成" in res.summary and "失败" not in res.summary
+    comp = pd.read_csv(Path(res.output_dir) / "robust_vs_ols.csv")
+    # the treatment dummy recovers the ~2.0 group difference
+    dummy_row = comp[comp["term"].str.startswith("variant")].iloc[0]
+    assert abs(float(dummy_row["robust_coef"]) - 2.0) < 0.5
+
+
+def test_robust_dummy_encodes_multilevel_category(tmp_path: Path) -> None:
+    # a multi-level STRING category predictor expands to several dummy columns without crashing.
+    rng = np.random.default_rng(5)
+    n = 200
+    region = rng.choice(["N", "S", "E", "W"], n)
+    y = rng.normal(0, 1, n)
+    df = pd.DataFrame({"y": y.round(3), "region": region, "x": rng.normal(0, 1, n).round(3)})
+    csv = tmp_path / "cat.csv"
+    df.to_csv(csv, index=False)
+
+    fp = profile_dataset(csv)
+    res = run_analysis(fp, _entry(), output_root=str(tmp_path / "o"))
+    assert "完成" in res.summary and "失败" not in res.summary
+    comp = pd.read_csv(Path(res.output_dir) / "robust_vs_ols.csv")
+    # region expands to k-1 dummies (drop_first) + x + const
+    assert sum(comp["term"].str.startswith("region")) >= 2
+
+
 def test_robust_degrade_no_predictor(tmp_path: Path) -> None:
     # single continuous column -> no predictor -> honest failure
     df = pd.DataFrame({"y": np.arange(30, dtype=float)})

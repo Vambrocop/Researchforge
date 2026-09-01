@@ -428,23 +428,37 @@ def _branch_robust_regression(ctx: Ctx) -> None:
         predictors = [
             c.name
             for c in fp.columns
-            if c.kind in {"continuous", "binary", "count"} and c.name not in exclude
+            if c.name not in exclude and not getattr(c, "is_text", False)
+            and (
+                c.kind in {"continuous", "binary", "count"}
+                # low-cardinality categoricals are valid predictors too (dummy-encoded below);
+                # cap levels + skip free text so a high-card id/text column can't explode X.
+                or (c.kind == "categorical" and getattr(c, "n_unique", 0) <= 15)
+            )
         ][:5]
     if not predictors:
         summary.append("稳健回归失败：未找到预测变量。")
         return
 
     sub = df[[outcome] + predictors].dropna()
-    for c in [outcome] + predictors:
-        sub = sub[np.isfinite(sub[c].to_numpy(dtype=float))]
-    if sub.shape[0] < len(predictors) + 2:
-        summary.append(f"稳健回归失败：有效样本不足（n={sub.shape[0]}）。")
+    # Dummy-encode string/categorical predictors so a robust LINEAR model gets numeric design
+    # columns — a string binary (variant='control'/'treatment') or a multi-level category would
+    # otherwise crash float() with "could not convert string to float" (dogfood: A/B experiment).
+    # Numeric predictors pass through unchanged; drop_first avoids the dummy-trap collinearity.
+    y_ser = pd.to_numeric(sub[outcome], errors="coerce")
+    X_df = pd.get_dummies(sub[predictors], drop_first=True, dtype=float)
+    mask = y_ser.notna()
+    if X_df.shape[1]:
+        mask &= np.isfinite(X_df.to_numpy(dtype=float)).all(axis=1)
+    y_ser, X_df = y_ser[mask], X_df[mask]
+    if len(y_ser) < X_df.shape[1] + 2:
+        summary.append(f"稳健回归失败：有效样本不足（n={len(y_ser)}）。")
         return
 
-    y = sub[outcome].to_numpy(dtype=float)
-    X = sub[predictors].to_numpy(dtype=float)
+    y = y_ser.to_numpy(dtype=float)
+    X = X_df.to_numpy(dtype=float)
     X_const = sm.add_constant(X, has_constant="add")
-    names = ["const"] + predictors
+    names = ["const"] + list(X_df.columns)
 
     try:
         # Robust Linear Model — Huber's T M-estimator (statsmodels RLM, IRLS).
@@ -469,7 +483,7 @@ def _branch_robust_regression(ctx: Ctx) -> None:
     comp["coef_diff"] = comp["robust_coef"] - comp["ols_coef"]
 
     theil_slope = theil_lo = theil_hi = None
-    if len(predictors) == 1:
+    if X_df.shape[1] == 1:  # one DESIGN column (after dummy encoding), not one raw predictor
         # Theil-Sen: median of pairwise slopes, ~29.3% breakdown point (resists
         # high-leverage X that Huber does not). scipy.stats.theilslopes.
         from scipy import stats as _sps
@@ -477,7 +491,7 @@ def _branch_robust_regression(ctx: Ctx) -> None:
         ts = _sps.theilslopes(y, X[:, 0])
         theil_slope, theil_intercept = float(ts[0]), float(ts[1])
         theil_lo, theil_hi = float(ts[2]), float(ts[3])
-        comp.loc[comp["term"] == predictors[0], "theilsen_slope"] = theil_slope
+        comp.loc[comp["term"] == names[1], "theilsen_slope"] = theil_slope
         estimates["theilsen_slope"] = theil_slope
 
     comp.to_csv(d / "robust_vs_ols.csv", index=False, encoding="utf-8")
@@ -488,7 +502,7 @@ def _branch_robust_regression(ctx: Ctx) -> None:
             estimates[nm] = float(val)
 
     # --- plot: scatter + robust/OLS fitted lines (1-predictor case) ---------- #
-    if len(predictors) == 1:
+    if X_df.shape[1] == 1:
         try:
             import matplotlib
             matplotlib.use("Agg")
