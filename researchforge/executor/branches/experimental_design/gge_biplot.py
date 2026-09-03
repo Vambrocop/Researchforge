@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 from ._shared import _ge_means_matrix, _pick_geno_env
 
@@ -19,7 +20,10 @@ def _branch_gge_biplot(ctx: Ctx) -> None:
 
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED response (config > high-conf role > first non-treatment
+    # candidate) instead of raw cont[0] — a continuous FACTOR (dose…) is no longer
+    # mistaken for the response.
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     genotype, environment, guessed = _pick_geno_env(fp, df, cfg, y)
 
     if y is None or genotype is None or environment is None or genotype == environment:

@@ -451,5 +451,14 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
   - **M15 群落矩阵信号**：`has_community_matrix`(n_count_real≥6 或 ≥3 计数列共享命名词干如 sp_0/sp_1)→ `_ecology_relevance_tilt`:真丰度矩阵时 community 法(permanova/nmds/diversity/indicator_species,凡 min_count_cols≥2)+14、非丰度矩阵时 −16(capture_recapture/occupancy 不需矩阵,中性)。验证:ecology study 挑 permanova 头条;segmentation/heterogeneous-counts 的 ecology 误触发清除。
   - **M16 聚类意图信号**：`has_cluster_shape`(≥4 数值特征 + 无强结果[命名DV/class-target/binary/survival/ordinal 都无]+ 无特殊结构[ts/panel/geo/edge/community/efficiency])→ `_cluster_relevance_tilt`:聚类/降维法(kmeans/gmm/dbscan/hierarchical/pca/factor/latent_profile/finite_mixture/mds/tsne/umap)+14、单特征 count/回归模型 −12。**关键**:count-hint 名(visits/tenure)不算强结果,故 count-named 特征表也能识别为无监督。验证:segmentation study 挑 gaussian_mixture+factor_analysis+latent_profile;named-target 回归/efficiency/community 守卫都不误伤;many_continuous→聚类。golden 加 customer_segmentation(accept 聚类/reject 计数)+ heterogeneous_counts(reject 生态)。
 
+
+**Wave H4（2026-08-30）：回归 outcome 大普查 + 提示(nudge)根治——报告不再自相矛盾：**
+- **背景**：study 亲验暴露 §1/§2 自相矛盾——中央 nudge 说「已自动选取 y(高置信)」但 summary 说「结果 x1」。根因两层：① 部分回归分支仍用 `cont[0]` 没接 `resolve_outcome`；② **更根本**：nudge 在**分支运行前**发出，只凭 `likely_outcome_confidence=='high'` 就宣称「已自动选取」，**从不校验分支真绑了什么**。
+- ✅ **根治（Part 2，零分支改动）**：`resolve_outcome` 是共享绑定点 → 让它把**实际返回值**记进 ContextVar（`_record_bound_outcome` / `capture_bound_outcome`，`_helpers/core.py`）；`run_analysis` 用 `with capture_bound_outcome()` 包住 dispatch，**分支跑完后**据实际绑定生成提示并 insert 回原位置，同时把实际 outcome 回填 `RunResult.outcome`。三态措辞：绑定==检测→「已自动选取 X」（如实）；绑定≠检测→**主动暴露不一致**「本方法建模的是 X；但检测到 Y 可能才是结果变量」；未绑定（分支没用共享解析器）→「本方法未使用统一的结果解析」**不作任何绑定宣称**。
+- ✅ **普查（Part 1，11 处接入）**：experimental_design 全族 8 个（ammi/factorial_anova/gge_biplot/latin_square/power_analysis/rcbd/response_surface/split_plot）+ `field_trials._resolve_response` + `statistics/smoothers`（gam/gamm 2 处）+ `causal/g_computation` + `causal/mediation`(X→M→Y 的 Y) + `timeseries.ardl_bounds` + `survey_methods`(value 列)。**额外收益**：`resolve_outcome` 会跳过 treatment 命名列 → DoE 里连续的 `dose` 因子不再被当响应变量。
+- **刻意不接（语义不同，已核实）**：`bayesian_state_space`/`hydrology`/`timeseries.arima`（时序**值**列，非 outcome-vs-predictor）、`configurational`（QCA 惯例 outcome=cont[0]）、`spatial_dependence`/`spatial_extra`（取**坐标**列）。
+- **意外收获——recorder 兼作审计仪**：`RunResult.outcome is None` 精确指出「该分支没用共享解析器」，比 grep 可靠（gam 就是这样被抓出来的）。新会话可据此持续普查。
+- **验证**：高置信 `y` 置于 decoy 之后时，11 个分支全部改绑 `y`（原绑 `cont[0]=x1`）；新 `tests/test_outcome_nudge.py`（7 测：recorder 机制/绑定如实/**不一致主动暴露**/未绑不宣称/跨方法不变式「提示命名的结果必等于实际绑定」）；受影响分支测试 64 绿。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

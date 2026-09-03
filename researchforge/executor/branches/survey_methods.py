@@ -25,6 +25,7 @@ See executor/_branch_api.py (Ctx fields) and CLAUDE.md. numpy/scipy/pandas insta
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 # Hints used to auto-detect a survey-weight column by name when config weight absent.
 _WEIGHT_HINTS = ("weight", "wt", "pweight", "pwt", "finalwt", "sampwt", "svywt")
@@ -72,7 +73,9 @@ def _branch_weighted_estimation(ctx: Ctx) -> None:
     if value and value not in df.columns:
         value = None
     if value is None:
-        value = conts[0] if conts else None
+        # H4: the estimated VALUE column is outcome-shaped — bind the detected outcome
+        # rather than raw conts[0] (config["value"] above still wins).
+        value = resolve_outcome(fp, cfg, conts) if conts else None
     if value is None:
         summary.append("设计加权估计跳过：找不到可估计的数值列（需 config[\"value\"] 指定连续变量）。")
         return

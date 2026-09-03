@@ -7,6 +7,7 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 def _periodogram_period(x, n):
@@ -736,7 +737,9 @@ def _branch_ardl_bounds(ctx: Ctx) -> None:
 
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED dependent variable (config > high-conf role > first
+    # non-treatment candidate) rather than raw cont[0].
+    outcome = resolve_outcome(fp, cfg, cont) if cont else None
     forced = [c for c in (cfg.get("predictors") or cfg.get("regressors") or [])
               if c in df.columns and c != outcome and c not in _excl]
     regs = (forced if forced else [c for c in cont if c != outcome])[:5]

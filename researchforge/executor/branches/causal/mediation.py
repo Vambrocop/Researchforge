@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("mediation")
@@ -11,7 +12,9 @@ def _branch_mediation(ctx: Ctx) -> None:
 
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    y_col = cont[0] if cont else None
+    # H4: Y of the X→M→Y path is the OUTCOME — bind the detected one (config > high-conf
+    # role > first non-treatment candidate) instead of raw cont[0]. X/M still follow column order.
+    y_col = resolve_outcome(fp, cfg, cont) if cont else None
     cand = [
         c.name
         for c in fp.columns

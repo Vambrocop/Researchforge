@@ -7,7 +7,12 @@ original branch body verbatim. See executor/_branch_api.py.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _gam_via_r, _gamm_via_r, _glmm_via_r
+from researchforge.executor.run import (
+    _gam_via_r,
+    _gamm_via_r,
+    _glmm_via_r,
+    resolve_outcome,
+)
 
 
 @register("gam")
@@ -19,7 +24,8 @@ def _branch_gam(ctx: Ctx) -> None:
     from researchforge.executor import rbridge
 
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED outcome (config > high-conf role > first non-treatment) not cont[0].
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     if forced:
         preds = forced[:8]
@@ -140,7 +146,10 @@ def _branch_gamm(ctx: Ctx) -> None:
     # outcome may be continuous (gaussian), binary (binomial), or count (poisson). Default picks a
     # continuous outcome (gaussian); a non-Gaussian response is opt-in via config outcome/family.
     ykind = {c.name: c.kind for c in fp.columns if c.name not in _excl and c.kind in {"continuous", "count", "binary"}}
-    y = cfg["outcome"] if cfg.get("outcome") in ykind else (cont[0] if cont else None)
+    # H4: config may name ANY modelable kind (gaussian/binomial/poisson); the AUTO default
+    # now binds the DETECTED continuous outcome rather than raw cont[0].
+    y = cfg["outcome"] if cfg.get("outcome") in ykind else (
+        resolve_outcome(fp, cfg, cont) if cont else None)
     fam = cfg.get("family")
     if fam not in {"gaussian", "binomial", "poisson"}:
         fam = {"binary": "binomial", "count": "poisson"}.get(ykind.get(y), "gaussian")

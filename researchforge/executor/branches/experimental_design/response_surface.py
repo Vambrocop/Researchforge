@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("response_surface")
@@ -21,7 +22,10 @@ def _branch_response_surface(ctx: Ctx) -> None:
     _excl = {fp.unit_col, fp.time_col}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
 
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED response (config > high-conf role > first non-treatment
+    # candidate) instead of raw cont[0] — a continuous FACTOR (dose…) is no longer
+    # mistaken for the response.
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     # factors: config list (any continuous columns ≠ outcome), else remaining continuous
     fac_cfg = cfg.get("factors")
     if isinstance(fac_cfg, (list, tuple)):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 from ._shared import _BLOCK_HINTS
 
@@ -18,7 +19,10 @@ def _branch_split_plot(ctx: Ctx) -> None:
     role_cols = [c.name for c in fp.columns
                  if c.kind in {"categorical", "binary", "count", "id"} and c.name not in _excl]
 
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED response (config > high-conf role > first non-treatment
+    # candidate) instead of raw cont[0] — a continuous FACTOR (dose…) is no longer
+    # mistaken for the response.
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     block = cfg.get("block") if cfg.get("block") in df.columns else None
     wp = cfg.get("whole_plot") if cfg.get("whole_plot") in df.columns else None
     sp = cfg.get("sub_plot") if cfg.get("sub_plot") in df.columns else None

@@ -20,10 +20,44 @@ Re-exported by run.py and imported by branches/*.py. No dependency on run.py.
 from __future__ import annotations
 
 import datetime
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from researchforge.catalog.schema import AnalysisEntry
 from researchforge.profiler.fingerprint import DataFingerprint
+
+# ── which outcome a branch ACTUALLY bound (Wave H4) ──────────────────────────────────
+# The smart-selection nudge used to claim "已自动选取 'y'（高置信）" purely from the
+# fingerprint's role hint, without checking whether the running branch honoured it — so a
+# branch still defaulting to `cont[0]` produced a report that contradicted itself ("已自动
+# 选取 y" in the nudge, "结果 x1" in the summary). `resolve_outcome` is the shared binding
+# point, so it records what it actually returned; `run_analysis` reads that after dispatch
+# and states the truth (and surfaces a mismatch instead of hiding it). Branches need no
+# changes — anything using the shared resolver reports automatically; anything that doesn't
+# leaves the recorder empty, and the nudge then makes no binding claim.
+_BOUND_OUTCOME: ContextVar[list | None] = ContextVar("_rf_bound_outcome", default=None)
+
+
+def _record_bound_outcome(name: str | None) -> None:
+    """Record the outcome just bound by ``resolve_outcome`` (first binding wins — a branch
+    may resolve more than once, e.g. per sub-model). No-op outside a capture block."""
+    rec = _BOUND_OUTCOME.get()
+    if rec is not None and name and not rec:
+        rec.append(name)
+
+
+@contextmanager
+def capture_bound_outcome():
+    """Yield a list that receives the FIRST outcome ``resolve_outcome`` binds inside the
+    block. Empty when the branch never used the shared resolver (so callers must treat
+    "unknown", not "none")."""
+    rec: list[str] = []
+    token = _BOUND_OUTCOME.set(rec)
+    try:
+        yield rec
+    finally:
+        _BOUND_OUTCOME.reset(token)
 
 
 def _run_dir(root: str, entry_id: str) -> Path:
@@ -70,13 +104,16 @@ def resolve_outcome(fp: DataFingerprint, cfg: dict | None, candidates: list[str]
     from researchforge.profiler.roles import is_treatment_named
 
     cfg = cfg or {}
-    if cfg.get("outcome") in candidates:
-        return cfg["outcome"]
     lo = getattr(fp, "likely_outcome", None)
-    if getattr(fp, "likely_outcome_confidence", "") == "high" and lo in candidates:
-        return lo
-    non_treat = [c for c in candidates if not is_treatment_named(c) or c == lo]
-    return non_treat[0] if non_treat else candidates[0]
+    if cfg.get("outcome") in candidates:
+        chosen = cfg["outcome"]
+    elif getattr(fp, "likely_outcome_confidence", "") == "high" and lo in candidates:
+        chosen = lo
+    else:
+        non_treat = [c for c in candidates if not is_treatment_named(c) or c == lo]
+        chosen = non_treat[0] if non_treat else candidates[0]
+    _record_bound_outcome(chosen)  # so the nudge can state what was REALLY modeled (Wave H4)
+    return chosen
 
 
 def resolve_predictors(

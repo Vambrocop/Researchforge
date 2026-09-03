@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("power_analysis")
@@ -22,7 +23,10 @@ def _branch_power_analysis(ctx: Ctx) -> None:
     cats = [c.name for c in fp.columns if c.kind in {"categorical", "binary"} and c.name not in _excl]
     cats.sort(key=lambda name: int(df[name].nunique()))  # prefer low-cardinality group
 
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED response (config > high-conf role > first non-treatment
+    # candidate) instead of raw cont[0] — a continuous FACTOR (dose…) is no longer
+    # mistaken for the response.
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     group = cfg.get("group") if cfg.get("group") in df.columns else (cats[0] if cats else None)
     if y is None or group is None:
         summary.append(

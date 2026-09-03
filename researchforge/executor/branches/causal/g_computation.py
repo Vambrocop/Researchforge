@@ -11,6 +11,7 @@ difference). Confidence intervals by nonparametric bootstrap. Pure Python (stats
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("g_computation")
@@ -42,7 +43,9 @@ def _branch_g_computation(ctx: Ctx) -> None:
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in excl and c.name != treat]
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
     if outcome is None:
-        outcome = cont[0] if cont else next((c for c in df.columns if c not in excl and c != treat and _is_binary(c)), None)
+        # H4: bind the DETECTED outcome among the continuous candidates, not raw cont[0].
+        outcome = resolve_outcome(fp, cfg, cont) if cont else next(
+            (c for c in df.columns if c not in excl and c != treat and _is_binary(c)), None)
     if outcome is None or outcome == treat:
         summary.append("g-计算跳过：未找到结果变量（outcome）。")
         return

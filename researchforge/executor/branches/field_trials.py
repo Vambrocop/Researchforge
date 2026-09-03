@@ -28,6 +28,7 @@ ctx (never rebinds). See executor/_branch_api.py and CLAUDE.md.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 from researchforge.profiler.semantics import ROLE_HINTS
 
 # A factor may profile as count/id (Likert/integer-coded) — accept those kinds.
@@ -93,7 +94,9 @@ def _resolve_response(cfg, fp):
     y = cfg.get("response") or cfg.get("outcome")
     if y in cont:
         return y
-    return cont[0] if cont else None
+    # H4: bind the DETECTED response instead of raw cont[0] (a continuous FACTOR like dose
+    # is skipped by the shared resolver); the `response` config alias still wins above.
+    return resolve_outcome(fp, cfg, cont) if cont else None
 
 
 def _safe_plot(fn):

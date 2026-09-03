@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 from ._shared import _BLOCK_HINTS, _TRT_HINTS, _degenerate_fit
 
@@ -21,7 +22,9 @@ def _branch_rcbd(ctx: Ctx) -> None:
 
     # accept both "outcome" and "response" config keys (back-compat: either name works)
     y_cfg = cfg.get("outcome") if cfg.get("outcome") in cont else cfg.get("response")
-    y = y_cfg if y_cfg in cont else (cont[0] if cont else None)
+    # H4: fall back to the DETECTED response (high-conf role > first non-treatment candidate)
+    # rather than raw cont[0] — the `response` config alias still wins when given.
+    y = y_cfg if y_cfg in cont else (resolve_outcome(fp, cfg, cont) if cont else None)
     # config overrides accept ANY column (a role factor may profile as count/id, not categorical)
     trt_cfg = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
     blk_cfg = cfg.get("block") if cfg.get("block") in df.columns else None

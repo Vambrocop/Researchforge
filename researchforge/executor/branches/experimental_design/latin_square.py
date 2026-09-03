@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 from ._shared import _COL_HINTS, _ROW_HINTS, _TRT_HINTS, _degenerate_fit
 
@@ -18,7 +19,10 @@ def _branch_latin_square(ctx: Ctx) -> None:
     role_cols = [c.name for c in fp.columns
                  if c.kind in {"categorical", "binary", "count", "id"} and c.name not in _excl]
 
-    y = cfg["outcome"] if cfg.get("outcome") in cont else (cont[0] if cont else None)
+    # H4: bind the DETECTED response (config > high-conf role > first non-treatment
+    # candidate) instead of raw cont[0] — a continuous FACTOR (dose…) is no longer
+    # mistaken for the response.
+    y = resolve_outcome(fp, cfg, cont) if cont else None
     treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
     row = cfg.get("row") if cfg.get("row") in df.columns else None
     col = cfg.get("col") if cfg.get("col") in df.columns else None

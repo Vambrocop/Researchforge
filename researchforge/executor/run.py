@@ -29,6 +29,11 @@ class RunResult(BaseModel):
     report_path: str
     summary: str = ""
     estimates: dict[str, float] = Field(default_factory=dict)
+    # The dependent variable the branch ACTUALLY bound via the shared `resolve_outcome`
+    # (Wave H4). None when the branch doesn't use the shared resolver — "unknown", not
+    # "none". Lets callers/reports state the modeled outcome instead of assuming the
+    # fingerprint's role hint was honoured.
+    outcome: str | None = None
 
 
 # Helpers now live in executor/_helpers/{core,backends}.py; re-exported here so
@@ -65,6 +70,7 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _report,
     _resid_plot,
     _run_dir,
+    capture_bound_outcome,
     resolve_outcome,
     resolve_predictors,
     _sem_latents,
@@ -127,24 +133,10 @@ def run_analysis(
     summary: list[str] = []
     if _cfg_warns:
         summary.append("⚠ 配置参数提示：" + " ".join(_cfg_warns))
-    # Smart-selection nudge (non-binding): if this method takes an `outcome` and the
-    # user didn't set one, surface the detected likely outcome so they can config it
-    # deliberately (the auto default is "first continuous", which can miss an
-    # integer-valued / non-first target). See profiler/roles.py.
-    if (fp.likely_outcome and not (cfg.get("outcome") or cfg.get("y"))
-            and any(p.name in ("outcome", "y") for p in entry.params)):
-        if fp.likely_outcome_confidence == "high":
-            # high-confidence outcomes are BOUND by resolve_outcome (regression family) —
-            # tell the user it was auto-selected, not just suggested.
-            summary.append(
-                f"💡 已自动选取 '{fp.likely_outcome}' 为结果变量（{fp.role_hint_reason}，高置信）；"
-                "如需改用其他列，用 config outcome 指定。"
-            )
-        else:
-            summary.append(
-                f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
-                "引擎默认仍取第一连续列——若不符，用 config outcome 指定。"
-            )
+    # The smart-selection nudge is BUILT AFTER dispatch (below) from the outcome the branch
+    # actually bound, then inserted here — claiming "已自动选取 X" before knowing what the
+    # branch did is how a report came to contradict itself (Wave H4).
+    _nudge_pos = len(summary)
     estimates: dict[str, float] = {}
     code: list[str] = ["import pandas as pd", f"df = pd.read_csv(r'{fp.path}')", ""]
 
@@ -154,15 +146,43 @@ def run_analysis(
     ctx = Ctx(df=df, fp=fp, entry=entry, cfg=cfg, d=d, files=files,
               summary=summary, estimates=estimates, code=code)
     _handler = BRANCH_REGISTRY.get(entry.id)
-    if _handler is not None:
-        try:
-            _handler(ctx)
-        except Exception as err:  # noqa: BLE001 — degrade to a report, never crash the run
-            summary.append(
-                f"⚠ {entry.id} 执行失败：{type(err).__name__}: {str(err)[:200]}"
+    with capture_bound_outcome() as _bound_rec:
+        if _handler is not None:
+            try:
+                _handler(ctx)
+            except Exception as err:  # noqa: BLE001 — degrade to a report, never crash the run
+                summary.append(
+                    f"⚠ {entry.id} 执行失败：{type(err).__name__}: {str(err)[:200]}"
+                )
+        else:
+            summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")
+    bound_outcome = _bound_rec[0] if _bound_rec else None
+
+    # Smart-selection nudge, now stated from what the branch REALLY modeled (Wave H4):
+    #   * bound == the detected outcome  → it was genuinely auto-selected;
+    #   * bound != it                    → surface the MISMATCH (the case that used to make
+    #                                      the report contradict itself) so the user can
+    #                                      override deliberately;
+    #   * nothing bound (branch doesn't use the shared resolver) → suggest only, claim nothing.
+    if (fp.likely_outcome and not (cfg.get("outcome") or cfg.get("y"))
+            and any(p.name in ("outcome", "y") for p in entry.params)):
+        if bound_outcome and bound_outcome == fp.likely_outcome:
+            _conf = "，高置信" if fp.likely_outcome_confidence == "high" else ""
+            _nudge = (
+                f"💡 已自动选取 '{bound_outcome}' 为结果变量（{fp.role_hint_reason}{_conf}）；"
+                "如需改用其他列，用 config outcome 指定。"
             )
-    else:
-        summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")
+        elif bound_outcome:
+            _nudge = (
+                f"💡 本方法建模的结果变量是 '{bound_outcome}'；但检测到 '{fp.likely_outcome}' "
+                f"可能才是结果变量（{fp.role_hint_reason}）——若要改用它，用 config outcome 指定。"
+            )
+        else:
+            _nudge = (
+                f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
+                "本方法未使用统一的结果解析（默认取第一连续列）——若不符，用 config outcome 指定。"
+            )
+        summary.insert(_nudge_pos, _nudge)
 
     (d / "analysis_code.py").write_text("\n".join(code), encoding="utf-8")
     files.append("analysis_code.py")
@@ -208,6 +228,7 @@ def run_analysis(
         report_path=str(d / "report.md"),
         summary="\n".join(summary),
         estimates=estimates,
+        outcome=bound_outcome,
     )
 
 
