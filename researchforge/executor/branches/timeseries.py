@@ -42,6 +42,153 @@ def _periodogram_period(x, n):
     return per if 2 <= per <= n // 3 else None
 
 
+# ── auto-order selection (Hyndman-Khandakar style) ───────────────────────────────────
+_GRID_FIT_BUDGET = 48   # hard cap on candidate fits so a long grid can't stall a run
+
+
+def _ndiffs_adf(y, max_d: int = 2) -> int:
+    """Non-seasonal differencing order `d` chosen by the ADF unit-root TEST, never by AIC.
+
+    The log-likelihood (hence AIC) is computed on the DIFFERENCED sample, so models with a
+    different `d` are fitted to different effective data and their AICs are not comparable —
+    ranking `d` by AIC is a classic error. Hyndman-Khandakar therefore fixes `d` by test first
+    and ranks only (p,q) by information criterion. Returns 0 when the level series is already
+    stationary; degrades to the current level on any test failure."""
+    import numpy as np
+    from statsmodels.tsa.stattools import adfuller
+
+    # adfuller raises on NaN; without this a couple of gaps would silently abort the loop at
+    # k=0 and return d=0 (under-differencing) while the summary still credits "ADF 检验"
+    # (inference-review SHOULD-FIX). SARIMAX itself handles NaN natively via the Kalman filter,
+    # so only the TEST needs the clean copy.
+    z = np.asarray(y, dtype=float)
+    z = z[np.isfinite(z)]
+    for k in range(max_d + 1):
+        if len(z) < 8 or float(np.std(z)) == 0.0:
+            return k
+        try:
+            if float(adfuller(z, autolag="AIC")[1]) <= 0.05:
+                return k                       # stationary at this differencing level
+        except Exception:
+            return k
+        z = np.diff(z)
+    return max_d
+
+
+def _fit_sarimax(y, order, seasonal_order):
+    """One SARIMAX fit (ARIMA is the seasonal_order=(0,0,0,0) special case, so the whole search
+    uses ONE estimator — keeping every candidate's likelihood on the same footing).
+
+    Two settings are load-bearing for the ORDER SEARCH and must not be relaxed:
+
+    * ``enforce_stationarity/invertibility=True`` — with them OFF, statsmodels cannot use the
+      stationary initialization and falls back to an approximate-diffuse one whose
+      ``loglikelihood_burn`` grows with the state dimension (hence with p,q,P,Q). The
+      log-likelihood is then summed over a DIFFERENT effective sample per candidate, so AIC/AICc
+      are not comparable and the search stampedes toward the largest order (inference-review
+      MUST-FIX: on a random walk the truth (0,1,0) was picked 0/30 times, mean p+q=3.7). With
+      them ON the burn is constant ``d + D*sp`` across the whole grid, which is what makes the
+      "fixed d/D ⇒ comparable" claim actually true.
+    * ``trend='c'`` when nothing is differenced — SARIMAX defaults to NO constant, so an
+      undifferenced series would be fitted as a MEAN-ZERO process (a series around 500 forecasts
+      0.0). statsmodels' ARIMA wrapper defaults to a constant at d==0; that difference only
+      surfaced once auto-`d` made d=0 routine.
+    """
+    from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+    trend = "c" if (order[1] == 0 and seasonal_order[1] == 0) else None
+    return SARIMAX(y, order=order, seasonal_order=seasonal_order, trend=trend,
+                   enforce_stationarity=True, enforce_invertibility=True).fit(disp=False)
+
+
+def _aicc(res) -> float:
+    """Small-sample-corrected AIC. Plain AIC under-penalises parameters at the sample sizes
+    typical of a seasonal series (a few dozen points), which biases the search toward
+    over-parameterised models; AICc is the standard correction for ARIMA order selection.
+
+    Uses statsmodels' own ``res.aicc``, which divides by the EFFECTIVE sample
+    (``nobs - loglikelihood_burn``) — the sample the likelihood was actually computed on.
+    Computing it from ``res.nobs`` (the full series length) understates the small-sample
+    penalty, i.e. biases toward over-parameterisation (inference-review SHOULD-FIX)."""
+    import numpy as np
+
+    try:
+        val = float(res.aicc)
+    except Exception:
+        return float("inf")
+    return val if np.isfinite(val) else float("inf")
+
+
+def _auto_order(y, sp, cfg):
+    """Choose (order, seasonal_order) by a bounded AICc grid with d/D FIXED FIRST.
+
+    Returns (order, seasonal_order, fitted_result, info). `info` records what was actually
+    searched so the summary can disclose it honestly (a bounded grid is NOT a full
+    Hyndman-Khandakar stepwise search). Never raises: returns fitted_result=None when every
+    candidate failed, leaving the caller to fall back."""
+    import numpy as np
+
+    cfg = cfg or {}
+    seasonal = bool(sp)
+
+    def _int_cfg(key, default, lo, hi):
+        try:
+            return max(lo, min(hi, int(cfg[key])))
+        except (KeyError, TypeError, ValueError):
+            return default
+
+    d = _int_cfg("d", -1, 0, 2)
+    d_source = "config"
+    if d < 0:
+        d, d_source = _ndiffs_adf(y), "ADF 检验"
+    D = 1 if seasonal else 0
+    # seasonal grid is deliberately narrower: each seasonal fit is far costlier and D=1 already
+    # removes most seasonal non-stationarity.
+    max_p = _int_cfg("max_p", 2 if seasonal else 3, 0, 5)
+    max_q = _int_cfg("max_q", 2 if seasonal else 3, 0, 5)
+    max_P = _int_cfg("max_P", 1, 0, 2) if seasonal else 0
+    max_Q = _int_cfg("max_Q", 1, 0, 2) if seasonal else 0
+
+    cands = [
+        ((p, d, q), (P, D, Q, sp) if seasonal else (0, 0, 0, 0))
+        for p in range(max_p + 1) for q in range(max_q + 1)
+        for P in range(max_P + 1) for Q in range(max_Q + 1)
+    ]
+    # parsimonious-first, so a truncated budget still covers the simple models
+    cands.sort(key=lambda c: (c[0][0] + c[0][2] + c[1][0] + c[1][2]))
+    best, best_ic, n_fits = None, np.inf, 0
+    for order, sorder in cands[:_GRID_FIT_BUDGET]:
+        try:
+            res = _fit_sarimax(y, order, sorder)
+        except Exception:
+            continue
+        n_fits += 1
+        ic = _aicc(res)
+        if ic < best_ic:
+            best, best_ic = (order, sorder, res), ic
+    # A winner sitting ON the grid edge means the search was cut short of the true optimum —
+    # report it rather than presenting a boundary pick as "the" selected order.
+    at_edge = False
+    if best is not None:
+        (bp, _, bq), (bP, _, bQ, _) = best[0], best[1]
+        # Only the NON-seasonal edges are reported. At the default max_P=max_Q=1 the textbook
+        # airline model (0,1,1)(0,1,1)[s] sits on the seasonal edge by construction, so flagging
+        # it would cry wolf on the most common correct answer; seasonal orders above 1 are rare.
+        at_edge = bool((max_p > 0 and bp == max_p) or (max_q > 0 and bq == max_q)
+                       or (seasonal and ((max_P > 1 and bP == max_P)
+                                         or (max_Q > 1 and bQ == max_Q))))
+    info = {
+        "d": d, "D": D, "d_source": d_source, "n_fits": n_fits,
+        "grid": f"p≤{max_p}, q≤{max_q}" + (f", P≤{max_P}, Q≤{max_Q}" if seasonal else ""),
+        "aicc": None if best is None else float(best_ic),
+        "truncated": len(cands) > _GRID_FIT_BUDGET,
+        "at_edge": at_edge,
+    }
+    if best is None:
+        return (1, d, 1), ((1, D, 1, sp) if seasonal else (0, 0, 0, 0)), None, info
+    return best[0], best[1], best[2], info
+
+
 @register("arima")
 def _branch_arima(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
@@ -57,7 +204,7 @@ def _branch_arima(ctx: Ctx) -> None:
         )
     else:
         try:
-            from statsmodels.tsa.arima.model import ARIMA
+            import numpy as np
 
             sorted_df = df.sort_values(time_col)
             dup = int(sorted_df[time_col].duplicated().sum())
@@ -68,70 +215,70 @@ def _branch_arima(ctx: Ctx) -> None:
             if y.nunique() < 2 or len(y) < 10:
                 raise ValueError(f"序列有效观测不足或近常数（n={len(y)}），无法拟合 ARIMA")
 
-            # Seasonal upgrade (SARIMA): reuse the calendar-aware, strength-confirmed period
-            # detector (forecasting._detect_period; lazy import breaks the timeseries↔forecasting
-            # cycle). A confirmed seasonal period P lifts ARIMA(1,1,1) to SARIMA(1,1,1)(1,1,1)[P]
-            # — otherwise ARIMA misses obvious calendar seasonality (dogfood: retail). Honest
-            # degrade to the non-seasonal fit if SARIMAX cannot converge.
+            # Seasonal period: the calendar-aware, strength-confirmed detector
+            # (forecasting._detect_period; lazy import breaks the timeseries↔forecasting cycle).
             from researchforge.executor.branches.forecasting import _detect_period
 
             n = len(y)
             sp = _detect_period(ctx, y.to_numpy())
             if cfg.get("seasonal") in {"none", "no", "off"}:
                 sp = None
-            seasonal_used = 0
             degrade_note = ""
-            model = None
             # Seasonal DIFFERENCING (D=1) consumes `sp` observations on top of the two cycles
             # Holt-Winters needs, so require ≥3 full cycles: (n - sp) >= 2*sp ⇔ n >= 3*sp.
-            # Below this the seasonal AR/MA at lag `sp` is not identifiable — SARIMAX still
-            # returns converged=True with a boundary (llf≈0) AIC, which would be silently
-            # reported as a valid, spuriously-excellent model (inference-review MUST-FIX). The
-            # `2*sp` rule that exp_smoothing/theta use is NOT safe here (they don't seasonally
-            # difference).
-            if sp and n >= 3 * sp:
-                try:
-                    from statsmodels.tsa.statespace.sarimax import SARIMAX
-
-                    model = SARIMAX(
-                        y, order=(1, 1, 1), seasonal_order=(1, 1, 1, sp),
-                        enforce_stationarity=False, enforce_invertibility=False,
-                    ).fit(disp=False)
-                    seasonal_used = sp
-                    # Near-deterministic / strong seasonality makes the MLE surface singular
-                    # (statsmodels ConvergenceWarning, se→0). The state-space FORECAST still
-                    # tracks the season, but AIC/SE at a non-converged optimum are unreliable —
-                    # disclose rather than silently trust them.
-                    if not bool(getattr(model, "mle_retvals", {}).get("converged", True)):
-                        degrade_note = (
-                            " ⚠ 季节参数优化未完全收敛（近确定性/强季节数据常见）：预测仍反映季节结构，"
-                            "但 AIC 与标准误可能不可靠。"
-                        )
-                except Exception as serr:
-                    degrade_note = (
-                        f" ⚠ 季节 SARIMA(周期={sp}) 拟合未收敛（{type(serr).__name__}），"
-                        "已回退非季节 ARIMA(1,1,1)。"
-                    )
-                    model = None
-            elif sp:  # season detected but too few cycles to estimate a seasonal-diff model
+            # Below it the seasonal AR/MA at lag `sp` is not identifiable — SARIMAX still returns
+            # converged=True with a boundary (llf≈0) AIC that would read as a spuriously
+            # excellent model (inference-review MUST-FIX).
+            if sp and n < 3 * sp:
                 degrade_note = (
                     f" ⚠ 已检出季节周期={sp}，但样本不足以稳健估计季节差分模型"
-                    f"（季节差分需 ≥3 个完整周期，n={n}<{3 * sp}），已用非季节 ARIMA(1,1,1)。"
+                    f"（季节差分需 ≥3 个完整周期，n={n}<{3 * sp}），已改用非季节模型。"
                 )
-            if model is None:
-                model = ARIMA(y, order=(1, 1, 1)).fit()
+                sp = None
+
+            order, sorder, model, oinfo = _auto_order(y.to_numpy(), sp, cfg)
+            if model is None:                      # every candidate failed → honest fallback
+                order = (1, oinfo["d"], 1)
+                sorder = (1, oinfo["D"], 1, sp) if sp else (0, 0, 0, 0)
+                model = _fit_sarimax(y.to_numpy(), order, sorder)
+                degrade_note += " ⚠ 自动定阶网格全部拟合失败，已回退默认阶数 (1,d,1)。"
+            seasonal_used = int(sorder[3]) if sp else 0
+            if not bool(getattr(model, "mle_retvals", {}).get("converged", True)):
+                degrade_note += (
+                    " ⚠ 参数优化未完全收敛（近确定性/强季节数据常见）：预测仍反映拟合结构，"
+                    "但 AIC 与标准误可能不可靠。"
+                )
             model_label = (
-                f"SARIMA(1,1,1)(1,1,1)[{seasonal_used}]" if seasonal_used else "ARIMA(1,1,1)"
+                f"SARIMA{order}{sorder[:3]}[{seasonal_used}]".replace(" ", "")
+                if seasonal_used else f"ARIMA{order}".replace(" ", "")
             )
 
             (d / "model_summary.txt").write_text(str(model.summary()), encoding="utf-8")
             files.append("model_summary.txt")
 
+            # ── forecast WITH a prediction interval ───────────────────────────────────
+            # A point forecast without an interval is not reportable. The state-space
+            # get_forecast() gives the MODEL-CONSISTENT interval directly — it widens correctly
+            # with the fitted AR/MA + differencing structure — so there is no reason to omit it.
             steps = 10
-            fc = model.forecast(steps=steps)
+            try:
+                level = float(cfg.get("ci", 0.95))
+            except (TypeError, ValueError):
+                level = 0.95
+            level = level if 0.5 < level < 1.0 else 0.95
+            alpha = 1.0 - level
+            fcres = model.get_forecast(steps=steps)
+            fc = np.asarray(fcres.predicted_mean, dtype=float)
+            ci_arr = np.asarray(fcres.conf_int(alpha=alpha), dtype=float)
+            lower, upper = ci_arr[:, 0], ci_arr[:, 1]
+
             import pandas as _pd
-            fc_df = _pd.DataFrame({"step": list(range(1, steps + 1)), "forecast": fc.tolist()})
-            fc_df.to_csv(d / "forecast.csv", index=False, encoding="utf-8")
+            _pd.DataFrame({
+                "step": list(range(1, steps + 1)),
+                "forecast": fc,
+                "lower": lower,
+                "upper": upper,
+            }).to_csv(d / "forecast.csv", index=False, encoding="utf-8")
             files.append("forecast.csv")
 
             try:
@@ -142,7 +289,9 @@ def _branch_arima(ctx: Ctx) -> None:
                 fig, ax = plt.subplots(figsize=(8, 4))
                 ax.plot(range(len(y)), y, label="observed")
                 fc_x = list(range(len(y), len(y) + steps))
-                ax.plot(fc_x, fc.tolist(), color="red", linestyle="--", label="forecast")
+                ax.plot(fc_x, fc, color="red", linestyle="--", label="forecast")
+                ax.fill_between(fc_x, lower, upper, color="red", alpha=0.15,
+                                label=f"{level:.0%} prediction interval")
                 ax.set_xlabel("period index")
                 ax.set_ylabel(value_col)
                 ax.set_title(f"{model_label} — {value_col}")
@@ -155,35 +304,58 @@ def _branch_arima(ctx: Ctx) -> None:
                 pass
 
             estimates["aic"] = float(model.aic)
+            if oinfo["aicc"] is not None:
+                estimates["aicc"] = float(oinfo["aicc"])
             estimates["seasonal_periods"] = float(seasonal_used)
+            estimates["p"], estimates["d"], estimates["q"] = (
+                float(order[0]), float(order[1]), float(order[2]))
+            if seasonal_used:
+                estimates["P"], estimates["D"], estimates["Q"] = (
+                    float(sorder[0]), float(sorder[1]), float(sorder[2]))
+            estimates["forecast_next"] = float(fc[0])
+            estimates["pi_lower_next"] = float(lower[0])
+            estimates["pi_upper_next"] = float(upper[0])
+
+            order_zh = (
+                f"阶数由自动定阶选出（差分 d={oinfo['d']} 来自{oinfo['d_source']}，随后在 "
+                f"{oinfo['grid']} 的网格上按 AICc 排序，实拟合 {oinfo['n_fits']} 个候选"
+                + (f"；网格超预算已截断，按简约优先取前 {_GRID_FIT_BUDGET} 个"
+                   if oinfo["truncated"] else "")
+                + "）。"
+                + ("⚠ 选中阶数落在网格边界，真优可能在更高阶——可 config max_p/max_q(/max_P/max_Q) 放宽后重跑。"
+                   if oinfo.get("at_edge") else "")
+                + "⚠ d 由单位根检验固定、不参与 AICc 比较——不同差分阶数的似然基于不同有效样本，"
+                "AIC/AICc 跨 d 不可比；固定 d/D 后的 (p,q[,P,Q]) 比较才有效。"
+                "⚠ 这是有界网格、非完整 Hyndman-Khandakar 逐步搜索，可 config max_p/max_q/"
+                "max_P/max_Q/d 调整。"
+            )
             season_zh = (
                 f"季节周期={seasonal_used}（按日期频率+季节强度自动判定，可 config seasonal_periods "
-                "覆盖 / config seasonal=none 关闭）；非季节与季节阶数均固定 (1,1,1)（未自动定阶/单位根检验）。"
-                "⚠ 此 SARIMA 的 AIC 因含季节差分，不可与非季节 ARIMA 或其他方法的 AIC 直接比较。"
-                if seasonal_used else
-                "⚠ 阶数固定为 (1,1,1)（未做自动定阶/单位根检验，AIC 仅供参考）；未检出可靠季节（如为季节数据可 config seasonal_periods 指定）。"
+                "覆盖 / seasonal=none 关闭）。⚠ 此 SARIMA 的 AIC 因含季节差分，不可与非季节 ARIMA "
+                "或其他方法的 AIC 直接比较。"
+                if seasonal_used else "未检出可靠季节（如为季节数据可 config seasonal_periods 指定）。"
             )
             summary.append(
                 f"{entry.method} 完成：对 {value_col} 拟合 {model_label}，"
-                f"AIC={model.aic:.2f}，预测未来 {steps} 期。{season_zh}{degrade_note}"
+                f"AIC={model.aic:.2f}"
+                + (f"、AICc={oinfo['aicc']:.2f}" if oinfo["aicc"] is not None else "")
+                + f"；预测未来 {steps} 期，含 {level:.0%} 预测区间"
+                f"（下一期 {fc[0]:.4g}，区间 [{lower[0]:.4g}, {upper[0]:.4g}]，见 forecast.csv/png）。"
+                f"{order_zh}{season_zh}"
+                " ⚠ 预测区间为模型一致的状态空间区间，但条件于所选阶数与所估参数——既未计入"
+                "定阶本身的不确定性，也未计入参数估计误差"
+                "（自动选阶后区间偏窄是已知现象）。"
+                + degrade_note
             )
-            if seasonal_used:
-                code += [
-                    "from statsmodels.tsa.statespace.sarimax import SARIMAX",
-                    f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
-                    f"model = SARIMAX(y, order=(1,1,1), seasonal_order=(1,1,1,{seasonal_used}),"
-                    " enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)",
-                    "print(model.summary())",
-                    f"fc = model.forecast(steps={steps})",
-                ]
-            else:
-                code += [
-                    "from statsmodels.tsa.arima.model import ARIMA",
-                    f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
-                    "model = ARIMA(y, order=(1, 1, 1)).fit()",
-                    "print(model.summary())",
-                    f"fc = model.forecast(steps={steps})",
-                ]
+            code += [
+                "from statsmodels.tsa.statespace.sarimax import SARIMAX",
+                f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
+                f"model = SARIMAX(y, order={order}, seasonal_order={sorder},"
+                " enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)",
+                "print(model.summary())",
+                f"fc = model.get_forecast(steps={steps})",
+                f"mean, ci = fc.predicted_mean, fc.conf_int(alpha={alpha:.3g})  # 点预测 + 预测区间",
+            ]
         except Exception as err:
             summary.append(f"ARIMA 拟合失败：{err}")
 

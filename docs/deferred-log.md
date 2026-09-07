@@ -460,5 +460,19 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **意外收获——recorder 兼作审计仪**：`RunResult.outcome is None` 精确指出「该分支没用共享解析器」，比 grep 可靠（gam 就是这样被抓出来的）。新会话可据此持续普查。
 - **验证**：高置信 `y` 置于 decoy 之后时，11 个分支全部改绑 `y`（原绑 `cont[0]=x1`）；新 `tests/test_outcome_nudge.py`（7 测：recorder 机制/绑定如实/**不一致主动暴露**/未绑不宣称/跨方法不变式「提示命名的结果必等于实际绑定」）；受影响分支测试 64 绿。
 
+
+**Wave S1（2026-09-07）：ARIMA/SARIMA 自动定阶 + 预测区间——两个用户可见的方法学短板补齐：**
+- **背景**：① 阶数硬编码 `(1,1,1)`（任何时序审稿人都会问「为什么不定阶」），且强制 `d=1` 会**过度差分**本已平稳的序列；② ARIMA/SARIMA **完全没有预测区间**（exp_smoothing 有）——只有点预测的方法在论文里不可用。
+- ✅ **自动定阶**：`_ndiffs_adf` 用 ADF 逐级检验定 `d`（**不进 AIC 比较**——跨差分阶数的似然基于不同有效样本，按 AIC 选 d 是经典错误），`D=1 if 检出季节`；固定 d/D 后在有界网格上按 **AICc** 排 (p,q[,P,Q])（非季节 p,q≤3；季节 p,q≤2、P,Q≤1；`_GRID_FIT_BUDGET=48`，简约优先排序）。config 可调 `d/max_p/max_q/max_P/max_Q`。
+- ✅ **预测区间**：`get_forecast().conf_int()` → `forecast.csv` 增 `lower`/`upper`、图上区间带、`config ci` 调置信水平；estimates 增 aicc/p/d/q(/P/D/Q)/forecast_next/pi_lower_next/pi_upper_next。
+- 🔴 **inference-reviewer 冷审逮到 2 个 MUST-FIX（都已修，且都是实证到的）**：
+  1. **`enforce_stationarity=False` 让 AICc 比较失效**：关掉约束后 statsmodels 无法用平稳初始化，改用近似扩散初始化，`loglikelihood_burn` **随状态维数（即 p,q,P,Q）增长** → 不同候选的似然算在**不同有效样本**上，搜索系统性冲向最大阶。审查者蒙特卡洛：随机游走真值 (0,1,0) 选中 **0/30**、平均 p+q=3.67；修后 18/30、平均 0.87。**且这让 summary 里「固定 d/D 后比较才有效」这句话本身是假的**。修：`enforce_stationarity/invertibility=True`（实测 burn 变为恒定 `d + D*sp`）。担心的「近确定性季节拟合失败」未复现（0 失败、converged=True）。代价：季节搜索 3.6s→8.6s。
+  2. **d=0 时没有截距**：SARIMAX 默认 `trend=None`，未差分序列被当**均值为零**拟合（均值 500 的白噪声预测 **0.00**、PI [-978,978]）。旧代码用 `ARIMA` 类（d==0 时默认 `trend='c'`），因 d 恒为 1 从未暴露——**自动 d 让 d=0 成为常态，是新引入的回归**。修：`trend='c' if (d==0 and D==0) else None`。
+- **SHOULD-FIX 已修**：③ AICc 用 `res.nobs`（全长）而非有效样本 → 改用 statsmodels 自带 `res.aicc`（按 `nobs - loglikelihood_burn`）；④ `_ndiffs_adf` 未 dropna，NaN 让 adfuller 抛错→静默返回 d=0（欠差分）却仍宣称「来自 ADF 检验」→ 加 `z[np.isfinite(z)]`。
+- **修复效果（实证）**：平稳 AR(1) (3,0,1)→**(1,0,0)**；随机游走 (3,1,3)→**(0,1,0)**；月度季节 (2,1,2)(1,1,0)[12]→**(0,1,1)(0,1,1)[12]（airline 模型，教科书正解）**。
+- **审查者确认正确、无需改的**：`conf_int()` 在 state-space 下**确实是预测区间**而非均值 CI（数值核对 half-width = 1.96·√sigma2 而非 1.96·√(sigma2/n)），标成「预测区间」正确；`k=len(res.params)` 含 sigma2 是对的（与 Hyndman 约定一致）。并**明确警告不要**改用 `regression='ct'`（趋势平稳数据下会判 d=0，但模型无确定性趋势项 → 明显上升的序列被预测成平的）。
+- **测试缺口（审查者点名，已补）**：原 24 个测试**在两个 MUST-FIX bug 都在的情况下全部通过**——没有一条断言「选中的阶数是否合理」。已加 4 条阶数合理性测试（随机游走 p+q≤1、季节总阶≤3、d=0 序列保住量级~500、AR(1) 均值回归）。
+- **仍 defer**：d=1 时无 drift 项（auto.arima 会拟合）；`D=1` 无季节单位根检验（OCSB/CH）；ADF 相对 KPSS 更易过差分（审查者实测 60 次：平稳序列 ADF 过差分 34/60 vs KPSS 11/60；但欠差分危害更大，故维持 ADF）。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

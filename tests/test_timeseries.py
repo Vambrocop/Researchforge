@@ -123,10 +123,14 @@ def test_executor_arima(tmp_path):
 
     assert math.isfinite(res.estimates["aic"])
     fc = pd.read_csv(out / "forecast.csv")
-    assert list(fc.columns) == ["step", "forecast"]
+    # a point forecast is not reportable without an interval — PI columns are contracted
+    assert list(fc.columns) == ["step", "forecast", "lower", "upper"]
+    assert (fc["lower"] <= fc["forecast"]).all() and (fc["forecast"] <= fc["upper"]).all()
     assert len(fc) == 10  # forecasts the contracted 10 periods
-    # honesty disclosure: order (1,1,1) is hardcoded, not auto-selected -- AIC is informational only.
-    assert "阶数固定为 (1,1,1)" in res.summary
+    # honesty disclosure: the order is AUTO-SELECTED (AICc grid, d fixed by unit-root test)
+    # and the summary must say so, including that AIC is not comparable across d.
+    assert "自动定阶" in res.summary and "AICc" in res.summary
+    assert {"p", "d", "q"} <= set(res.estimates)
 
 
 def test_arima_degenerate_series_fails_gracefully(tmp_path):

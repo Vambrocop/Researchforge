@@ -12,6 +12,7 @@ season), a trend-only / random-walk series stays non-seasonal ARIMA, and config 
 
 from __future__ import annotations
 
+import re
 import warnings
 
 import numpy as np
@@ -58,7 +59,7 @@ def _run(df: pd.DataFrame, tmp_path, cfg=None):
 def test_sarima_used_on_calendar_seasonality(tmp_path):
     res = _run(_monthly_seasonal(), tmp_path)
     assert res.estimates.get("seasonal_periods") == 12
-    assert "SARIMA(1,1,1)(1,1,1)[12]" in res.summary
+    assert re.search(r"SARIMA\(\d,\d,\d\)\(\d,\d,\d\)\[12\]", res.summary), res.summary[:200]
 
 
 def test_sarima_forecast_varies_with_season(tmp_path):
@@ -71,7 +72,7 @@ def test_sarima_forecast_varies_with_season(tmp_path):
 def test_trend_only_stays_nonseasonal_arima(tmp_path):
     res = _run(_monthly_trend_only(), tmp_path)
     assert res.estimates.get("seasonal_periods") in (0, 0.0)
-    assert "ARIMA(1,1,1)" in res.summary and "SARIMA" not in res.summary
+    assert re.search(r"ARIMA\(\d,\d,\d\)", res.summary) and "SARIMA" not in res.summary
 
 
 def test_random_walk_stays_nonseasonal_arima(tmp_path):
@@ -90,7 +91,7 @@ def test_config_seasonal_periods_override(tmp_path):
     # explicitly force a (wrong-but-valid) period; the branch must honor it.
     res = _run(_monthly_seasonal(), tmp_path, cfg={"seasonal_periods": 4})
     assert res.estimates.get("seasonal_periods") == 4
-    assert "SARIMA(1,1,1)(1,1,1)[4]" in res.summary
+    assert re.search(r"SARIMA\(\d,\d,\d\)\(\d,\d,\d\)\[4\]", res.summary), res.summary[:200]
 
 
 def test_small_sample_seasonal_falls_back_to_arima(tmp_path):
