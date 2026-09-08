@@ -547,7 +547,11 @@ def _branch_moderated_moderation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y, _ = _pick(cfg.get("y"), cont, used); used.append(y)
+    # H4c: same as serial/parallel above — Y is the outcome, bind the detected one.
+    _y_cfg = cfg.get("y")
+    y = _y_cfg if _y_cfg in cont else (resolve_outcome(fp, cfg, cont) if cont else None)
+    _record_bound_outcome(y)
+    used.append(y)
     x, _ = _pick(cfg.get("x"), cont, used); used.append(x)
     w, _ = _pick(cfg.get("w"), cont, used); used.append(w)
     z, _ = _pick(cfg.get("z"), cont, used); used.append(z)

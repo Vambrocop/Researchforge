@@ -177,3 +177,103 @@ def test_no_swept_branch_runs_without_reporting_its_outcome(tmp_path):
         if _ran(res) and res.outcome is None:
             silent.append(cid)
     assert not silent, f"ran but reported no outcome: {silent}"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Wave H4c — the shapes H4b's single probe could not reach.
+#
+# H4b audited with ONE probe (3 continuous + 1 categorical), so it only ever saw the
+# branches that shape lets run: serial_mediation / moderated_mediation need 4 continuous
+# columns and degraded on it, invisible to the instrument (they were found by hand).
+# Sweeping five probe shapes — wide-continuous, panel, survival, wide counts, categorical —
+# surfaced 17 more, almost all of them one copy-pasted line:
+#
+#     outcome = cfg["outcome"] else next(c for c in cont if c != treatment)
+#
+# i.e. column order with no role signal. The frames below put the high-confidence DV
+# name where that old pick does NOT land, so a regression to positional picking fails.
+# ═════════════════════════════════════════════════════════════════════════════
+def _causal_frame(n=400, seed=7):
+    """`y` is the DV; the OLD pick ("first continuous that isn't the treatment") lands on
+    `covar1`, so `res.outcome == "y"` is a real assertion, not bookkeeping."""
+    rng = np.random.default_rng(seed)
+    covar1 = rng.normal(0, 1, n)
+    covar2 = rng.normal(0, 1, n)
+    treated = (rng.random(n) < 1 / (1 + np.exp(-0.6 * covar1))).astype(int)
+    return pd.DataFrame({"covar1": covar1.round(3), "covar2": covar2.round(3),
+                         "treated": treated,
+                         "y": (1.5 * treated + covar1 - 0.5 * covar2
+                               + rng.normal(0, 1, n)).round(3)})
+
+
+def _panel_frame(n_unit=25, n_t=12, seed=8):
+    """Same trap in panel shape: `size` is the first continuous column, `y` is the DV."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        starts = 6 if u % 2 == 0 else 10 ** 9
+        for t in range(n_t):
+            d = 1 if t >= starts else 0
+            rows.append({"firm": f"f{u:02d}", "year": 2010 + t, "treated": d,
+                         "size": round(float(rng.normal(10, 2)), 3),
+                         "y": round(float(5 + fe + 0.8 * d + 0.05 * t
+                                          + rng.normal(0, 0.5)), 3)})
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize("cid", ["psm", "ipw", "aipw", "double_ml", "causal_forest",
+                                 "rosenbaum_bounds"])
+def test_treatment_effect_family_binds_detected_outcome(cid, tmp_path):
+    fp = _fp(_causal_frame(), tmp_path)
+    res = _run(fp, cid, tmp_path)
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:60]}")
+    assert res.outcome == "y", f"{cid} bound {res.outcome!r} (first-continuous fallback?)"
+
+
+@pytest.mark.parametrize("cid", ["event_study", "staggered_did", "first_difference",
+                                 "mundlak", "hausman_test", "system_gmm"])
+def test_panel_family_binds_detected_outcome(cid, tmp_path):
+    fp = _fp(_panel_frame(), tmp_path)
+    res = _run(fp, cid, tmp_path)
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:60]}")
+    assert res.outcome == "y", f"{cid} bound {res.outcome!r} instead of the DV"
+
+
+def test_glmm_records_its_non_gaussian_outcome(tmp_path):
+    """GLMM models the binary/count response, so it will not pick the continuous `y`; what
+    it must not do is model something without saying so."""
+    fp = _fp(_panel_frame(), tmp_path)
+    res = _run(fp, "glmm", tmp_path)
+    if not _ran(res):
+        pytest.skip(f"glmm degraded: {res.summary[:60]}")
+    assert res.outcome is not None
+
+
+@pytest.mark.parametrize("cid", ["heckman_selection", "moderated_moderation"])
+def test_remaining_h4c_branches_bind_detected_outcome(cid, tmp_path):
+    fp = _fp(_reg_frame(), tmp_path)          # x1, x2, z, y — `y` is the high-conf DV
+    res = _run(fp, cid, tmp_path)
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:60]}")
+    assert res.outcome == "y", f"{cid} bound {res.outcome!r}"
+
+
+def test_no_h4c_branch_runs_without_reporting_its_outcome(tmp_path):
+    """Ratchet, panel + causal shapes: same invariant as _SWEPT above."""
+    silent = []
+    for frame, ids in ((_causal_frame(seed=11), ["psm", "ipw", "aipw", "rosenbaum_bounds"]),
+                       (_panel_frame(seed=12), ["event_study", "staggered_did",
+                                                "first_difference", "mundlak",
+                                                "hausman_test", "glmm"])):
+        fp = _fp(frame, tmp_path, name=f"{ids[0]}.csv")
+        for cid in ids:
+            entry = _CAT.by_id(cid)
+            if entry is None:
+                continue
+            res = run_analysis(fp, entry, output_root=str(tmp_path / f"h4c_{cid}"))
+            if _ran(res) and res.outcome is None:
+                silent.append(cid)
+    assert not silent, f"ran but reported no outcome: {silent}"

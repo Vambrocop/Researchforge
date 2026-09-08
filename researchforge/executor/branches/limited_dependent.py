@@ -540,9 +540,10 @@ def _branch_heckman_selection(ctx: Ctx) -> None:
         # outcome = first continuous (not unit/time); predictors = remaining numeric.
         outcome = cfg.get("outcome")
         if not (outcome and outcome in df.columns):
-            outcome = next(
-                (c.name for c in fpcols
-                 if c.kind == "continuous" and c.name not in _exc), None)
+            # H4c: detected outcome, matching this module's _resolve_xy (H4b).
+            _cont = [c.name for c in fpcols
+                     if c.kind == "continuous" and c.name not in _exc]
+            outcome = resolve_outcome(fp, cfg, _cont) if _cont else None
         if outcome is None:
             summary.append("Heckman 选择模型跳过：需要 1 个连续结果变量（outcome）。")
             return

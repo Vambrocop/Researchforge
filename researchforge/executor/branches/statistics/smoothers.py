@@ -271,10 +271,13 @@ def _branch_glmm(ctx: Ctx) -> None:
         outcome, family = cfg_out, "binomial"
     elif cfg_out in counts:
         outcome, family = cfg_out, "poisson"
+    # H4c: the auto pick was binary[0] / counts[0] — pure column order. resolve_outcome
+    # adds the high-confidence-name tier and skips treatment-named columns (a trial arm is
+    # not the response), and records what was bound.
     elif binary:
-        outcome, family = binary[0], "binomial"
+        outcome, family = resolve_outcome(fp, cfg, binary), "binomial"
     elif counts:
-        outcome, family = counts[0], "poisson"
+        outcome, family = resolve_outcome(fp, cfg, counts), "poisson"
     else:
         outcome, family = None, None
     # grouping for the random intercept: config group, else panel unit, else a

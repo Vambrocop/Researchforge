@@ -26,6 +26,7 @@ linearmodels + statsmodels are installed.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -44,10 +45,11 @@ def _resolve_panel(ctx: Ctx, label: str, min_periods: int = 2):
         return None, None, None, [], f"{label}跳过：需要面板数据（单位列 + 时间列）。"
 
     _exc = {unit, time}
-    outcome = cfg.get("outcome") or next(
-        (c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc),
-        None,
-    )
+    # H4c: shared panel role resolution — bind the DETECTED outcome (config > high-conf
+    # role > first non-treatment-named continuous) rather than the first continuous column,
+    # and record it. One change covers every branch that resolves through here.
+    _cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc]
+    outcome = cfg.get("outcome") or (resolve_outcome(fp, cfg, _cont) if _cont else None)
     if outcome is None:
         return unit, time, None, [], f"{label}跳过：需要 1 个连续结果变量（outcome）。"
 

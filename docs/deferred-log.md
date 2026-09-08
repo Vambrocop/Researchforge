@@ -503,5 +503,18 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **成本**：快循环 ~51s → 约 +9s（多跑 3 个 meta-guard 测试）；每次 push +45s。
 - 💡 **留给后人的判据**：**门禁的分类依据是「坏了会不会静默」，不是「跑得快不快」。** 一个 9 秒的一致性检查该进必跑集，一个 2 秒的重模型冒烟测试可以进 slow。
 
+
+**Wave H4c（2026-09-08）：换探针形状再扫——审计仪的覆盖面 = 探针的形状：**
+- **假设**：H4b 只用了**一个**探针（3 连续 + 1 类别），所以只能看见那个形状允许跑通的分支。`serial_mediation`/`moderated_mediation` 需要 4 个连续列，在那个探针上直接降级 → **仪器根本看不见**，当时是靠「同文件同模式」人工发现的。**结论：审计仪的覆盖面 = 探针数据的形状，不是全覆盖证明。**
+- **做法**：五种探针各扫一遍——`wide_continuous`(6 连续，H4b 的盲区)、`panel`(unit+time+treated+covariate+DV)、`survival`(duration+event+协变量)、`wide_counts`(物种×站点丰度矩阵)、`categorical`(纯类别+二值)。
+- 📈 **产量**：并集 23 处未绑定，其中 **17 个是 H4b 完全看不见的新面孔**（panel 探针一家就贡献 18 处）。修完并集降到 **8**（只剩语义上没有 outcome 的：相关/空间/Friedman 条件列）。
+- **绝大多数是同一行复制粘贴**：`outcome = cfg["outcome"] else next(c for c in cont if c != treatment)`——纯列序、无角色信号。7 个处理效应分支（psm/ipw/aipw/double_ml/causal_forest/event_study/staggered_did）逐字相同。改接 `resolve_outcome`，多出「高置信结果名」档 + 跳过 treatment 命名列 + 记录绑定。
+- **两个共享面板解析器一处改动清一片**：`panel_extra._resolve_panel`（first_difference/mundlak/hausman_test…）、`panel_iv._resolve_panel_roles`（system_gmm/dynamic_panel_gmm…）——延续 H4b 「共享解析器优先」的思路。
+- **单点**：`moderated_moderation`（中介族最后一个 `_pick(cfg.get("y"))`，**正是 H4b 靠人工发现的那类**，这次仪器自己抓到了）、`heckman_selection`（自带角色块，没走本模块的 `_resolve_xy`）、`rosenbaum_bounds`、`glmm`（`binary[0]`/`counts[0]` 纯列序）。
+- 🟡 **顺带观察（未修，记下）**：panel 探针上 `glmm` 唯一的二值列是 `treated`，于是它把**处理指示变量当响应**建模。`resolve_outcome` 会跳过 treatment 命名列，但候选里没有别的二值 → 仍回退到它。真正的问题是**这种形状下 GLMM 本不该浮现**（选模问题，不是绑定问题）；留给后续 shape-signal 波次。
+- **验证**：五形状审计前后对比（23 → 8）；`tests/test_outcome_binding_sweep.py` 加 H4c 段——**探针形状进了测试**：causal/panel 两个新数据框都把高置信 DV 名放在旧「第一个非处理连续列」**不会**落到的位置，退回列序即测试红；再加一条 panel/causal 形状的 ratchet。
+- ✅ **上一波刚建的门禁当场兑现**：H4c 给 `moderated_moderation` 接线后，它开始读 `cfg["outcome"]` 而 yaml 没声明——**全量套件里唯一一处红**就是 `test_config_params_complete` 抓的。这正是它红在 origin/main 上两波却没人发现的那类问题，现在建好一波就自己逮住了下一波。（写这条时还顺手踩了个坑：bash 双引号里的反引号会被当命令替换，那三个名字第一次写进去时被吃掉了——**给日志写代码名时用单引号包 heredoc**。）
+- 💡 **方法学教训（比修好的分支更值钱）**：**一个自动审计工具的覆盖面等于它的输入形状。** 报「全部干净」之前，先问「我的探针能让多少分支真正跑起来」——H4b 的探针只跑通 50/113，panel 探针跑通 68/113。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

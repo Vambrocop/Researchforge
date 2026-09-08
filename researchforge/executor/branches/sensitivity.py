@@ -496,7 +496,9 @@ def _branch_rosenbaum_bounds(ctx: Ctx) -> None:
         treatment = bins[0] if bins else None
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
     if outcome is None:
-        outcome = next((c for c in cont if c != treatment), None)
+        # H4c: detected outcome among the non-treatment continuous columns.
+        _ocand = [c for c in cont if c != treatment]
+        outcome = resolve_outcome(fp, cfg, _ocand) if _ocand else None
     if cfg.get("covariates"):
         covs = [c for c in cfg["covariates"] if c in df.columns and c not in {outcome, treatment}]
     else:

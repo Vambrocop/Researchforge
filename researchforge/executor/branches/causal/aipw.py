@@ -22,6 +22,7 @@ plug-in influence-function variance.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("aipw")
@@ -44,8 +45,12 @@ def _branch_aipw(ctx: Ctx) -> None:
     # --- roles: treatment (binary), outcome (continuous), covariates (numeric) ---
     treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
         fp.treatment_candidates[0] if fp.treatment_candidates else (bins[0] if bins else None))
+    # H4c: bind the DETECTED outcome among the non-treatment continuous columns
+    # (config > high-confidence outcome name > first non-treatment-named) instead of
+    # plain column order — and record it, so the report can name what was modeled.
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        next((c for c in cont if c != treatment), None))
+        resolve_outcome(fp, cfg, [c for c in cont if c != treatment])
+        if [c for c in cont if c != treatment] else None)
     if cfg.get("covariates"):
         covs = [c for c in cfg["covariates"] if c in df.columns and c not in {outcome, treatment}]
     else:

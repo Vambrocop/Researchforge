@@ -31,6 +31,7 @@ from __future__ import annotations
 import re
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 # Reuse the canonical GMM-lag-window parser (shared with dynamic_panel_gmm) rather than
 # duplicate it — keeps the (lo, hi) default + validation in one place.
 from researchforge.executor.run import _gmm_lags
@@ -61,8 +62,10 @@ def _resolve_panel_roles(ctx: Ctx, *, max_preds: int, unit, time):
     if forced_y in df.columns:
         y = forced_y
     else:
-        y = next((c.name for c in fp.columns
-                  if c.kind == "continuous" and c.name not in excl), None)
+        # H4c: detected outcome, not column order (see panel_extra._resolve_panel).
+        _cont = [c.name for c in fp.columns
+                 if c.kind == "continuous" and c.name not in excl]
+        y = resolve_outcome(fp, cfg, _cont) if _cont else None
     forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y]
     if forced:
         preds = forced[:max_preds]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 from researchforge.executor.run import _causal_forest_via_econml
 
 
@@ -18,7 +19,10 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             (c.name for c in fp.columns if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}),
             None,
         )
-    outcome = cfg["outcome"] if cfg.get("outcome") in cont else next((c for c in cont if c != treatment), None)
+    # H4c: see the note in causal/psm.py — detected outcome, not column order.
+    _ocand = [c for c in cont if c != treatment]
+    outcome = (cfg["outcome"] if cfg.get("outcome") in cont
+               else (resolve_outcome(fp, cfg, _ocand) if _ocand else None))
     forced_mod = [c for c in (cfg.get("effect_modifiers") or cfg.get("controls") or cfg.get("predictors") or []) if c in df.columns and c not in {outcome, treatment}]
     if forced_mod:
         modifiers = forced_mod[:15]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import resolve_outcome
 
 
 @register("staggered_did")
@@ -26,8 +27,12 @@ def _branch_staggered_did(ctx: Ctx) -> None:
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
     treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
         fp.treatment_candidates[0] if fp.treatment_candidates else (bins_[0] if bins_ else None))
+    # H4c: bind the DETECTED outcome among the non-treatment continuous columns
+    # (config > high-confidence outcome name > first non-treatment-named) instead of
+    # plain column order — and record it, so the report can name what was modeled.
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (
-        next((c for c in cont if c != treatment), None))
+        resolve_outcome(fp, cfg, [c for c in cont if c != treatment])
+        if [c for c in cont if c != treatment] else None)
     if treatment is None or outcome is None:
         summary.append('交错DiD失败：需要 二值处理(随时间开启) + 连续结果。config={"treatment":..,"outcome":..}。')
         return
