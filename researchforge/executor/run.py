@@ -70,6 +70,7 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _qca_incl_cut,
     _quantile_process_plot,
     _record_bound_outcome,
+    _record_bound_treatment,
     _regression,
     _report,
     _resid_plot,
@@ -190,6 +191,39 @@ def run_analysis(
                 "本方法未使用统一的结果解析（默认取第一连续列）——若不符，用 config outcome 指定。"
             )
         summary.insert(_nudge_pos, _nudge)
+
+    # The TREATMENT the branch bound (Wave H4d + its cold review). Picking the wrong one
+    # silently flips an ATT — the reviewer's frame reported a confident, significant,
+    # wrong-signed effect for a COVARIATE and the report never named the intervention at
+    # all. So state it whenever a branch bound one, and flag disagreement with the detected
+    # column. An explicitly configured treatment is the user's own call: named, not second-
+    # guessed. Mirrors the outcome nudge above: one place, no branch edits.
+    if bound_treatment:
+        _explicit = bound_treatment in {cfg.get("treatment"), cfg.get("exposure")}
+        _lt = getattr(fp, "likely_treatment", None)
+        if _explicit:
+            _tnote = "（由 config 指定）"
+        elif _lt and _lt != bound_treatment:
+            # delta-review D5: on a panel the DiD family binds the WITHIN-UNIT SWITCHER on
+            # purpose (the estimand needs onset = min(time | D==1) per unit). Warning that a
+            # time-invariant column "looks more like the treatment" there points the user at
+            # a column that cannot define an onset at all. Qualify instead of warning — but
+            # only when the suggestion genuinely cannot switch; when it can, the warning is
+            # useful and stands.
+            _tnote = f"；⚠ 角色检测认为 '{_lt}' 更像处理列——不符则用 config treatment 指定"
+            try:
+                if fp.unit_col and fp.time_col and {bound_treatment, _lt} <= set(df.columns):
+                    _sw = df.groupby(fp.unit_col)[bound_treatment].nunique().gt(1).mean()
+                    _sw_alt = df.groupby(fp.unit_col)[_lt].nunique().gt(1).mean()
+                    if float(_sw) > 0 and float(_sw_alt) == 0:
+                        _tnote = (f"（面板 DiD 按「组内随时间切换」选取；'{_lt}' 名称更像处理列但"
+                                  "不随时间变化，无法定义处理起始期）")
+            except Exception:  # noqa: BLE001 — a disclosure must never break a run
+                pass
+        else:
+            _tnote = "——如需改用其他列，用 config treatment 指定"
+        summary.insert(_nudge_pos,
+                       f"💡 本方法把 '{bound_treatment}' 当作处理/暴露变量{_tnote}。")
 
     (d / "analysis_code.py").write_text("\n".join(code), encoding="utf-8")
     files.append("analysis_code.py")

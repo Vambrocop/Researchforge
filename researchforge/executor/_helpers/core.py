@@ -109,7 +109,7 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
     ``df``, when given, widens the ``config["treatment"]`` check to every column in the
     frame (the same escape ``resolve_predictors`` takes). Returns None only when there is
     no candidate and no configured column."""
-    from researchforge.profiler.roles import is_treatment_named
+    from researchforge.profiler.roles import treatment_name_strength
 
     cfg = cfg or {}
     if not candidates and not (df is not None and cfg.get("treatment") in df.columns):
@@ -122,9 +122,19 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
     if forced in cols:
         chosen = forced
     else:
-        named = [c for c in candidates if is_treatment_named(c)]
         lt = getattr(fp, "likely_treatment", None)
         lo = getattr(fp, "likely_outcome", None)
+        # cold-review SHOULD-FIX 4: roles.py builds likely_treatment as "first
+        # treatment-named binary EXCLUDING the detected outcome"; re-running the name
+        # match without that exclusion let tier 2 short-circuit tier 3 and bind a binary
+        # OUTCOME (`treatment_response`) as the treatment. Apply the same exclusion.
+        # Safe: a BINARY likely_outcome is always high-confidence (roles.py's medium/low
+        # paths only look at continuous/count kinds), so no weak hint can veto here.
+        # delta-review D2: rank by SIGNAL STRENGTH, not file order — a weak whole-name
+        # match (`group` as a study site) must never outrank a strong word (`treated`).
+        # Ties keep dataframe order (sorted is stable).
+        _scored = [(treatment_name_strength(c), c) for c in candidates if c != lo]
+        named = [c for st, c in sorted(_scored, key=lambda kv: -kv[0]) if st > 0]
         if named:
             chosen = named[0]
         elif lt in candidates:
@@ -143,20 +153,34 @@ def _run_dir(root: str, entry_id: str) -> Path:
     return d
 
 
-def _pick_did_treatment(df, fp: DataFingerprint) -> list[str]:
-    """The DID treatment is the binary that varies WITHIN units over time (a
-    treatment that switches on), not a fixed group flag. Returns [] if none vary."""
-    if not (fp.unit_col and fp.time_col):
+def _pick_did_treatment(df, fp: DataFingerprint, unit=None, time=None) -> list[str]:
+    """The DID treatment is the binary that varies WITHIN units over time (a treatment that
+    switches on), not a fixed group flag. Returns [] if none vary.
+
+    This is a STRONGER signal than any name match for the DiD family, whose estimand is built
+    from onset = min(time | treatment==1) per unit: a time-invariant flag has no onset at all.
+    Callers pass their own ``unit``/``time`` when config overrode the fingerprint's."""
+    unit = unit or fp.unit_col
+    time = time or fp.time_col
+    if not (unit and time):
         # H4d: without a panel there is no within-unit variation to use, so fall back to
         # the NAME-aware pick rather than the first binary column.
         t = resolve_treatment(fp, None, fp.treatment_candidates)
         return [t] if t else []
-    best = None
+    scored = []
     for name in fp.treatment_candidates:
-        frac = float((df.groupby(fp.unit_col)[name].nunique() > 1).mean())
-        if frac > 0 and (best is None or frac > best[0]):
-            best = (frac, name)
-    return [best[1]] if best else []
+        if name not in df.columns:
+            continue
+        frac = float((df.groupby(unit)[name].nunique() > 1).mean())
+        if frac > 0:
+            scored.append((frac, name))
+    # delta-review D1: return EVERY switcher, most-switching first, not just the argmax.
+    # Callers pass this in as the candidate list, so returning one column annihilated the
+    # name ladder: a calendar `post` dummy (switches for 100% of units) beat the real
+    # `policy_on` (50%), and a time-varying binary OUTCOME beat it too. Sorting is stable,
+    # so ties keep dataframe order and [0] is still today's argmax.
+    scored.sort(key=lambda kv: -kv[0])
+    return [n for _, n in scored]
 
 
 def resolve_outcome(fp: DataFingerprint, cfg: dict | None, candidates: list[str]) -> str:
@@ -229,7 +253,9 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None 
         fe_terms = [f"C(Q('{fp.unit_col}'))", f"C(Q('{fp.time_col}'))"]
 
     if entry.id == "did" and fp.treatment_candidates:
-        rhs_vars = _pick_did_treatment(df, fp) or fp.treatment_candidates[:1]
+        # [:1] — _pick_did_treatment now returns every switcher (D1); this formula takes
+        # ONE treatment term, and a naive multi-return would silently add regressors.
+        rhs_vars = _pick_did_treatment(df, fp)[:1] or fp.treatment_candidates[:1]
     else:
         # optional explicit predictor list via config["predictors"] (cap 8) else
         # auto continuous/count/binary columns in dataframe order (cap 5)

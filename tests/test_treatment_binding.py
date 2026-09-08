@@ -27,7 +27,7 @@ import pytest
 
 from researchforge.catalog import Catalog
 from researchforge.executor import run_analysis
-from researchforge.executor.run import resolve_treatment
+from researchforge.executor.run import _pick_did_treatment, resolve_treatment
 from researchforge.profiler import profile_dataset
 
 _CAT = Catalog.load()
@@ -140,3 +140,449 @@ def test_wired_branches_never_run_without_reporting_their_treatment(tmp_path):
         if _ran(res) and res.treatment is None:
             silent.append(cid)
     assert not silent, f"ran but reported no treatment: {silent}"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Cold-review regressions (2026-09-08). Each of these reproduces a scenario where
+# the FIRST version of this wave was worse than the code it replaced, plus the
+# tier-discriminating cases the original 12 tests could not distinguish.
+# ═════════════════════════════════════════════════════════════════════════════
+def _staggered_panel(n_unit=30, n_t=14, seed=11):
+    """Ordinary staggered adoption, true ATT = +3.0, with a time-invariant NAME-matched
+    decoy (`region_group`). The DiD estimand is built from onset = min(time|D==1) per unit,
+    so a flag that never switches has no onset — the reviewer measured staggered_did going
+    +3.497 -> -0.332 (p=0.033, wrong sign) and five sibling methods degrading to a skip."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        g = 6 if u % 3 == 0 else (10 if u % 3 == 1 else 10 ** 9)
+        for t in range(n_t):
+            d = 1 if t >= g else 0
+            rows.append({"unit": f"u{u:02d}", "year": 2005 + t,
+                         "y": round(float(10 + fe + 3.0 * d + 0.1 * t + rng.normal(0, 0.6)), 3),
+                         "adopted": d, "region_group": int(u % 2)})
+    return pd.DataFrame(rows)
+
+
+def _named_covariate_frame(n=400, seed=5):
+    """`age_group` matched the WEAK treatment regex (the `(?:^|_|\b)` alternation contains a
+    literal `_`, so `age_group` matched `group`). Harmless while it only made resolve_outcome
+    SKIP a column; once it could BIND, PSM reported ATT=+3.11 (p=0.008) for a covariate on
+    data whose true ATT is -8."""
+    rng = np.random.default_rng(seed)
+    age_group = rng.integers(0, 2, n)
+    bmi = rng.normal(26, 4, n)
+    vacc = (rng.random(n) < 1 / (1 + np.exp(-(0.4 * age_group)))).astype(int)
+    sev = 50 - 8 * vacc + 3 * age_group + 0.5 * bmi + rng.normal(0, 5, n)
+    return pd.DataFrame({"severity_index": sev.round(2), "vaccinated": vacc,
+                         "age_group": age_group, "bmi": bmi.round(2)})
+
+
+@pytest.mark.parametrize("cid", ["staggered_did", "event_study", "callaway_santanna",
+                                 "goodman_bacon", "honest_did", "chaisemartin_did"])
+def test_panel_did_binds_the_switching_indicator_not_a_named_flag(cid, tmp_path):
+    fp = _fp(_staggered_panel(), tmp_path)
+    entry = _CAT.by_id(cid)
+    if entry is None:
+        pytest.skip(f"{cid} not in catalog")
+    res = run_analysis(fp, entry, output_root=str(tmp_path / f"did_{cid}"))
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:70]}")
+    assert res.treatment == "adopted", (
+        f"{cid} bound {res.treatment!r}; only the within-unit SWITCHING indicator has an onset"
+    )
+
+
+def test_staggered_did_recovers_the_positive_att(tmp_path):
+    """The number, not just the column: binding `region_group` produced -0.332 (p=0.033)."""
+    fp = _fp(_staggered_panel(), tmp_path)
+    res = run_analysis(fp, _CAT.by_id("staggered_did"), output_root=str(tmp_path / "sd"))
+    if not _ran(res):
+        pytest.skip(f"staggered_did degraded: {res.summary[:70]}")
+    att = res.estimates.get("att_overall")
+    assert att is not None and 2.0 < att < 4.0, f"true ATT is +3.0, got {att}"
+
+
+@pytest.mark.parametrize("cid", ["psm", "ipw", "aipw"])
+def test_a_named_covariate_never_beats_the_real_arm(cid, tmp_path):
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    entry = _CAT.by_id(cid)
+    if entry is None:
+        pytest.skip(f"{cid} not in catalog")
+    res = run_analysis(fp, entry, output_root=str(tmp_path / f"cov_{cid}"))
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:70]}")
+    assert res.treatment == "vaccinated", f"{cid} bound {res.treatment!r}"
+    key = "att" if "att" in res.estimates else "ate"
+    assert res.estimates[key] < 0, "true ATT is -8; a positive estimate means the wrong column"
+
+
+def test_likely_treatment_hint_is_not_a_covariate(tmp_path):
+    """`likely_treatment` is shown to the user (cli / study_report / web), so its vocabulary
+    has to be the precise one too — it was announcing `age_group` as 可能的处理变量."""
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    assert fp.likely_treatment == "vaccinated"
+
+
+# ── tier discrimination: mutants M1/M2/M5 all survived the original suite ────
+def _tier_frame(n=300, seed=7):
+    """`likely_treatment` is 'arm', but 'treatment_response' is the high-confidence binary
+    OUTCOME and also matches the treatment vocabulary. Tier 2 without the outcome exclusion
+    binds the outcome; deleting tier 2 or tier 3 changes the answer — so this frame tells
+    the tiers apart, which the flagship frame could not."""
+    rng = np.random.default_rng(seed)
+    arm = rng.integers(0, 2, n)
+    return pd.DataFrame({"baseline": rng.normal(50, 8, n).round(2),
+                         "treatment_response": (rng.random(n) < 0.3 + 0.3 * arm).astype(int),
+                         "arm": arm,
+                         "age": rng.integers(20, 70, n)})
+
+
+def test_a_binary_outcome_is_never_bound_as_the_treatment(tmp_path):
+    fp = _fp(_tier_frame(), tmp_path)
+    assert fp.likely_outcome == "treatment_response"       # high-confidence binary outcome
+    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "arm"
+
+
+def test_first_named_candidate_wins_in_dataframe_order(tmp_path):
+    """Pins `named[0]`, not `named[-1]` (mutant M2 survived the original suite)."""
+    rng = np.random.default_rng(13)
+    n = 200
+    df = pd.DataFrame({"y": rng.normal(0, 1, n).round(3),
+                       "arm": rng.integers(0, 2, n),
+                       "dose_high": rng.integers(0, 2, n)})
+    fp = _fp(df, tmp_path)
+    assert resolve_treatment(fp, {}, ["arm", "dose_high"]) == "arm"
+    assert resolve_treatment(fp, {}, ["dose_high", "arm"]) == "dose_high"
+
+
+def test_config_can_name_a_column_outside_the_candidate_list(tmp_path):
+    """Pins the `df=` widening (mutant M3 survived): a user may name a column the profiler
+    typed as something other than binary, and it must bind AND be recorded."""
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    csv0 = tmp_path / "widen.csv"
+    _named_covariate_frame().to_csv(csv0, index=False)
+    import pandas as _pd
+    d = _pd.read_csv(csv0)
+    # with df=, an explicit config may name ANY column (bmi is continuous, not a candidate)
+    assert resolve_treatment(fp, {"treatment": "bmi"}, ["vaccinated"], df=d) == "bmi"
+    # without df= the widening must NOT happen — config has to name a candidate
+    assert resolve_treatment(fp, {"treatment": "bmi"}, ["vaccinated"]) == "vaccinated"
+    csv = tmp_path / "w.csv"
+    _named_covariate_frame().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("psm"),
+                       output_root=str(tmp_path / "wcfg"), config={"treatment": "age_group"})
+    assert res.treatment == "age_group"
+
+
+def test_the_first_binding_is_the_recorded_one(tmp_path):
+    """Pins first-wins (mutant M4 recorded the LAST binding and survived)."""
+    from researchforge.executor.run import capture_bound_treatment
+
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    with capture_bound_treatment() as rec:
+        resolve_treatment(fp, {}, ["vaccinated"])
+        resolve_treatment(fp, {}, ["age_group"])
+    assert rec == ["vaccinated"]
+
+
+def test_the_bound_treatment_is_disclosed_to_the_user(tmp_path):
+    """MUST-FIX 3: the report used to name neither the intervention nor the alternative."""
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    res = run_analysis(fp, _CAT.by_id("psm"), output_range := str(tmp_path / "disc"))
+    assert "处理/暴露变量" in res.summary and "vaccinated" in res.summary
+    assert output_range  # keep the path referenced
+
+
+def test_explicit_treatment_is_named_but_not_second_guessed(tmp_path):
+    fp = _fp(_named_covariate_frame(), tmp_path)
+    res = run_analysis(fp, _CAT.by_id("psm"), output_root=str(tmp_path / "d2"),
+                       config={"treatment": "age_group"})
+    line = next((ln for ln in res.summary.split("\n") if "处理/暴露变量" in ln), "")
+    assert "age_group" in line and "config" in line
+
+
+def test_the_binary_outcome_is_excluded_even_without_any_name_signal(tmp_path):
+    """The case that separates tiers 3/4 from a bare ``candidates[0]``.
+
+    No candidate carries a treatment name here, so tier 2 is silent. The first binary in
+    file order IS the high-confidence binary OUTCOME (`died`), so a fallback that just takes
+    candidates[0] binds the event being explained as the intervention. Tier 3
+    (fp.likely_treatment, which roles.py builds excluding the outcome) and tier 4 (first
+    non-outcome candidate) both prevent that — deleting them was the one mutant the first
+    version of this suite could not kill.
+    """
+    rng = np.random.default_rng(21)
+    n = 300
+    flag_b = rng.integers(0, 2, n)
+    died = (rng.random(n) < 0.2 + 0.3 * flag_b).astype(int)
+    df = pd.DataFrame({"died": died, "flag_b": flag_b,
+                       "score": rng.normal(0, 1, n).round(3)})
+    fp = _fp(df, tmp_path)
+    assert fp.likely_outcome == "died"                      # high-confidence binary event
+    assert fp.treatment_candidates[0] == "died"             # ...and it is first in file order
+    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "flag_b"
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Delta-review regressions (2026-09-08). The first round of cold-review fixes
+# traded one error class for another, and the panel test above turned out to be
+# confounded — it passed with the switching signal entirely disabled.
+# ═════════════════════════════════════════════════════════════════════════════
+def _panel_with_strong_named_decoy(n_unit=30, n_t=14, seed=11):
+    """True ATT +3.0. `treatment_arm` is STRONG-named but TIME-INVARIANT, so only the
+    switching signal can pick `adopted`. The earlier decoy (`region_group`) was already
+    rejected by the vocabulary, which is why that test passed without the switch signal."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        g = 6 if u % 3 == 0 else (10 if u % 3 == 1 else 10 ** 9)
+        for t in range(n_t):
+            d = 1 if t >= g else 0
+            rows.append({"unit": f"u{u:02d}", "year": 2005 + t,
+                         "y": round(float(10 + fe + 3.0 * d + 0.1 * t + rng.normal(0, 0.6)), 3),
+                         "adopted": d, "treatment_arm": int(u % 2)})
+    return pd.DataFrame(rows)
+
+
+def _panel_two_switchers(extra="post", n_unit=30, n_t=14, seed=11):
+    """True ATT +3.0 with a SECOND switching binary. `post` is a calendar dummy that switches
+    for 100% of units vs `policy_on`'s 50%, so an argmax-only switch pick hands back `post`
+    and the name ladder never runs — event_study emitted 0.513 against a truth of 3.0."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        g = 6 if u % 3 == 0 else (10 if u % 3 == 1 else 10 ** 9)
+        for t in range(n_t):
+            d = 1 if t >= g else 0
+            row = {"unit": f"u{u:02d}", "year": 2005 + t,
+                   "y": round(float(10 + fe + 3.0 * d + 0.1 * t + rng.normal(0, 0.6)), 3),
+                   "policy_on": d}
+            row["post" if extra == "post" else "hospitalized"] = (
+                (1 if t >= 7 else 0) if extra == "post" else int(rng.random() < 0.3 + 0.2 * d))
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _site_group_frame(n=400, seed=31):
+    """`group` is the study SITE (a weak whole-name match), `treated` is the arm. Ranking the
+    weak escape by file order bound `group` and reported ATT=+3.87 against a truth of -8."""
+    rng = np.random.default_rng(seed)
+    grp = rng.integers(0, 2, n)
+    treated = (rng.random(n) < 1 / (1 + np.exp(-(0.5 * grp)))).astype(int)
+    score = 50 - 8 * treated + 2 * grp + rng.normal(0, 5, n)
+    return pd.DataFrame({"score": score.round(2), "group": grp, "treated": treated,
+                         "age": rng.integers(20, 70, n)})
+
+
+def _payments_frame(n=400, seed=41):
+    """`tx` as a SUBSTRING fired across the payments domain; `tx_online` was bound as the
+    treatment and PSM reported +7.4 against a truth of -15."""
+    rng = np.random.default_rng(seed)
+    tx_online = rng.integers(0, 2, n)
+    promo = (rng.random(n) < 0.5).astype(int)
+    spend = 200 - 15 * promo + 6 * tx_online + rng.normal(0, 12, n)
+    return pd.DataFrame({"spend": spend.round(2), "promo_shown": promo,
+                         "tx_online": tx_online, "tenure_days": rng.integers(30, 900, n)})
+
+
+@pytest.mark.parametrize("cid", ["staggered_did", "event_study", "callaway_santanna"])
+def test_switch_signal_beats_a_strong_named_time_invariant_flag(cid, tmp_path):
+    """Kills the mutant that disables _pick_did_treatment entirely."""
+    fp = _fp(_panel_with_strong_named_decoy(), tmp_path)
+    entry = _CAT.by_id(cid)
+    if entry is None:
+        pytest.skip(f"{cid} not in catalog")
+    res = run_analysis(fp, entry, output_root=str(tmp_path / f"sw_{cid}"))
+    if not _ran(res):
+        pytest.skip(f"{cid} degraded: {res.summary[:70]}")
+    assert res.treatment == "adopted", (
+        f"{cid} bound {res.treatment!r}; `treatment_arm` never switches, so it has no onset"
+    )
+    key = next((k for k in ("att_overall", "att_post_mean") if k in res.estimates), None)
+    if key:
+        assert 2.0 < res.estimates[key] < 4.0, f"true ATT is +3.0, got {res.estimates[key]}"
+
+
+@pytest.mark.parametrize("extra", ["post", "tv_outcome"])
+def test_name_ladder_still_decides_among_several_switchers(extra, tmp_path):
+    """The switch signal must NARROW the candidates, not replace the ladder: a calendar
+    `post` dummy switches for more units than the real `policy_on`."""
+    fp = _fp(_panel_two_switchers(extra), tmp_path, name=f"{extra}.csv")
+    res = run_analysis(fp, _CAT.by_id("staggered_did"), output_root=str(tmp_path / f"tw_{extra}"))
+    if not _ran(res):
+        pytest.skip(f"degraded: {res.summary[:70]}")
+    assert res.treatment == "policy_on", f"bound {res.treatment!r}"
+    assert 2.0 < res.estimates["att_overall"] < 4.0
+
+
+def test_pick_did_treatment_returns_every_switcher_most_switching_first(tmp_path):
+    """Pins the arity (a single-column return annihilates the ladder) and the ordering."""
+    df = _panel_two_switchers("post")
+    fp = _fp(df, tmp_path, name="sw.csv")
+    got = _pick_did_treatment(df, fp)
+    assert got == ["post", "policy_on"], got          # frac 1.0 before frac 0.5
+    assert _pick_did_treatment(df, fp, unit="unit", time="year") == got   # explicit overrides
+
+
+def test_did_formula_takes_only_one_treatment_term(tmp_path):
+    """_pick_did_treatment now returns several columns; the `did` formula must take one."""
+    fp = _fp(_panel_two_switchers("post"), tmp_path, name="didf.csv")
+    res = run_analysis(fp, _CAT.by_id("did"), output_root=str(tmp_path / "didf"))
+    if not _ran(res):
+        pytest.skip(f"did degraded: {res.summary[:70]}")
+    assert "post" in res.summary or "policy_on" in res.summary
+
+
+def test_a_weak_whole_name_never_outranks_a_strong_word(tmp_path):
+    fp = _fp(_site_group_frame(), tmp_path)
+    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "treated"
+    assert fp.likely_treatment == "treated"      # the user-visible hint must agree
+    res = run_analysis(fp, _CAT.by_id("psm"), output_root=str(tmp_path / "site"))
+    if _ran(res):
+        assert res.treatment == "treated" and res.estimates["att"] < 0
+
+
+def test_a_bare_group_column_still_binds(tmp_path):
+    """The exact-name escape must survive the strength ranking: with no strong word present,
+    a bare `group` column IS the arm."""
+    rng = np.random.default_rng(61)
+    n = 300
+    g = rng.integers(0, 2, n)
+    df = pd.DataFrame({"y": (10 - 4 * g + rng.normal(0, 2, n)).round(3),
+                       "flag_a": rng.integers(0, 2, n), "group": g})
+    fp = _fp(df, tmp_path, name="bare.csv")
+    assert resolve_treatment(fp, {}, ["flag_a", "group"]) == "group"
+
+
+def test_payments_columns_are_not_treatments(tmp_path):
+    fp = _fp(_payments_frame(), tmp_path)
+    assert fp.likely_treatment == "promo_shown"
+    res = run_analysis(fp, _CAT.by_id("psm"), output_root=str(tmp_path / "tx"))
+    if not _ran(res):
+        pytest.skip("psm degraded")
+    assert res.treatment == "promo_shown", f"bound {res.treatment!r}"
+    assert res.estimates["att"] < 0, "true ATT is -15"
+
+
+def test_evalue_records_an_explicitly_configured_exposure(tmp_path):
+    """Kills the mutant that reverts SHOULD-FIX 6 for evalue."""
+    fp = _fp(_survival_frame(), tmp_path)
+    res = run_analysis(fp, _CAT.by_id("evalue"), output_root=str(tmp_path / "ev"),
+                       config={"exposure": "treatment"})
+    if not _ran(res):
+        pytest.skip("evalue degraded")
+    assert res.treatment == "treatment"
+
+
+def test_disclosure_explains_the_switch_rule_instead_of_misdirecting(tmp_path):
+    """On a 2x2 panel the engine binds `post` (the switcher) on purpose; warning that
+    `treated` "looks more like the treatment" would send the user to a column that cannot
+    define an onset."""
+    rng = np.random.default_rng(51)
+    rows = []
+    for u in range(40):
+        fe = rng.normal(0, 1)
+        tr = int(u % 2)
+        for t in range(8):
+            po = 1 if t >= 4 else 0
+            rows.append({"unit": f"u{u:02d}", "year": 2010 + t,
+                         "y": round(float(5 + fe + 2.5 * tr * po + rng.normal(0, 0.5)), 3),
+                         "post": po, "treated": tr})
+    fp = _fp(pd.DataFrame(rows), tmp_path, name="disc2.csv")
+    res = run_analysis(fp, _CAT.by_id("staggered_did"), output_root=str(tmp_path / "disc2"))
+    line = next((ln for ln in res.summary.split("\n") if "处理/暴露变量" in ln), "")
+    assert "post" in line
+    assert "无法定义处理起始期" in line and "⚠ 角色检测认为" not in line
+
+
+# ── mutants that survived the first delta round (each needed a frame where no OTHER
+#    mechanism can rescue the assertion) ──────────────────────────────────────────
+def test_pick_did_treatment_honors_the_callers_unit_override(tmp_path):
+    """N1: the branch resolves `unit` from config; the fingerprint may have detected another
+    column. Asserting that the TWO groupings give DIFFERENT answers pins the override
+    regardless of which one the profiler happened to pick — ignoring it makes them identical.
+
+    `flag_x` switches within every `unit_a`; `flag_y` is constant within `unit_a` but varies
+    within the coarser `unit_b`, so the admissible treatment set genuinely depends on the
+    grouping the caller asked for."""
+    rows = []
+    for a in range(12):
+        for t in range(6):
+            rows.append({"unit_a": f"a{a:02d}", "unit_b": f"b{a % 3}", "year": 2010 + t,
+                         "y": float(t + a),
+                         "flag_x": 1 if t >= 3 else 0,     # switches within unit_a
+                         "flag_y": a % 2})                 # constant in unit_a, varies in unit_b
+    df = pd.DataFrame(rows)
+    fp = _fp(df, tmp_path, name="units.csv")
+    by_a = _pick_did_treatment(df, fp, unit="unit_a", time="year")
+    by_b = _pick_did_treatment(df, fp, unit="unit_b", time="year")
+    assert by_a == ["flag_x"], by_a
+    assert "flag_y" in by_b, by_b
+    assert by_a != by_b, "the caller's unit override changed nothing — it was ignored"
+
+
+def test_pick_did_treatment_skips_candidates_absent_from_the_frame(tmp_path):
+    """N2: fp.treatment_candidates is computed from the fingerprint, so a caller working on a
+    narrowed frame can list a column the dataframe no longer has. Dropping the guard raises
+    KeyError instead of skipping."""
+    df = _panel_two_switchers("post")
+    fp = _fp(df, tmp_path, name="guard.csv")
+    narrowed = df.drop(columns=["post"])
+    assert "post" in fp.treatment_candidates          # still listed by the fingerprint
+    got = _pick_did_treatment(narrowed, fp, unit="unit", time="year")
+    assert got == ["policy_on"], got                  # skipped, not crashed
+
+
+def test_the_exact_escape_survives_the_strength_ranking(tmp_path):
+    """N4: `group` must still bind when it is the ONLY signal. The earlier version of this
+    test was rescued by tier 3 (fp.likely_treatment was also `group`); here the fingerprint's
+    hint is `treated`, which is NOT among the candidates, so only the escape can save it."""
+    rng = np.random.default_rng(71)
+    n = 300
+    df = pd.DataFrame({"y": rng.normal(0, 1, n).round(3),
+                       "flag_a": rng.integers(0, 2, n),
+                       "group": rng.integers(0, 2, n),
+                       "treated": rng.integers(0, 2, n)})
+    fp = _fp(df, tmp_path, name="escape.csv")
+    assert fp.likely_treatment == "treated"                       # strong word wins the hint
+    assert resolve_treatment(fp, {}, ["flag_a", "group"]) == "group"   # ...but it isn't offered
+
+
+def test_did_uses_exactly_one_of_several_switchers(tmp_path):
+    """N11: `_pick_did_treatment` now returns every switcher, and `did`'s formula takes one
+    treatment term. Its estimates are keyed by coefficient name, so a naive multi-return shows
+    up as two treatment coefficients."""
+    fp = _fp(_panel_two_switchers("post"), tmp_path, name="didone.csv")
+    res = run_analysis(fp, _CAT.by_id("did"), output_root=str(tmp_path / "didone"))
+    if not _ran(res):
+        pytest.skip(f"did degraded: {res.summary[:70]}")
+    used = [k for k in ("post", "policy_on") if k in res.estimates]
+    assert len(used) == 1, f"did put {used} in the formula; it takes ONE treatment term"
+
+
+def test_tx_is_only_a_treatment_when_it_is_the_whole_name(tmp_path):
+    """N13: `tx` as a substring fires across the payments domain."""
+    from researchforge.profiler.semantics import treatment_name_strength
+
+    assert treatment_name_strength("tx") == 1
+    for n in ("tx_date", "tx_id", "tx_amount", "tx_online", "tx_count", "post_tx"):
+        assert treatment_name_strength(n) == 0, n
+    # ...while `trt` stays safe as a substring
+    assert treatment_name_strength("trt") == 2
+    assert treatment_name_strength("pre_trt") == 2
+    for n in ("part", "sort", "trtn"):
+        assert treatment_name_strength(n) == 0, n
+
+
+def test_control_named_columns_are_never_bound(tmp_path):
+    """Binding a `control_group` indicator would make 1 = control, so PSM/IPW would report
+    -ATT with no warning. The reviewer flagged this as a trap to stay out of."""
+    from researchforge.profiler.semantics import treatment_name_strength
+
+    assert treatment_name_strength("control") == 0
+    assert treatment_name_strength("control_group") == 0
+    assert treatment_name_strength("ctrl") == 0

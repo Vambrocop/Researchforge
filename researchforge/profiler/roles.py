@@ -21,9 +21,11 @@ import re
 # ColumnSemantics single source). Re-exported so `from ...roles import is_treatment_named /
 # has_design_signal` (executor _helpers.core / epidemiology / callers) keeps working unchanged.
 from researchforge.profiler.semantics import (
-    _TREATMENT_RE,
+    _TREATMENT_RE,  # noqa: F401 - re-exported (weak/skip vocabulary; see semantics.py)
     has_design_signal,  # noqa: F401 - re-exported for callers importing from roles
     is_treatment_named,  # noqa: F401 - re-exported (executor _helpers.core / epidemiology)
+    is_treatment_binding_named,  # noqa: F401 - re-exported (executor resolve_treatment)
+    treatment_name_strength,  # noqa: F401 - re-exported (resolve_treatment ranking)
 )
 
 # Name signals (word-boundary, case-insensitive). Outcome words are the dependent
@@ -224,7 +226,18 @@ def detect_roles(columns, df=None) -> dict:
     # --- likely_treatment ---------------------------------------------------
     # a binary already taken as the outcome can't also be the treatment/arm
     treat_cands = [c for c in binary if c.name != out["likely_outcome"]]
-    t_named = [c for c in treat_cands if _TREATMENT_RE.search(str(c.name))]
+    # H4d cold review MUST-FIX 2: use the STRONG (binding) vocabulary, not the weak skip one.
+    # likely_treatment is an ASSERTION — shown to the user (cli / study_report / web) and read
+    # by resolve_treatment's tier 3 — so it needs the precise matcher. With the weak regex a
+    # covariate called `age_group` was announced as "可能的处理变量" and then bound by PSM,
+    # which reported ATT=+3.9 where the truth is -8. Falling through to treat_cands[0] (first
+    # binary) is the honest no-signal default.
+    # ...and rank by SIGNAL STRENGTH, exactly like resolve_treatment (delta review D2):
+    # a weak whole-name match (`group` = study site) must not outrank a strong word
+    # (`treated`). Otherwise the hint and the binding disagree, and the disclosure line
+    # ends up recommending the column that makes the estimate worse.
+    _scored = [(treatment_name_strength(str(c.name)), c) for c in treat_cands]
+    t_named = [c for st, c in sorted(_scored, key=lambda kv: -kv[0]) if st > 0]
     if t_named:
         out["likely_treatment"] = t_named[0].name
     elif treat_cands:

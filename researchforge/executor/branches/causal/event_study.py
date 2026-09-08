@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome, resolve_treatment
+from researchforge.executor.run import _pick_did_treatment, resolve_outcome, resolve_treatment
 
 
 @register("event_study")
@@ -22,11 +22,13 @@ def _branch_event_study(ctx: Ctx) -> None:
     _excl = {unit, time}
     bins_ = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    # H4d: fp.treatment_candidates is EVERY binary column, so [0] meant "first
-    # binary in file order" — on [.., event, treatment, ..] that picked the
-    # survival EVENT as the intervention. resolve_treatment applies the name
-    # signal that roles.py already computed (and records the binding).
-    treatment = resolve_treatment(fp, cfg, fp.treatment_candidates or bins_, df=df)
+    # H4d cold review MUST-FIX 1: for the DiD family the SWITCHING indicator (binary that
+    # varies within unit over time) is the only admissible treatment — the estimand is built
+    # from onset = min(time | treatment==1) per unit, and a time-invariant flag has no onset.
+    # So the switch signal goes in as the candidate list and the shared resolver still handles
+    # config-override + recording. Name matching only decides among non-switching candidates.
+    _switch = _pick_did_treatment(df, fp, unit=unit, time=time)
+    treatment = resolve_treatment(fp, cfg, _switch or fp.treatment_candidates or bins_, df=df)
     # H4c: bind the DETECTED outcome among the non-treatment continuous columns
     # (config > high-confidence outcome name > first non-treatment-named) instead of
     # plain column order — and record it, so the report can name what was modeled.

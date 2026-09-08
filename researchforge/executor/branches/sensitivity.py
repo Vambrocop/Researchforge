@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome, resolve_treatment
+from researchforge.executor.run import _record_bound_treatment, resolve_outcome, resolve_treatment
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +272,9 @@ def _branch_evalue(ctx: Ctx) -> None:
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
     exposure = cfg.get("exposure") or cfg.get("treatment")
     exposure = exposure if exposure in df.columns else None
+    # cold review SHOULD-FIX 6: an explicitly configured exposure must be RECORDED too,
+    # otherwise RunResult.treatment is None exactly when the user was most explicit.
+    _record_bound_treatment(exposure)
     # outcome auto: prefer a BINARY column (logistic path), else a continuous one.
     if outcome is None:
         # H4b: prefer the DETECTED outcome among the eligible columns (high-confidence

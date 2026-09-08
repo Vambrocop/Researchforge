@@ -11,7 +11,7 @@ event_study branches.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome, resolve_treatment
+from researchforge.executor.run import _pick_did_treatment, resolve_outcome, resolve_treatment
 
 
 def _callaway_santanna_via_r(
@@ -156,8 +156,14 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
         sub["_g"] = pd.to_numeric(sub[gname_col], errors="coerce")
         sub = sub.dropna(subset=[unit, time, outcome, "_g"])
     else:
-        treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
-            resolve_treatment(fp, cfg, fp.treatment_candidates or bins_, df=df))
+        # H4d cold review MUST-FIX 1: for the DiD family the SWITCHING indicator (binary that
+        # varies within unit over time) is the only admissible treatment — the estimand is built
+        # from onset = min(time | treatment==1) per unit, and a time-invariant flag has no onset.
+        # So the switch signal goes in as the candidate list and the shared resolver still handles
+        # config-override + recording. Name matching only decides among non-switching candidates.
+        _switch = _pick_did_treatment(df, fp, unit=unit, time=time)
+        treatment = resolve_treatment(
+            fp, cfg, _switch or fp.treatment_candidates or bins_, df=df)
         if treatment is None:
             summary.append(
                 'Callaway-Sant\'Anna 失败：需要 首次处理期列(gname) 或 二值处理指示列(treatment) 之一以确定每个单位的处理时点。'

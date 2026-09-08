@@ -28,18 +28,70 @@ ROLE_HINTS: dict[str, tuple[str, ...]] = {
               "事件", "删失", "死亡", "复发"),
 }
 
-# Word-boundary treatment/arm/exposure regex — a DIFFERENT concept from ROLE_HINTS["treatment"]
-# and deliberately NOT merged (the reframe): this is high-precision role detection for the
-# executor's outcome resolver (`is_treatment_named` skips a treatment column when falling back
-# to "first candidate"). Boundary semantics matter — a bare substring like "group" would match
-# age_group/blood_group and mis-skip real columns. Its vocabulary is clinical/policy (arm/
-# intervention/policy/assigned); ROLE_HINTS["treatment"] is agronomic (variety/dose/水平). They
-# co-exist here as one module (single home) without collapsing into one bag. Migrated from roles.py.
+# TWO treatment vocabularies, deliberately not merged — they are used for opposite decisions
+# and therefore need opposite error profiles.
+#
+#   _TREATMENT_RE       (WEAK / high recall)  — used to SKIP a candidate in resolve_outcome.
+#                       A false positive here costs almost nothing: we decline to model one
+#                       column as the outcome and move to the next.
+#   _TREATMENT_BIND_RE  (STRONG / high precision) — used to BIND the treatment in
+#                       resolve_treatment. A false positive here is a wrong causal estimand.
+#
+# The old docstring claimed boundary semantics kept `group` from matching age_group. That was
+# FALSE: the alternation `(?:^|_|\b)` contains a literal `_`, so age_group / region_group /
+# blood_group / skin_condition all matched. Harmless while the regex only skipped; once Wave
+# H4d let it bind, a covariate named `age_group` became the "treatment" and PSM reported
+# ATT=+3.11 (p=0.008) on data whose true ATT is -8 (H4d cold review, 2026-09-08). Hence the
+# split: `group`/`condition` stay in the weak set, and only match for BINDING when the whole
+# column name is exactly that word (a bare `group` column in an RCT really is the arm).
+# ROLE_HINTS["treatment"] is a third, agronomic vocabulary (variety/dose/水平) — also separate.
 _TREATMENT_RE = re.compile(
     r"(?:^|_|\b)(treat|treatment|treated|intervention|arm|group|condition|"
     r"exposed|exposure|policy|program|assigned|dose)(?:$|_|\b)",
     re.I,
 )
+
+# STRONG: `group`/`condition` removed (they matched age_group/skin_condition); `trt`/`tx`
+# added — `trt` is the CDISC standard name and was already in ROLE_HINTS["treatment"].
+_TREATMENT_BIND_RE = re.compile(
+    r"(?:^|_|\b)(treat|treated|treatment|trt|intervention|arm|"
+    r"exposed|exposure|assigned|assignment|policy|program|dose)(?:$|_|\b)",
+    re.I,
+)
+# ...but a column whose ENTIRE name is one of these IS the arm in an RCT layout. These are
+# WEAKER than the words above and must never outrank them (see resolve_treatment).
+#   `tx` lives here, not above: as a substring it fires across the whole payments/crypto
+#   domain (tx_date / tx_id / tx_amount / tx_online / tx_declined …) and bound `tx_online`
+#   as the "treatment", reporting ATT=+7.4 where the truth was -15. A bare `tx` column is
+#   rare and CDISC standardises on TRT01P/TRTA, so the recall it buys is ~0.
+#   `trt` stays a substring above — verified safe: no English word contains it at word
+#   boundaries (trt / trt_group / pre_trt match; part / sort / trtn do not).
+# NOT here on purpose: `control`/`control_group`. Binding a control indicator makes 1=control,
+# so PSM/IPW would silently report -ATT.
+_TREATMENT_BIND_EXACT_RE = re.compile(r"(group|grp|groups|condition|cond|tx)", re.I)
+
+
+def is_treatment_binding_named(name: str) -> bool:
+    """True when a column NAME is a strong enough treatment signal to BIND the treatment.
+
+    Stricter than :func:`is_treatment_named` on purpose — see the vocabulary note above.
+    A false positive here picks the wrong causal estimand, so `group`/`condition` only
+    count when they are the WHOLE name."""
+    n = str(name).strip()
+    return bool(_TREATMENT_BIND_RE.search(n) or _TREATMENT_BIND_EXACT_RE.fullmatch(n))
+
+
+def treatment_name_strength(name: str) -> int:
+    """2 = an unambiguous treatment word, 1 = a weak whole-name match (a bare `group` /
+    `condition` / `tx` column), 0 = no signal.
+
+    Ranking matters, not just membership: `named[0]` used to be plain file order, so on
+    ``[score, group, treated, age]`` — `group` = study site, `treated` = the arm — the weak
+    escape outranked the strong word and PSM reported ATT=+3.87 against a truth of -8."""
+    n = str(name).strip()
+    if _TREATMENT_BIND_RE.search(n):
+        return 2
+    return 1 if _TREATMENT_BIND_EXACT_RE.fullmatch(n) else 0
 
 
 def role_hint(name: str, role: str) -> bool:
