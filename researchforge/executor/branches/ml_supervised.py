@@ -55,7 +55,7 @@ _SEED = 0  # fixed random_state, disclosed in every summary
 # is usually a flag *feature*, not the target); else a binary/categorical column becomes
 # a classification target.
 # ─────────────────────────────────────────────────────────────────────────────
-def _resolve_xy(ctx: Ctx, method: str, min_rows: int):
+def _resolve_learning_roles(ctx: Ctx, method: str, min_rows: int):
     fp, cfg, df = ctx.fp, ctx.cfg, ctx.df
 
     if importlib.util.find_spec("sklearn") is None:
@@ -192,7 +192,7 @@ def _branch_regularized_regression(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
     method = "正则化回归"
-    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=20)
+    outcome, is_clf, preds, prob = _resolve_learning_roles(ctx, method, min_rows=20)
     if prob:
         summary.append(prob)
         return
@@ -330,7 +330,7 @@ def _branch_svm_model(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
     method = "支持向量机"
-    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=20)
+    outcome, is_clf, preds, prob = _resolve_learning_roles(ctx, method, min_rows=20)
     if prob:
         summary.append(prob)
         return
@@ -515,7 +515,7 @@ def _branch_gradient_boosting(ctx: Ctx) -> None:
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
     method = "梯度提升树"
-    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=20)
+    outcome, is_clf, preds, prob = _resolve_learning_roles(ctx, method, min_rows=20)
     if prob:
         summary.append(prob)
         return
@@ -668,7 +668,7 @@ def _branch_naive_bayes(ctx: Ctx) -> None:
     # assumption is exactly why it needs so little data (few parameters), making it a
     # strong SMALL-DATA baseline (Wave S). Degrades honestly on a continuous outcome.
     method = "朴素贝叶斯"
-    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=15)
+    outcome, is_clf, preds, prob = _resolve_learning_roles(ctx, method, min_rows=15)
     if prob:
         summary.append(prob)
         return
@@ -788,7 +788,7 @@ def _branch_monotonic_constraints(ctx: Ctx) -> None:
     # known. Directions from config increasing/decreasing, else inferred from the sign of
     # each feature's correlation with the outcome (disclosed as data-inferred, NOT a prior).
     method = "单调约束模型"
-    outcome, is_clf, preds, prob = _resolve_xy(ctx, method, min_rows=25)
+    outcome, is_clf, preds, prob = _resolve_learning_roles(ctx, method, min_rows=25)
     if prob:
         summary.append(prob)
         return

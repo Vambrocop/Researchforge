@@ -7,8 +7,8 @@ was modeled (and the smart-selection nudge must stay silent). Auditing all 111 c
 entries that take an ``outcome``/``y`` parameter surfaced 19 such branches. H4b closes them
 in three ways, each pinned below:
 
-  * SHARED RESOLVERS — ``ml_supervised._resolve_xy`` (5 learners) and
-    ``limited_dependent._resolve_xy`` (tobit + truncated) resolve roles themselves; one
+  * SHARED RESOLVERS — ``ml_supervised._resolve_learning_roles`` (5 learners) and
+    ``limited_dependent._resolve_outcome_predictors`` (tobit + truncated) resolve roles themselves; one
     recording call each covers every branch in the family.
   * REAL GAPS — ``iv_regression``, the mediation Y (serial/parallel/moderated) and
     ``johnson_neyman``'s Y, and ``evalue``'s outcome took whichever column came FIRST;

@@ -44,7 +44,7 @@ from researchforge.executor.run import _record_bound_outcome, resolve_outcome
 # Returns (outcome, predictors, problem_msg). When problem_msg is not None the
 # caller appends it to summary and returns.
 # ─────────────────────────────────────────────────────────────────────────────
-def _resolve_xy(ctx: Ctx, label: str, max_pred: int = 20):
+def _resolve_outcome_predictors(ctx: Ctx, label: str, max_pred: int = 20):
     fp, cfg, df = ctx.fp, ctx.cfg, ctx.df
     _exc = {fp.unit_col, fp.time_col}
 
@@ -177,7 +177,7 @@ def _branch_tobit_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
-    outcome, predictors, problem = _resolve_xy(ctx, "Tobit 回归")
+    outcome, predictors, problem = _resolve_outcome_predictors(ctx, "Tobit 回归")
     if problem is not None:
         summary.append(problem)
         return
@@ -365,7 +365,7 @@ def _branch_truncated_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
 
-    outcome, predictors, problem = _resolve_xy(ctx, "截断回归")
+    outcome, predictors, problem = _resolve_outcome_predictors(ctx, "截断回归")
     if problem is not None:
         summary.append(problem)
         return
@@ -540,7 +540,7 @@ def _branch_heckman_selection(ctx: Ctx) -> None:
         # outcome = first continuous (not unit/time); predictors = remaining numeric.
         outcome = cfg.get("outcome")
         if not (outcome and outcome in df.columns):
-            # H4c: detected outcome, matching this module's _resolve_xy (H4b).
+            # H4c: detected outcome, matching this module's _resolve_outcome_predictors (H4b).
             _cont = [c.name for c in fpcols
                      if c.kind == "continuous" and c.name not in _exc]
             outcome = resolve_outcome(fp, cfg, _cont) if _cont else None

@@ -224,7 +224,7 @@ def test_p5_no_config_rf_binds_high_conf_churn(tmp_path: Path) -> None:
         )
 
 
-# Wave L 收尾: ml_supervised._resolve_xy (gradient_boosting/svm/regularized_regression) had the
+# Wave L 收尾: ml_supervised._resolve_learning_roles (gradient_boosting/svm/regularized_regression) had the
 # SAME cont-first-before-high-confidence gap as ml.py's rf/xgboost above, pre-③. Fixed by
 # reusing ml.py's _resolve_ml_outcome for the no-config fallback (one ladder, zero drift) —
 # without config, gradient_boosting must now CLASSIFY churn, not regress a continuous feature

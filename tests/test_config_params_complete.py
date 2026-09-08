@@ -221,10 +221,13 @@ def _read_keys_for_handlers() -> dict[str, set[str]]:
     """Map every registered handler id -> the set of config keys it transitively reads.
 
     Helper resolution is MODULE-LOCAL plus the shared ``_helpers/`` package — never
-    across sibling branch modules. This is essential: several branch modules define a
-    same-named branch-local helper (e.g. ``_resolve_xy`` exists in both spatial_extra.py
-    [reads x/y] and ml_supervised.py [reads outcome/predictors]); a global union by name
-    would cross-contaminate (svm←x/y, acf_pacf←is_returns) and produce false positives.
+    across sibling branch modules. This is essential: branch modules define same-named
+    branch-local helpers, and a global union by name would cross-contaminate (svm←x/y,
+    acf_pacf←is_returns) and produce false positives. The original offender was
+    ``_resolve_xy``, which meant map coordinates in spatial_extra.py and outcome+predictors
+    in ml_supervised.py / limited_dependent.py; those three were renamed apart in the
+    role-semantics cleanup, but the rule stays — ``_resolve_series``, ``_pick`` and
+    ``_group_candidates`` are still same-name/different-contract across modules.
     """
     branch_mods, helper_mods = _parse_modules()
     # shared helpers are global by design (imported across families)

@@ -36,7 +36,7 @@ _SEED = 12345
 # Returns (xname, yname) or (None, None) if two distinct numeric coords can't be
 # found. The caller degrades honestly when None.
 # ─────────────────────────────────────────────────────────────────────────────
-def _resolve_xy(ctx: Ctx):
+def _resolve_coords(ctx: Ctx):
     fp, cfg, df = ctx.fp, ctx.cfg, ctx.df
 
     cx, cy = cfg.get("x"), cfg.get("y")
@@ -94,7 +94,7 @@ def _branch_ripleys_k(ctx: Ctx) -> None:
         summary.append("Ripley's K 跳过：缺少 numpy。")
         return
 
-    xn, yn = _resolve_xy(ctx)
+    xn, yn = _resolve_coords(ctx)
     if xn is None:
         summary.append(
             "Ripley's K 跳过：需要两个坐标列（config={\"x\":\"<列>\",\"y\":\"<列>\"}，"
@@ -287,7 +287,7 @@ def _branch_getis_ord(ctx: Ctx) -> None:
         summary.append("Getis-Ord 跳过：缺少 numpy。")
         return
 
-    xn, yn = _resolve_xy(ctx)
+    xn, yn = _resolve_coords(ctx)
     if xn is None:
         summary.append(
             "Getis-Ord 跳过：需要两个坐标列（config x/y，或经纬度 geo 列，或两个连续列）。"
@@ -470,7 +470,7 @@ def _branch_join_count(ctx: Ctx) -> None:
         summary.append("Join-count 跳过：缺少 numpy。")
         return
 
-    xn, yn = _resolve_xy(ctx)
+    xn, yn = _resolve_coords(ctx)
     if xn is None:
         summary.append(
             "Join-count 跳过：需要两个坐标列（config x/y，或经纬度 geo 列，或两个连续列）。"

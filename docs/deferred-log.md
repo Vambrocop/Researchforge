@@ -528,5 +528,17 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - 🟡 **红线判定（与前两波不同）**：H4b/H4c 改的是「绑哪列当结果」，**这一波改的是因果方法的处理变量是谁——估计量含义变了（ATT 直接翻符号）**，按项目红线属于「真统计推断改动」，**建议派 inference-reviewer 冷审**（本条留痕，等用户拍板）。
 - 💡 **方法学教训**：**准备好的修法要先量波及面再上。** 这次「先量后改」连续两次改写了结论：① 推翻了 glmm 过度浮现；② 否掉了自己写好的告警条件；③ 才逮到真正的 bug。
 
+
+**地基（一）角色语义测绘 + 同名不同义改名（2026-09-08）：**
+- **动机**：H4→H4d 四波修的都是同一个病的不同部位——**每个分支各自解析角色，共享字段名不对应内容**。开工前先把现状量清楚，别凭印象重构。
+- 📏 **测绘结果**：分支里共 **68 个角色解析函数**。**但「68 处重复」是错的说法**——精算三角/博弈双矩阵/网络边表/IRT 题目这些是真·领域专属，本来就该各自存在。真正的问题是 **8 组同名副本，其中只有 1 组逐字相同**：
+  - `_resolve_xy` ×3、`_resolve_series` ×3、`_pick` ×4、`_resolve_continuous` ×2、`_resolve_column` ×2、`_group_candidates` ×2、`_label_col` ×2 —— **实现都不同**；
+  - `_resolve_duration_event` ×2（survival / survival_extra）—— 函数体**逐字相同**（连 docstring 里「continuous/count」vs「continuous/count/**id**」的描述分歧都是假的，体是同一份）。
+- 🔑 **关键认识：同名 ≠ 同职责。** `spatial_extra._resolve_xy` 是**经纬度坐标**，`ml_supervised._resolve_xy` 是**特征+结果**——「按名字合并」反而会制造 bug。这个碰撞**已经造成过实际代价**：`test_config_params_complete` 不得不写「helper 只在模块内解析」的规则来防止三者互相污染 config 键（它的 docstring 点名了这三个）。
+- ✅ **本次已做（零冲突的那半）**：三个 `_resolve_xy` 改名为各自的真实职责——`_resolve_coords` / `_resolve_learning_roles` / `_resolve_outcome_predictors`（纯模块内改名，无行为变化）；守卫 docstring 同步更新为「碰撞已解开，但规则保留——`_resolve_series`/`_pick`/`_group_candidates` 仍是同名不同义」。
+- 🔍 **顺带查证：时序「值列」5 个独立解析器会不会打架** —— 在同一份多序列数据（temperature/rainfall/sales）上跑 arima / exponential_smoothing / acf_pacf / bayesian_state_space / value_at_risk / theta_method / croston：**全部一致选 `temperature`（第一个数值列），没有分歧**。诚实的负面结果。
+- 🟡 **但查出另一件事（未修）**：那份数据上 `likely_outcome = sales (medium)`，引擎自己觉得 sales 才是关注序列，**却一声不吭地去预测了 temperature**——`RunResult.outcome` 全是 None、没有任何提示。这正是 H4 给回归族修掉的「沉默」，只不过发生在 H4 当初**刻意跳过**的时序族里（理由是「时序值列 ≠ outcome-vs-predictor」，理由本身仍成立，但**不作声**不是必然结论）。修它要动 `run.py` 的提示块。
+- **排期约束（诚实记录）**：地基的主目标 `fp.treatment_candidates` 更名（41 处引用 / 20 个文件，名字里没有任何 treatment 信号，正是 H4d 那个 bug 的成因）与 `resolve_predictors` 统一，**都落在 H4d 冷审正在读的文件里**（`_helpers/core.py`、`causal/*`、`sensitivity.py`、`run.py`），故**等冷审结论落地再动**——冷审可能直接改变 `resolve_treatment` 的形状。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
