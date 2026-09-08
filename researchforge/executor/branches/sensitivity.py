@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +282,10 @@ def _branch_evalue(ctx: Ctx) -> None:
         outcome = (resolve_outcome(fp, cfg, _bin_cand) if _bin_cand
                    else (resolve_outcome(fp, cfg, _cont_cand) if _cont_cand else None))
     if exposure is None:
-        exposure = next((c for c in bins if c != outcome), None) or next(
+        # H4d: prefer a TREATMENT-NAMED binary over file order (the outcome is already
+        # excluded); fall back to the first non-outcome numeric as before.
+        _ecand = [c for c in bins if c != outcome]
+        exposure = (resolve_treatment(fp, cfg, _ecand) if _ecand else None) or next(
             (c for c in numeric if c != outcome), None)
     if cfg.get("controls"):
         controls = [c for c in cfg["controls"] if c in df.columns and c not in {outcome, exposure}]
@@ -491,9 +494,9 @@ def _branch_rosenbaum_bounds(ctx: Ctx) -> None:
         if c.kind in {"continuous", "binary", "count"} and c.name not in _excl
     ]
     # treatment: config, else a binary column.  outcome: config, else first continuous.
-    treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else None
-    if treatment is None:
-        treatment = bins[0] if bins else None
+    # H4d: name-aware pick instead of the first binary column; `df=` lets an explicit
+    # config treatment name any column and still be recorded.
+    treatment = resolve_treatment(fp, cfg, bins, df=df)
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else None
     if outcome is None:
         # H4c: detected outcome among the non-treatment continuous columns.

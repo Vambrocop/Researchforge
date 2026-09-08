@@ -11,7 +11,7 @@ event_study branches.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
 def _callaway_santanna_via_r(
@@ -157,7 +157,7 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
         sub = sub.dropna(subset=[unit, time, outcome, "_g"])
     else:
         treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
-            fp.treatment_candidates[0] if fp.treatment_candidates else (bins_[0] if bins_ else None))
+            resolve_treatment(fp, cfg, fp.treatment_candidates or bins_, df=df))
         if treatment is None:
             summary.append(
                 'Callaway-Sant\'Anna 失败：需要 首次处理期列(gname) 或 二值处理指示列(treatment) 之一以确定每个单位的处理时点。'

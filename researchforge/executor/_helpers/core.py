@@ -60,6 +60,82 @@ def capture_bound_outcome():
         _BOUND_OUTCOME.reset(token)
 
 
+# ── which treatment a branch ACTUALLY bound (Wave H4d) ───────────────────────────────
+# The twin of the outcome recorder above. Needed for the same reason: without it neither
+# the report nor an audit can tell which column a causal method actually treated as the
+# intervention.
+_BOUND_TREATMENT: ContextVar[list | None] = ContextVar("_rf_bound_treatment", default=None)
+
+
+def _record_bound_treatment(name: str | None) -> None:
+    """Record the treatment just bound by ``resolve_treatment`` (first binding wins)."""
+    rec = _BOUND_TREATMENT.get()
+    if rec is not None and name and not rec:
+        rec.append(name)
+
+
+@contextmanager
+def capture_bound_treatment():
+    """Yield a list that receives the FIRST treatment ``resolve_treatment`` binds inside."""
+    rec: list[str] = []
+    token = _BOUND_TREATMENT.set(rec)
+    try:
+        yield rec
+    finally:
+        _BOUND_TREATMENT.reset(token)
+
+
+def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
+                      candidates: list[str], df=None) -> str | None:
+    """Pick the treatment / exposure indicator — the twin of ``resolve_outcome``.
+
+    ``fp.treatment_candidates`` is literally *every binary column* (profile.py), so taking
+    ``treatment_candidates[0]`` means "the first binary column in file order" with NO role
+    signal at all. On ``[duration, event, treatment, age, biomarker]`` that made PSM match on
+    the survival EVENT indicator as if it were the intervention (219 "treated" of 300 — the
+    event rate, not the assignment rate) while a column literally named ``treatment`` sat
+    next to it. Priority:
+
+      1. an explicit ``config["treatment"]`` (user intent always wins),
+      2. a TREATMENT-NAMED candidate (treat/arm/exposed/dose… via ``is_treatment_named``) —
+         the same name signal ``resolve_outcome`` uses to *avoid* these columns,
+      3. ``fp.likely_treatment`` when it is among the candidates (roles.py already applies
+         the name regex; this branch just stops ignoring it),
+      4. the first candidate that is NOT the detected outcome — an outcome column is never
+         the intervention,
+      5. the first candidate (the long-standing positional default, so a signal-free frame
+         keeps its old behaviour).
+
+    ``df``, when given, widens the ``config["treatment"]`` check to every column in the
+    frame (the same escape ``resolve_predictors`` takes). Returns None only when there is
+    no candidate and no configured column."""
+    from researchforge.profiler.roles import is_treatment_named
+
+    cfg = cfg or {}
+    if not candidates and not (df is not None and cfg.get("treatment") in df.columns):
+        return None
+    forced = cfg.get("treatment")
+    # `df` widens the config check the way resolve_predictors does: a user may name ANY
+    # column (one the profiler typed as count/id, say), and routing that through here
+    # rather than around it keeps the explicit path recorded too.
+    cols = list(df.columns) if df is not None else candidates
+    if forced in cols:
+        chosen = forced
+    else:
+        named = [c for c in candidates if is_treatment_named(c)]
+        lt = getattr(fp, "likely_treatment", None)
+        lo = getattr(fp, "likely_outcome", None)
+        if named:
+            chosen = named[0]
+        elif lt in candidates:
+            chosen = lt
+        else:
+            non_out = [c for c in candidates if c != lo]
+            chosen = non_out[0] if non_out else candidates[0]
+    _record_bound_treatment(chosen)
+    return chosen
+
+
 def _run_dir(root: str, entry_id: str) -> Path:
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
     d = Path(root) / f"{ts}_{entry_id}"
@@ -71,7 +147,10 @@ def _pick_did_treatment(df, fp: DataFingerprint) -> list[str]:
     """The DID treatment is the binary that varies WITHIN units over time (a
     treatment that switches on), not a fixed group flag. Returns [] if none vary."""
     if not (fp.unit_col and fp.time_col):
-        return fp.treatment_candidates[:1]
+        # H4d: without a panel there is no within-unit variation to use, so fall back to
+        # the NAME-aware pick rather than the first binary column.
+        t = resolve_treatment(fp, None, fp.treatment_candidates)
+        return [t] if t else []
     best = None
     for name in fp.treatment_candidates:
         frac = float((df.groupby(fp.unit_col)[name].nunique() > 1).mean())

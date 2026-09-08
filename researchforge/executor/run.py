@@ -34,6 +34,9 @@ class RunResult(BaseModel):
     # "none". Lets callers/reports state the modeled outcome instead of assuming the
     # fingerprint's role hint was honoured.
     outcome: str | None = None
+    # Same idea for the intervention column a causal method bound via the shared
+    # `resolve_treatment` (Wave H4d). None = the branch doesn't use the shared resolver.
+    treatment: str | None = None
 
 
 # Helpers now live in executor/_helpers/{core,backends}.py; re-exported here so
@@ -72,8 +75,10 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _resid_plot,
     _run_dir,
     capture_bound_outcome,
+    capture_bound_treatment,
     resolve_outcome,
     resolve_predictors,
+    resolve_treatment,
     _sem_latents,
     _silhouette_plot,
     _synthetic_control,
@@ -147,7 +152,7 @@ def run_analysis(
     ctx = Ctx(df=df, fp=fp, entry=entry, cfg=cfg, d=d, files=files,
               summary=summary, estimates=estimates, code=code)
     _handler = BRANCH_REGISTRY.get(entry.id)
-    with capture_bound_outcome() as _bound_rec:
+    with capture_bound_outcome() as _bound_rec, capture_bound_treatment() as _trt_rec:
         if _handler is not None:
             try:
                 _handler(ctx)
@@ -158,6 +163,7 @@ def run_analysis(
         else:
             summary.append(f"{entry.method} 暂未接入执行器（需补依赖/封装），仅生成占位报告。")
     bound_outcome = _bound_rec[0] if _bound_rec else None
+    bound_treatment = _trt_rec[0] if _trt_rec else None
 
     # Smart-selection nudge, now stated from what the branch REALLY modeled (Wave H4):
     #   * bound == the detected outcome  → it was genuinely auto-selected;
@@ -230,6 +236,7 @@ def run_analysis(
         summary="\n".join(summary),
         estimates=estimates,
         outcome=bound_outcome,
+        treatment=bound_treatment,
     )
 
 

@@ -516,5 +516,17 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - ✅ **上一波刚建的门禁当场兑现**：H4c 给 `moderated_moderation` 接线后，它开始读 `cfg["outcome"]` 而 yaml 没声明——**全量套件里唯一一处红**就是 `test_config_params_complete` 抓的。这正是它红在 origin/main 上两波却没人发现的那类问题，现在建好一波就自己逮住了下一波。（写这条时还顺手踩了个坑：bash 双引号里的反引号会被当命令替换，那三个名字第一次写进去时被吃掉了——**给日志写代码名时用单引号包 heredoc**。）
 - 💡 **方法学教训（比修好的分支更值钱）**：**一个自动审计工具的覆盖面等于它的输入形状。** 报「全部干净」之前，先问「我的探针能让多少分支真正跑起来」——H4b 的探针只跑通 50/113，panel 探针跑通 68/113。
 
+
+**Wave H4d（2026-09-08）：处理侧从来没修过——PSM 把生存结局当成了处理变量：**
+- **起点是个被推翻的假设**：H4c 顺手记了「panel 形状下 glmm 过度浮现，把 `treated` 当响应」。查证后**这条是错的**——glmm 在 panel 数据上排 **47/303**，推荐器根本没浮现它；而且 H4 的不一致提示**已经在如实报警**（「本方法建模的结果变量是 'treated'；但检测到 'sales' 可能才是」）。
+- **准备的补丁也被数据否掉**：本来想加「绑定的结果 ∈ `fp.treatment_candidates` → ⚠」。**先量波及面救了这一手**：`profile.py:83` 里 `fp.treatment_candidates = [所有二值列]`，**没有任何名称信号**——那个条件等价于「结果是二值的」，会在生存数据上宣称 `event` 是处理变量，纯属误导。**教训：给「XX 候选」这种字段起名时，名字要对得起内容；`treatment_candidates` 实为 `binary_columns`。**
+- 🔴 **量出来的却是更大的真 bug**：结果侧 H4 修过了，**处理侧还是纯列序** —— `treatment = cfg else fp.treatment_candidates[0]`（=文件里第一个二值列），而 `roles.py` **早就算好了** name-aware 的 `fp.likely_treatment`，只是没人读。在 `[duration, event, treatment, age, biomarker]` 这种再普通不过的生存数据上，**PSM 把 `event`（结局指示变量）当成处理变量做匹配**，旁边就摆着一列叫 `treatment`。
+  - **代价可量化**（真值：处理把时长从 ~20 压到 ~13.4，真 ATT ≈ −6.7）：修前 ATT=**+4.64, p=0.162 不显著**（处理组 219/300=73%，那是**事件率**）；修后 ATT=**−8.69, p=0.00026**（134/300=45%，分配率），CI [−13.2, −4.2] 覆盖真值。**修前符号相反且完全漏掉效应。**
+- ✅ **修法（对称于 H4）**：`resolve_treatment`（`_helpers/core.py`）—— config > **处理命名**(`is_treatment_named`：treat/arm/exposed/dose) > `fp.likely_treatment` > 非结果列 > 列序兜底（无信号时保持旧行为）；`df=` 参数沿用 `resolve_predictors` 的惯例，让显式 config 也走解析器（**否则 config 路径不被记录**——H4b 踩过同一个坑）。配套 `_record_bound_treatment` / `capture_bound_treatment` / **`RunResult.treatment`**：处理侧现在和结果侧一样**可审计**。
+- **接线 9 处**：psm / ipw / aipw / event_study / staggered_did / causal_did / did_advanced / rosenbaum_bounds / evalue(exposure) + `_pick_did_treatment` 的无面板兜底（DID 的「组内随时间变化」是更强的信号，保留）。
+- **验证**：新 `tests/test_treatment_binding.py` 12 测（解析器四档优先级 / 5 个分支绑到 `treatment` 而非 `event` / **PSM 必须恢复真效应而不是事件对比**（符号+显著+CI 覆盖 −6.7+匹配比例是分配率）/ config 仍胜出 / ratchet）；受影响 15 个测试文件 96 绿；门禁 130 绿；全量 **1792 绿**。
+- 🟡 **红线判定（与前两波不同）**：H4b/H4c 改的是「绑哪列当结果」，**这一波改的是因果方法的处理变量是谁——估计量含义变了（ATT 直接翻符号）**，按项目红线属于「真统计推断改动」，**建议派 inference-reviewer 冷审**（本条留痕，等用户拍板）。
+- 💡 **方法学教训**：**准备好的修法要先量波及面再上。** 这次「先量后改」连续两次改写了结论：① 推翻了 glmm 过度浮现；② 否掉了自己写好的告警条件；③ 才逮到真正的 bug。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

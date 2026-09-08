@@ -29,7 +29,7 @@ numpy / pandas / statsmodels are installed. Bootstrap uses a FIXED, disclosed se
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared panel role-resolution (mirrors causal_did.callaway_santanna).
@@ -70,7 +70,7 @@ def _resolve_panel_did(ctx: Ctx, label: str):
         sub["_d"] = ((sub["_g"] > 0) & (sub[time] >= sub["_g"])).astype(float)
     else:
         treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
-            fp.treatment_candidates[0] if fp.treatment_candidates else (bins_[0] if bins_ else None))
+            resolve_treatment(fp, cfg, fp.treatment_candidates or bins_, df=df))
         if treatment is None:
             return None, None, None, None, (
                 f"{label}跳过：需要 首次处理期列(gname) 或 二值处理指示列(treatment) 之一以确定每个单位的处理时点。"

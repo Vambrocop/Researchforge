@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
 @register("event_study")
@@ -22,8 +22,11 @@ def _branch_event_study(ctx: Ctx) -> None:
     _excl = {unit, time}
     bins_ = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    treatment = cfg.get("treatment") if cfg.get("treatment") in df.columns else (
-        fp.treatment_candidates[0] if fp.treatment_candidates else (bins_[0] if bins_ else None))
+    # H4d: fp.treatment_candidates is EVERY binary column, so [0] meant "first
+    # binary in file order" — on [.., event, treatment, ..] that picked the
+    # survival EVENT as the intervention. resolve_treatment applies the name
+    # signal that roles.py already computed (and records the binding).
+    treatment = resolve_treatment(fp, cfg, fp.treatment_candidates or bins_, df=df)
     # H4c: bind the DETECTED outcome among the non-treatment continuous columns
     # (config > high-confidence outcome name > first non-treatment-named) instead of
     # plain column order — and record it, so the report can name what was modeled.
