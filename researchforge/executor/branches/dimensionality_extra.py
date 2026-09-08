@@ -36,6 +36,7 @@ summary) so results are reproducible; t-SNE remains seed-sensitive by nature.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome
 from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 
 
@@ -470,6 +471,12 @@ def _branch_linear_discriminant(ctx: Ctx) -> None:
     if target is None:
         summary.append("LDA 跳过：需要 1 个分类/二值目标变量（无低基数类别列）。设 config outcome。")
         return
+
+    # H4b: the class label IS what this method predicts, but picking it needs level-count /
+    # cardinality logic that resolve_outcome does not have, so the branch keeps its own
+    # resolution and only RECORDS the binding — the run can then state what was modeled
+    # and the outcome audit stops flagging it. (Recording is orthogonal to who picks.)
+    _record_bound_outcome(target)
 
     features = forced_feat if forced_feat else [c for c in cont if c != target]
     features = [c for c in features if c != target]

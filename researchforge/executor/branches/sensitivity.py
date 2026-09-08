@@ -274,7 +274,13 @@ def _branch_evalue(ctx: Ctx) -> None:
     exposure = exposure if exposure in df.columns else None
     # outcome auto: prefer a BINARY column (logistic path), else a continuous one.
     if outcome is None:
-        outcome = next((c for c in bins if c != exposure), None) or (cont[0] if cont else None)
+        # H4b: prefer the DETECTED outcome among the eligible columns (high-confidence
+        # outcome name, treatment-named columns skipped) over plain column order — the
+        # exposure column must never be picked as its own outcome.
+        _bin_cand = [c for c in bins if c != exposure]
+        _cont_cand = [c for c in cont if c != exposure]
+        outcome = (resolve_outcome(fp, cfg, _bin_cand) if _bin_cand
+                   else (resolve_outcome(fp, cfg, _cont_cand) if _cont_cand else None))
     if exposure is None:
         exposure = next((c for c in bins if c != outcome), None) or next(
             (c for c in numeric if c != outcome), None)

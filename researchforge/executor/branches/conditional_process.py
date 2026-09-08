@@ -24,6 +24,7 @@ statsmodels / numpy / scipy / pandas are installed.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome, resolve_outcome
 
 # Fixed bootstrap / RNG seed (disclosed in summaries) for reproducibility.
 _SEED = 20240607
@@ -87,7 +88,17 @@ def _branch_moderated_mediation(ctx: Ctx) -> None:
 
     # -- role resolution ----------------------------------------------------
     used: list[str] = []
-    y_col, y_auto = _pick(cfg.get("y"), cont, used, cont)
+    # H4b: Y IS the outcome — bind the DETECTED one (config > high-conf role > first
+    # non-treatment candidate) like causal/mediation.py, not whichever continuous column
+    # happens to come first. cfg["y"] still wins; X/W/M keep following column order.
+    _y_cfg = cfg.get("y")
+    if _y_cfg in cont:
+        y_col, y_auto = _y_cfg, False
+    else:
+        y_col, y_auto = (resolve_outcome(fp, cfg, cont) if cont else None), True
+    # the config path binds too — record it so the run reports what was REALLY
+    # modeled (resolve_outcome already recorded on the auto path; first wins).
+    _record_bound_outcome(y_col)
     used.append(y_col)
     x_col, x_auto = _pick(cfg.get("x"), cont, used, [c for c in cont if c not in used])
     used.append(x_col)
@@ -308,7 +319,17 @@ def _branch_johnson_neyman(ctx: Ctx) -> None:
 
     # -- role resolution ----------------------------------------------------
     used: list[str] = []
-    y_col, y_auto = _pick(cfg.get("y"), cont, used, cont)
+    # H4b: Y IS the outcome — bind the DETECTED one (config > high-conf role > first
+    # non-treatment candidate) like causal/mediation.py, not whichever continuous column
+    # happens to come first. cfg["y"] still wins; X/W/M keep following column order.
+    _y_cfg = cfg.get("y")
+    if _y_cfg in cont:
+        y_col, y_auto = _y_cfg, False
+    else:
+        y_col, y_auto = (resolve_outcome(fp, cfg, cont) if cont else None), True
+    # the config path binds too — record it so the run reports what was REALLY
+    # modeled (resolve_outcome already recorded on the auto path; first wins).
+    _record_bound_outcome(y_col)
     used.append(y_col)
     x_col, x_auto = _pick(cfg.get("x"), cont, used, [c for c in cont if c not in used])
     used.append(x_col)

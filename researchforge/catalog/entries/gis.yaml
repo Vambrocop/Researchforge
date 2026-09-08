@@ -69,8 +69,12 @@
     - name: knn_k
       type: int
       description: >-
-        k-NN 空间权重的近邻数（行标准化），用于 SAR/SEM 的空间权重矩阵。结果变量/预测变量/经纬度由 profiler 自动识别（第一个连续列为结果），无需配置。
+        k-NN 空间权重的近邻数（行标准化），用于 SAR/SEM 的空间权重矩阵。预测变量/经纬度由 profiler 自动识别，无需配置。
       default: 默认 6（钳到 [1, n-1]）
+    - name: outcome
+      type: column
+      description: 结果变量（因变量）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
 
 - id: local_moran
   method: Local Moran's I (LISA)

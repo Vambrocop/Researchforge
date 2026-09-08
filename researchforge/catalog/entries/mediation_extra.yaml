@@ -45,8 +45,12 @@
       default: 第四个连续列
     - name: y
       type: column
-      description: 结果变量 Y
-      default: 第一个连续列
+      description: 结果变量 Y（别名：outcome）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: outcome
+      type: column
+      description: 结果变量（`y` 的别名，与引擎统一的 outcome 键一致）
+      default: 同 y
 
 - id: parallel_mediation
   method: Parallel multiple mediation
@@ -80,8 +84,12 @@
       default: 第二个连续列
     - name: y
       type: column
-      description: 结果变量 Y
-      default: 第一个连续列
+      description: 结果变量 Y（别名：outcome）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: outcome
+      type: column
+      description: 结果变量（`y` 的别名，与引擎统一的 outcome 键一致）
+      default: 同 y
     - name: mediators
       type: columns
       description: 并行中介变量列表

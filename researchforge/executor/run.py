@@ -66,6 +66,7 @@ from researchforge.executor._helpers.core import (  # noqa: E402
     _qca_anchors,
     _qca_incl_cut,
     _quantile_process_plot,
+    _record_bound_outcome,
     _regression,
     _report,
     _resid_plot,

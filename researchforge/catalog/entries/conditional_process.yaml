@@ -25,8 +25,12 @@
       default: 第三个连续列
     - name: y
       type: column
-      description: 结果变量 Y
-      default: 第一个连续列
+      description: 结果变量 Y（别名：outcome）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: outcome
+      type: column
+      description: 结果变量（`y` 的别名，与引擎统一的 outcome 键一致）
+      default: 同 y
     - name: w
       type: column
       description: 调节变量 W（调节 X→M）
@@ -62,8 +66,12 @@
       default: 第三个连续列
     - name: y
       type: column
-      description: 结果变量 Y
-      default: 第一个连续列
+      description: 结果变量 Y（别名：outcome）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: outcome
+      type: column
+      description: 结果变量（`y` 的别名，与引擎统一的 outcome 键一致）
+      default: 同 y
   biases:
     - requires a continuous moderator W; with a categorical moderator use simple-slopes contrasts instead
     - Johnson-Neyman regions can fall outside the observed W range, in which case they are extrapolation and are flagged as such

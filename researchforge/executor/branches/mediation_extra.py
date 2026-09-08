@@ -26,6 +26,7 @@ append a Chinese "<method>跳过：<reason>" and RETURN — never crash), write 
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome, resolve_outcome
 
 _SEED = 20240607
 _N_BOOT = 2000
@@ -173,7 +174,19 @@ def _branch_serial_mediation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y, y_auto = _pick(cfg.get("y"), cont, used); used.append(y)
+    # H4b: Y of the X→M→Y path is the OUTCOME — bind the DETECTED one (config > high-conf
+    # role > first non-treatment candidate), mirroring causal/mediation.py, instead of taking
+    # whichever continuous column comes first. An explicit cfg["y"] still wins; X and the
+    # mediators keep following column order (the X→M→Y direction is an assumption either way).
+    y_cfg = cfg.get("y")
+    if y_cfg in cont:
+        y, y_auto = y_cfg, False
+    else:
+        y, y_auto = (resolve_outcome(fp, cfg, cont) if cont else None), True
+    # the config path binds too — record it so the run reports what was REALLY
+    # modeled (resolve_outcome already recorded on the auto path; first wins).
+    _record_bound_outcome(y)
+    used.append(y)
     x, x_auto = _pick(cfg.get("x"), cont, used); used.append(x)
     m1, m1_auto = _pick(cfg.get("m1"), cont, used); used.append(m1)
     m2, m2_auto = _pick(cfg.get("m2"), cont, used); used.append(m2)
@@ -351,7 +364,19 @@ def _branch_parallel_mediation(ctx: Ctx) -> None:
         summary.append(prob)
         return
     used: list[str] = []
-    y, y_auto = _pick(cfg.get("y"), cont, used); used.append(y)
+    # H4b: Y of the X→M→Y path is the OUTCOME — bind the DETECTED one (config > high-conf
+    # role > first non-treatment candidate), mirroring causal/mediation.py, instead of taking
+    # whichever continuous column comes first. An explicit cfg["y"] still wins; X and the
+    # mediators keep following column order (the X→M→Y direction is an assumption either way).
+    y_cfg = cfg.get("y")
+    if y_cfg in cont:
+        y, y_auto = y_cfg, False
+    else:
+        y, y_auto = (resolve_outcome(fp, cfg, cont) if cont else None), True
+    # the config path binds too — record it so the run reports what was REALLY
+    # modeled (resolve_outcome already recorded on the auto path; first wins).
+    _record_bound_outcome(y)
+    used.append(y)
     x, x_auto = _pick(cfg.get("x"), cont, used); used.append(x)
     cfg_meds = cfg.get("mediators")
     meds_auto = not isinstance(cfg_meds, (list, tuple))

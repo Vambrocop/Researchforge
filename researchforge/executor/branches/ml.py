@@ -13,6 +13,7 @@ from researchforge.executor.run import (
     _conformal_prediction,
     _network_via_nx,
     _plotly_scatter,
+    _record_bound_outcome,
     _silhouette_plot,
     resolve_outcome,
 )
@@ -532,9 +533,14 @@ def _resolve_ml_outcome(fp, cfg, cont_cols, binary_cols):
     ``is_clf`` = the chosen outcome is not one of the continuous columns."""
     forced_y = cfg.get("outcome")
     if fp.column(forced_y) is not None:
+        # H4b: tiers 1/2 short-circuit past resolve_outcome (which records for tiers 3/4),
+        # so record here too — a ladder that records on only half its rungs makes the
+        # RunResult.outcome audit report bindings inconsistently.
+        _record_bound_outcome(forced_y)
         return forced_y, forced_y not in cont_cols
     hc = fp.likely_outcome if fp.likely_outcome_confidence == "high" else None
     if hc is not None and fp.column(hc) is not None:
+        _record_bound_outcome(hc)
         return hc, hc not in cont_cols
     if cont_cols:
         return resolve_outcome(fp, cfg, cont_cols), False

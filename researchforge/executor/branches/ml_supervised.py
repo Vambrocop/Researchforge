@@ -35,6 +35,7 @@ import importlib.util
 from researchforge.executor._branch_api import Ctx, register
 from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 from researchforge.executor.branches.ml import _resolve_ml_outcome
+from researchforge.executor.run import _record_bound_outcome
 
 _SEED = 0  # fixed random_state, disclosed in every summary
 
@@ -110,6 +111,11 @@ def _resolve_xy(ctx: Ctx, method: str, min_rows: int):
     if not usable:
         return None, is_clf, [], f"{method}跳过：预测变量无法转为数值（需要数值型预测变量）。"
 
+    # H4b: this family resolves (outcome, predictors) itself instead of calling the shared
+    # resolve_outcome, so record the binding here as well — otherwise run_analysis can make no
+    # outcome claim and the audit instrument (RunResult.outcome is None) flags all five
+    # learners as unbound. One line, five branches.
+    _record_bound_outcome(outcome)
     return outcome, is_clf, usable, None
 
 

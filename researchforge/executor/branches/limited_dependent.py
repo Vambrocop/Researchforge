@@ -34,6 +34,7 @@ Heckman two-step & inverse Mills ratio).
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome, resolve_outcome
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -49,13 +50,17 @@ def _resolve_xy(ctx: Ctx, label: str, max_pred: int = 20):
 
     outcome = cfg.get("outcome")
     if not (outcome and outcome in df.columns):
-        outcome = next(
-            (c.name for c in fp.columns
-             if c.kind == "continuous" and c.name not in _exc),
-            None,
-        )
+        # H4b: fall back to the DETECTED outcome (config > high-conf role > first
+        # non-treatment candidate) rather than raw "first continuous" — same ladder the
+        # regression family uses, and it records the binding so the run can state what was
+        # really modeled. The wider cfg["outcome"] override above still wins.
+        cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _exc]
+        outcome = resolve_outcome(fp, cfg, cont) if cont else None
     if outcome is None:
         return None, [], f"{label}跳过：需要 1 个连续结果变量（outcome）。"
+    # the wider cfg["outcome"] path binds too (it accepts any column, so it skips
+    # resolve_outcome) — record it as well; first recording wins.
+    _record_bound_outcome(outcome)
 
     cfg_pred = cfg.get("predictors")
     if cfg_pred and isinstance(cfg_pred, (list, tuple)):

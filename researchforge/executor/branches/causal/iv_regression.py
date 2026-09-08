@@ -11,6 +11,7 @@ naive-OLS contrast. Graceful degrade if linearmodels is missing.
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome, resolve_outcome
 
 
 def _as_list(v):
@@ -57,10 +58,18 @@ def _branch_iv_regression(ctx: Ctx) -> None:
     # outcome = config else first continuous (not an instrument).
     outcome = cfg.get("outcome")
     if outcome not in df.columns:
-        outcome = next((c for c in cont if c not in instruments), None)
+        # H4b: bind the DETECTED outcome among the non-instrument continuous columns
+        # (config > high-conf role > first non-treatment) instead of plain column order —
+        # with [wage, educ, ability] the wage column is the DV even when it isn't first.
+        cand = [c for c in cont if c not in instruments]
+        outcome = resolve_outcome(fp, cfg, cand) if cand else None
     if outcome is None:
         summary.append("工具变量回归（2SLS）失败：未找到连续结果变量（outcome）。")
         return
+
+    # the wider cfg["outcome"] path binds too (it accepts any column, so it skips
+    # resolve_outcome) — record it as well; first recording wins.
+    _record_bound_outcome(outcome)
 
     # endogenous regressor(s) = config else first continuous not outcome/instrument.
     endog = [c for c in _as_list(cfg.get("endogenous")) if c in df.columns and c != outcome]

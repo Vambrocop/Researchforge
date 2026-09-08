@@ -15,6 +15,7 @@ family file is auto-registered by branches/__init__.py (pkgutil.walk_packages).
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome
 from researchforge.executor._helpers.diagnostics import suspicious_fit_warnings
 
 
@@ -224,6 +225,12 @@ def _branch_discriminant_analysis(ctx: Ctx) -> None:
     if group is None:
         summary.append("判别分析跳过：未找到分类分组变量。设 config group。")
         return
+
+    # H4b: the class label IS what this method predicts, but picking it needs level-count /
+    # cardinality logic that resolve_outcome does not have, so the branch keeps its own
+    # resolution and only RECORDS the binding — the run can then state what was modeled
+    # and the outcome audit stops flagging it. (Recording is orthogonal to who picks.)
+    _record_bound_outcome(group)
     if len(predictors) < 2:
         summary.append("判别分析跳过：需要 ≥2 个连续预测变量。")
         return

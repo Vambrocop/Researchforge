@@ -474,5 +474,22 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **测试缺口（审查者点名，已补）**：原 24 个测试**在两个 MUST-FIX bug 都在的情况下全部通过**——没有一条断言「选中的阶数是否合理」。已加 4 条阶数合理性测试（随机游走 p+q≤1、季节总阶≤3、d=0 序列保住量级~500、AR(1) 均值回归）。
 - **仍 defer**：d=1 时无 drift 项（auto.arima 会拟合）；`D=1` 无季节单位根检验（OCSB/CH）；ADF 相对 KPSS 更易过差分（审查者实测 60 次：平稳序列 ADF 过差分 34/60 vs KPSS 11/60；但欠差分危害更大，故维持 ADF）。
 
+
+**Wave H4b（2026-09-08）：用审计仪把 outcome 绑定普查干净——UNBOUND 19 → 6：**
+- **背景**：H4 的副产品判据 `RunResult.outcome is None`（且分支真跑通）= 该分支没走共享解析器 → 引擎说不出「本次建模的结果变量是什么」，提示只能沉默。对 catalog 里 **111 个带 `outcome`/`y` 参数的条目**全量跑一遍探针数据，逮到 **19 处**。三类处置：
+  1. **共享解析器（一处改动清一片）**：`ml_supervised._resolve_xy`（5 个学习器：regularized_regression/svm_model/gradient_boosting/monotonic_constraints + 家族内）与 `limited_dependent._resolve_xy`（tobit + truncated）自己解析角色，各加 **1 行记录**即覆盖整族——与 H4「零分支改动」同思路。顺带补 `ml._resolve_ml_outcome` 的 tier 1/2（config / 高置信）：原本只有 tier 3/4 走 `resolve_outcome` 才记录，**同一梯子只在一半档位记录**会让审计结果自相矛盾。
+  2. **真缺口（接 `resolve_outcome`）**：`iv_regression`（原「第一个非工具连续列」）、`truncated_regression`/`tobit_regression`、中介族的 Y（`serial_mediation`/`parallel_mediation`/`moderated_mediation`/`johnson_neyman`，原按列序取第一个连续列，与已接的 `causal/mediation` 不一致）、`evalue`。
+  3. **类别标签法（保留自有解析、只记录）**：`mnl_choice`（需 3–N 类的水平数逻辑）、`linear_discriminant`/`discriminant_analysis`（结果是**组**）——`resolve_outcome` 没有这些基数/水平数规则，**记录与「谁来挑」是正交的**：让 `RunResult.outcome` 如实反映建模对象，同时消除审计噪声。
+- 🔴 **顺带逮到一个真行为 bug（不只是记账）——`evalue` 的结果/暴露反了**：原码 `outcome = next(c for c in bins if c != exposure)`，而 `exposure` 此时还是 None（暴露在结果**之后**才解析）→ `[treated, died]` 会把 **treated 当结果、died 当暴露**，整个 E-value 敏感性分析口径颠倒。接 `resolve_outcome` 后（跳过 treatment 命名列 + 高置信结果名）正确绑定 `died`。已加测试钉死。
+- 🔧 **审计仪自身也修了（假阳）**：原「跑通」判据是 summary 不含 `失败/跳过/暂未接入`，漏掉**不用这三个词的诚实降级**——`calibration_assessment` 说「需要预测概率列(0-1)；未检测到」，被当成跑通 → 报成未绑定，**其实它早就接了 `resolve_outcome`**。判据改为 **`res.estimates` 非空**（真产出估计量才算建模），假阳消除。
+- ⚠ **审计盲区（诚实记录，不是全覆盖证明）**：探针数据只有 3 个连续列，`serial_mediation`/`moderated_mediation` 因列数不足降级、**审计根本看不见**——是靠「同文件同模式」人工发现的。**审计仪的覆盖面 = 探针数据的形状**；换形状（面板/生存/宽表）还会浮出新的。
+- **剩余 6 处刻意不接（逐个核实：语义上没有 outcome）**：`pearson_correlation`/`partial_correlation`（变量**之间**的相关，无因变量）、`friedman_test`（宽表，列=条件而非结果列）、`local_geary`/`skater`/`ripleys_k`（空间值/坐标列）。这 6 个的提示已如实说明「本方法未使用统一的结果解析」，不作任何绑定宣称。
+- **验证**：审计 19 → 6（剩下的全是上述刻意不接）；新 `tests/test_outcome_binding_sweep.py`（19 测：ML 族/受限因变量族/IV/中介族/evalue 角色不颠倒/类别标签法记录/config 覆盖仍胜出 + **ratchet**「已扫过的分支不得退回沉默」）；`tests/test_outcome_nudge.py`（H4 跨方法不变式）仍绿；全量套件绿。
+- 🔴 **顺带发现 `origin/main` 门禁本来就是红的（不是本波引入）**：`test_config_params_complete::test_declared_params_cover_read_keys`（「分支读了哪些 config 键 → 条目必须声明，否则用户传参会收到假的『未知参数』警告」）在 HEAD 就有 **3 处漏声明**——`spatial_regression`、`weighted_estimation`（**这两处是 Wave H4 接 `resolve_outcome` 时引入的**：接线让分支开始读 `cfg["outcome"]`，yaml 没跟上，当时没跑到这条测试）、`explainable_boosting`（读 `model`）。本波接线又新增 4 处（中介族）。**已全部补齐**（7 处），门禁恢复绿。
+  - 顺带把过时的 yaml 措辞改真：spatial_regression 的「第一个连续列为结果」、weighted_estimation/中介族的 `default: 第一个连续列` → 「检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）」。
+  - `explainable_boosting` 的 `model` 是**静态调用图的真实读取**：EBM 借用 `_build_model` 只为解析角色，却连带拟合了一棵**没人用的 GBM**、并继承了 `model` 键。修法不是去 yaml 里声明一个无效参数，而是**把角色解析拆成 `_resolve_roles`**、EBM 只调它——既去掉浪费的拟合，又让「读到的键」与「能起作用的键」一致。
+  - 😅 **踩到测试自己的规则**：新写的 docstring 里引用了 ``config["model"]`` 字面量，**被那条正则当成真的 cfg 读取**，测试继续红。改成中文描述即过。留个教训：**这条门禁扫的是正则，注释/docstring 里别写 `cfg["x"]`/`config["x"]` 字面量**。
+- **红线判定**：接共享解析器 = 确定性接线（不改估计量），实测 + ratchet 充分，**未派冷审**；对照 Wave S1 那类真模型改动才派 inference-reviewer。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

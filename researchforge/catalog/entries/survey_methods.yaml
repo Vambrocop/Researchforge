@@ -25,8 +25,12 @@
   params:
     - name: value
       type: column
-      description: 待估计的数值变量列
-      default: 第一个连续列
+      description: 待估计的数值变量列（别名：outcome）
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: outcome
+      type: column
+      description: 待估计的数值变量（`value` 的别名，与引擎统一的 outcome 键一致）
+      default: 同 value
     - name: weight
       type: column
       description: 抽样权重列

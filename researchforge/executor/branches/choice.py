@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.executor.run import _record_bound_outcome
 
 _MNL_MIN_ROWS = 30
 _MNL_MIN_LEVELS = 3
@@ -135,6 +136,12 @@ def _branch_mnl_choice(ctx: Ctx) -> None:
                 "可用 config={\"outcome\":\"<列>\"} 指定。"
             )
             return
+
+    # H4b: the class label IS what this method predicts, but picking it needs level-count /
+    # cardinality logic that resolve_outcome does not have, so the branch keeps its own
+    # resolution and only RECORDS the binding — the run can then state what was modeled
+    # and the outcome audit stops flagging it. (Recording is orthogonal to who picks.)
+    _record_bound_outcome(outcome)
 
     # ---- resolve case-specific numeric predictors ---------------------------
     exclude = {outcome, fp.unit_col, fp.time_col}

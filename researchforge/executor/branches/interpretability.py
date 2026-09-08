@@ -39,8 +39,14 @@ _FEAT_KINDS = {"continuous", "count", "binary"}
 _TOP_N = 4  # how many top features to explain by default
 
 
-def _build_model(ctx: Ctx, label: str, min_rows: int = 30):
-    """Resolve roles, fit a tree model. Returns a dict on success, else (None, msg)."""
+def _resolve_roles(ctx: Ctx, label: str, min_rows: int = 30):
+    """Resolve outcome + features and build the (X, y) matrices — NO model fitting.
+
+    Split out of ``_build_model`` so a branch that brings its own model (EBM) can take
+    the role resolution WITHOUT inheriting the model-choice config read: a key a branch
+    cannot act on must not appear among the keys it reads (test_config_params_complete
+    walks the call graph, and a caller inherits every key its callees read).
+    Returns a dict on success, else (None, msg)."""
     import importlib.util
 
     if importlib.util.find_spec("sklearn") is None:
@@ -85,7 +91,17 @@ def _build_model(ctx: Ctx, label: str, min_rows: int = 30):
         return None, (f"{label}跳过：分类结果暂仅支持二值（{outcome} 有 {int(y.nunique())} 类）——"
                       "请二值化，或改用连续结果做回归解释。")
 
-    model_name = str(cfg.get("model", "gbm")).lower()
+    return {"X": X, "y": y, "features": features, "outcome": outcome,
+            "is_clf": is_clf, "np": np, "pd": pd}, None
+
+
+def _build_model(ctx: Ctx, label: str, min_rows: int = 30):
+    """Resolve roles (above) and fit the tree model the post-hoc explainers explain."""
+    info, err = _resolve_roles(ctx, label, min_rows)
+    if info is None:
+        return None, err
+    X, y, is_clf = info["X"], info["y"], info["is_clf"]
+    model_name = str(ctx.cfg.get("model", "gbm")).lower()
     try:
         from sklearn.ensemble import (
             GradientBoostingClassifier, GradientBoostingRegressor,
@@ -102,10 +118,8 @@ def _build_model(ctx: Ctx, label: str, min_rows: int = 30):
                  else GradientBoostingRegressor(random_state=0))
         model_name = "gbm"
     model.fit(X, y)
-    return {
-        "model": model, "X": X, "y": y, "features": features, "outcome": outcome,
-        "is_clf": is_clf, "model_name": model_name, "np": np, "pd": pd,
-    }, None
+    info.update({"model": model, "model_name": model_name})
+    return info, None
 
 
 def _top_features(info, k=_TOP_N):
@@ -747,7 +761,8 @@ def _branch_explainable_boosting(ctx: Ctx) -> None:
         )
         return
 
-    info, err = _build_model(ctx, "EBM 可解释提升机")  # role resolution (its GBM is unused)
+    # roles only — EBM fits its own glassbox model, so no tree is built or chosen here
+    info, err = _resolve_roles(ctx, "EBM 可解释提升机")
     if info is None:
         summary.append(err)
         return
