@@ -11,6 +11,7 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - 测试：`py -3 -m pytest -q`。**查退出码用 `>log 2>&1; echo EXIT=$?`，别用 `| tail` 屏蔽 pytest 的退出码**。
   - **提速**：全量并行 `py -3 -m pytest -n 2 -q`（~2:49 vs 串行 ~4:29）。**别用 `-n auto`**——R worker 内存重，会 `MemoryError`/报错；`-n 2` 是本机安全档。
   - **快循环** `py -3 -m pytest -m "not slow" -q`（跳 35 个重模型测试文件，~51s/138 测，验证引擎plumbing 够用）；慢测清单在 `tests/conftest.py` 的 `SLOW_MODULES`（加重方法测试时同步更新，刷新看 `pytest -n 2 --durations=25`）。
+  - **门禁（结构性守卫，必跑）** `py -3 -m pytest -m gate -q`（~50s / 11 个模块）：catalog↔live handler↔声明的 config 参数一致性、模块行数护栏、lint、分发注册表、选模守卫——**这类不变式坏了不会报错、也不会有分析失败，只会静默错**。清单在 `tests/conftest.py::GATE_MODULES`，**永远不进 `SLOW_MODULES`**（`test_conftest_slow.py` 强制两者不相交）：`test_config_params_complete` 就因耗时 9s 被归进 slow → 快循环从此跳过它 → **红在 origin/main 上两波没人发现**。门禁已含在快循环里；`py -3 -m researchforge.cli gates --install-hook` 装 pre-push 钩子（推送前自动跑、红灯拒推，`cli status` 会显示装没装）。
 - 跑分析：`py -3 -m researchforge.cli run <data.csv> <analysis_id>`。
 
 ## 加一个分析（标准流程）
@@ -35,7 +36,7 @@ ResearchForge = **方法学大杂烩引擎**：丢数据 → 自动识别类型/
 - **读码纪律**：**别整文件读 `run.py` / 大文件**——用 `Grep` 定位 + 带 `offset/limit` 的 `Read` 只读片段；长会话定期 `/compact`；新分支进 `branches/` 让单文件保持小而专。（`/add-analysis` 技能的 run.py-elif 模板待更新为 branches/ 处理器。）
 
 ## 红线 & 工作流（不可逆动作守紧）
-- **push gating**：自由本地 commit，但**只有用户说「今天 ok」才 push**（自动 push 钩子已移除）。用户忘了就查 `git log origin/main..HEAD` 提醒，别擅自推。
+- **push gating**：自由本地 commit，但**只有用户说「今天 ok」才 push**（自动 push 钩子已移除）。用户忘了就查 `git log origin/main..HEAD` 提醒，别擅自推。 推送时 pre-push 钩子会先跑门禁（红灯拒推）——**别用 `--no-verify` 绕**。
 - **双审**：有真统计推断的方法 → 派 Opus 子代理审推断正确性（审者≠建者）；确定性方法（纯算/复用已审 helper）可实测验证、不必派审。**建造者可在有证据时驳回审查者**（如暴力验证），但要在汇总里告诉用户。Fable 5 的工作流/计划当**导师基准**；Agent 工具调不动 `claude-fable-5`（无权限）。
 - **实质决策**（投入产出/校准锚点/X-M-Y 路径等）：默认 + 披露 + 追加到 `docs/loop-decisions.md`，**别阻塞**，用户异步拍板。
 - **状态假设 & 先推断**：默认推进时把所做假设**一句话写明**（别静默填空）；能从代码/数据/已给指令推断的（列名/语言/已下的指令）先推断，别为可推断的事去问。

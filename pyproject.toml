@@ -86,6 +86,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "slow: heavy / R-backed tests (fit real R or external-lib models); fast loop = -m 'not slow'",
+    "gate: structural repo-consistency guard (catalog/params/module-size/lint); always in the fast loop, never slow",
 ]
 
 # ── ruff: a CORRECTNESS guard (real bugs), not a style police ────────────────────

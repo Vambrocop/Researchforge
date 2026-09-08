@@ -5,7 +5,8 @@ Auto-tags heavy / model-fitting test modules as ``slow`` so the fast dev loop
 suite still runs everything.
 
 Speedup notes (see CLAUDE.md 运行):
-- Fast loop:      ``pytest -m "not slow"``        (light tests only)
+- Fast loop:      ``pytest -m "not slow"``        (light tests + ALL structural gates)
+- Gates only:     ``pytest -m gate``              (~30s repo-consistency guards)
 - Full, faster:   ``pytest -n 2``                 (bounded parallel, ~2:49 vs ~4:29 serial)
 - Do NOT use ``-n auto`` for the full suite: each worker spawns R / heavy libs and the
   box runs out of memory (MemoryError). ``-n 2`` is the memory-safe sweet spot here.
@@ -52,8 +53,6 @@ SLOW_MODULES = {
     "test_interpretability",
     # spatial association (permutation inference) + SKATER MST pruning
     "test_spatial_dependence",
-    # meta-guard: parses every branch module's AST + loads catalog
-    "test_config_params_complete",
     # text mining: LDA fit + TF-IDF vectorization per test
     "test_text_mining",
     # end-to-end: runs many analyses on real datasets through the full pipeline
@@ -95,9 +94,34 @@ SLOW_MODULES = {
 }
 
 
+# ── structural gates ────────────────────────────────────────────────────────────
+# Repo-consistency invariants: catalog ↔ live handler ↔ declared config params, the
+# module-size guardrail, lint, the dispatch registry, the selection guards. They are the
+# checks NOTHING ELSE surfaces — a catalog entry that under-declares a config key breaks
+# no analysis and raises no error; it just gives whoever passes that key a bogus
+# "未知参数" warning. So they must run in EVERY loop, `-m "not slow"` included.
+#
+# Why this list exists (2026-09-08): `test_config_params_complete` — "meta-guard" by its
+# own comment — had been parked in SLOW_MODULES for costing 9s, so the fast loop skipped
+# it and it sat RED on origin/main for two waves (Wave H4 wired resolve_outcome into two
+# branches without declaring the `outcome` key they then read; nobody saw it). A gate
+# parked in the never-run bucket is not a gate. The whole set is ~30s, most of which is
+# interpreter startup. Disjointness from SLOW_MODULES is enforced by test_conftest_slow.py.
+GATE_MODULES = {
+    "test_catalog", "test_catalog_consistency", "test_catalog_yaml_valid",
+    "test_config_params_complete", "test_config_schema", "test_conftest_slow",
+    "test_lint", "test_module_size", "test_r_name_guard", "test_run_dispatch_guard",
+    "test_selection_guards",
+}
+
+
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        if item.path.stem in SLOW_MODULES:
+        if item.path.stem in GATE_MODULES:
+            # `elif` below, deliberately: even if a gate is re-added to SLOW_MODULES by
+            # mistake it stays in the fast loop (the disjointness test then says so).
+            item.add_marker(pytest.mark.gate)
+        elif item.path.stem in SLOW_MODULES:
             item.add_marker(pytest.mark.slow)
 
 

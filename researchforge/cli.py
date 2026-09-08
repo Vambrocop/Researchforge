@@ -427,6 +427,71 @@ def _cmd_scorecard(save: bool = False) -> int:
     return 0
 
 
+
+# Structural gates live in tests/conftest.py::GATE_MODULES — repo-consistency invariants
+# (catalog ↔ live handler ↔ declared config params, module size, lint, dispatch registry)
+# that fail SILENTLY: nothing in a normal run tells you a catalog entry under-declares a
+# config key. They are ~50s, always in the fast loop, and gated at push time by the hook
+# below, because that is the boundary where a red gate reaches origin/main.
+_HOOK_BODY = """#!/bin/sh
+# ResearchForge structural gates — installed by `researchforge gates --install-hook`.
+# Blocks a push whose repo-consistency invariants are red (catalog/params/module-size/lint).
+# Remove with: rm .git/hooks/pre-push
+echo "[researchforge] running structural gates before push (~50s)..."
+py -3 -m pytest -m gate -q || {
+  echo ""
+  echo "[researchforge] PUSH BLOCKED: structural gates are red."
+  echo "  fix them, or inspect with:  py -3 -m pytest -m gate -q"
+  exit 1
+}
+"""
+
+
+def _hook_path():
+    from pathlib import Path
+    import subprocess
+
+    repo = Path(__file__).resolve().parent.parent
+    try:
+        gd = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=repo,
+                            capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        return None
+    if not gd:
+        return None
+    gitdir = Path(gd) if Path(gd).is_absolute() else repo / gd
+    return gitdir / "hooks" / "pre-push"
+
+
+def _cmd_gates(install_hook: bool = False) -> int:
+    """Run the structural gate set (or install the pre-push hook that runs it)."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+    if install_hook:
+        hp = _hook_path()
+        if hp is None:
+            print("未找到 .git —— 不是 git 仓库？pre-push 钩子未安装。")
+            return 1
+        hp.parent.mkdir(parents=True, exist_ok=True)
+        hp.write_text(_HOOK_BODY, encoding="utf-8", newline="\n")
+        try:
+            hp.chmod(0o755)
+        except OSError:
+            pass  # Windows: git for windows runs .sh hooks regardless of the mode bit
+        print(f"pre-push 钩子已安装 → {hp}")
+        print("  推送前自动跑 `pytest -m gate`（~50s）；红灯则拒绝 push。")
+        print(f"  卸载: rm {hp}")
+        return 0
+
+    print("跑结构性门禁 (pytest -m gate) ...")
+    r = subprocess.run([sys.executable, "-m", "pytest", "-m", "gate", "-q"], cwd=repo)
+    print("门禁 绿 ✅" if r.returncode == 0 else "门禁 红 ❌ —— 先修好再提交/推送")
+    return r.returncode
+
+
 def _cmd_status() -> int:
     """Live project front-door: health + scale + git + next-up + what-to-improve, all
     computed from current repo signals so it never goes stale. Run it first thing."""
@@ -471,6 +536,17 @@ def _cmd_status() -> int:
     print(f"规模  {int(m['n_methods'])} 方法 / {int(m['n_families'])} 族 / "
           f"{int(m['n_test_files'])} 测试文件 / 最大模块 {int(m.get('max_module_lines', 0))} 行 (护栏 {MODULE_LINE_LIMIT})")
     print(f"Git   分支 {branch} · 未推送 {n_unpushed if n_unpushed is not None else '?'} · 工作树 {'有改动' if dirty else '干净'}")
+    hp = _hook_path()
+    hook_on = bool(hp and hp.exists())
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(repo / "tests"))
+        from conftest import GATE_MODULES  # noqa: PLC0415
+        n_gates = len(GATE_MODULES)
+    except Exception:
+        n_gates = 0
+    print(f"门禁  {n_gates} 个结构性守卫模块（`pytest -m gate`，~50s，已含在快循环里）"
+          f" · pre-push 钩子 {'已装' if hook_on else '未装'}")
     if branches.IMPORT_ERRORS:
         names = "、".join(name for name, _ in branches.IMPORT_ERRORS)
         print(f"⚠ {len(branches.IMPORT_ERRORS)} 个分支模块导入失败: {names}")
@@ -492,8 +568,11 @@ def _cmd_status() -> int:
         print(f"  - {n_unpushed} 个 commit 未 push（用户说『今天 ok』才推）")
     if dirty:
         print("  - 工作树有未提交改动")
+    if not hook_on:
+        print("  - 门禁 pre-push 钩子未装（红灯可能直接进 origin/main）—— "
+              "装: py -3 -m researchforge.cli gates --install-hook")
 
-    print("\n提速: 全量 `pytest -n 2` · 快循环 `pytest -m \"not slow\"`（别用 -n auto，R worker OOM）")
+    print("\n提速: 全量 `pytest -n 2` · 快循环 `pytest -m \"not slow\"`（含门禁） · 只跑门禁 `pytest -m gate`（别用 -n auto，R worker OOM）")
     print("加分析: 进 branches/<family>.py 的 @register；真推断派 inference-reviewer 双审；push 等『今天 ok』")
     return 0
 
@@ -638,6 +717,9 @@ def main(argv: list[str] | None = None) -> int:
     web_p = sub.add_parser("web", help="launch the ResearchForge web UI")
     web_p.add_argument("--port", type=int, default=8000, help="port to listen on (default: 8000)")
     sub.add_parser("status", help="live front-door: health + next-up + what to improve (run first)")
+    gt = sub.add_parser("gates", help="run the structural repo-consistency gates (pytest -m gate)")
+    gt.add_argument("--install-hook", dest="install_hook", action="store_true",
+                    help="install a git pre-push hook that runs the gates before every push")
     des = sub.add_parser("design", help="DoE advisory: generate a randomized experimental layout (no data needed)")
     des.add_argument("type", choices=["rcbd", "factorial", "latin_square"], help="design type")
     des.add_argument("--treatments", help="comma-separated treatment levels (rcbd / latin_square)")
@@ -680,6 +762,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_web(args.port)
     if args.command == "status":
         return _cmd_status()
+    if args.command == "gates":
+        return _cmd_gates(args.install_hook)
     if args.command == "design":
         return _cmd_design(args)
 

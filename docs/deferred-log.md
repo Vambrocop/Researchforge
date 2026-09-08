@@ -491,5 +491,17 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
   - 😅 **踩到测试自己的规则**：新写的 docstring 里引用了 ``config["model"]`` 字面量，**被那条正则当成真的 cfg 读取**，测试继续红。改成中文描述即过。留个教训：**这条门禁扫的是正则，注释/docstring 里别写 `cfg["x"]`/`config["x"]` 字面量**。
 - **红线判定**：接共享解析器 = 确定性接线（不改估计量），实测 + ratchet 充分，**未派冷审**；对照 Wave S1 那类真模型改动才派 inference-reviewer。
 
+
+**门禁体检 + 自动化（2026-09-08，紧接 H4b）：一个「被停在从不运行的桶里」的守卫：**
+- **起因**：H4b 收尾时发现 `test_config_params_complete` 在 `origin/main` 上**已经红了两波**，而我上一波还报告过「全量绿」。这不是「忘了跑」——是**测试选择机制本身的洞**。
+- 🔎 **体检结论（可证）**：那条测试**被登记在 `SLOW_MODULES` 里**（原注释自己写着 "meta-guard"，理由是耗时 9s），于是我平时用的快循环 `pytest -m "not slow"` **从来跳过它**；而全量套件（本机 ~50min）几波才跑一次。**一个被停进「从不运行」桶里的门禁，就不再是门禁。** 逐个核对 83 个 `SLOW_MODULES` 条目，**只有它一个**是结构性守卫被误归类（`test_config` 是真跑分析的行为测试，留在 slow 合理）。
+- ✅ **修法（三层，全部可验证）**：
+  1. **`GATE_MODULES`（`tests/conftest.py`）**：11 个结构性守卫模块显式成组——catalog↔live handler↔声明的 config 参数一致性 / 模块行数护栏 / lint / 分发注册表 / 选模守卫 / yaml schema / 这份清单自己的守卫。打 `gate` 标记，**且分派逻辑用 `if gate ... elif slow`**：就算将来有人手滑把门禁塞回 `SLOW_MODULES`，它仍留在快循环里。
+  2. **守卫的守卫**：`tests/test_conftest_slow.py` 加 `test_gates_are_never_parked_in_the_slow_bucket`（`GATE_MODULES ∩ SLOW_MODULES == ∅`）+ 文件存在性检查。**这正是本次事故的类型，现在有测试挡着。**
+  3. **推送边界自动化**：`researchforge gates --install-hook` 装 git `pre-push` 钩子 → 每次 push 前跑 `pytest -m gate`（~50s），红灯**拒绝推送**。选 pre-push 而非 pre-commit 是因为「红灯进 origin/main」才是要防的事故，而本项目 push 本来就少（要用户点头）。`cli status` 新增「门禁」行，显示守卫模块数 + 钩子装没装（没装就进「需改进」）。
+- **验证（不是「看起来对」）**：`pytest -m gate` 130 测绿 / 45s；直接执行钩子（`sh .git/hooks/pre-push origin <url> </dev/null`）绿路径 exit 0；**故意注入一个未声明的 `cfg.get("zzz_gate_probe")` 后重跑，钩子确实 exit 1 并打印 PUSH BLOCKED**，再撤回复绿。
+- **成本**：快循环 ~51s → 约 +9s（多跑 3 个 meta-guard 测试）；每次 push +45s。
+- 💡 **留给后人的判据**：**门禁的分类依据是「坏了会不会静默」，不是「跑得快不快」。** 一个 9 秒的一致性检查该进必跑集，一个 2 秒的重模型冒烟测试可以进 slow。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
