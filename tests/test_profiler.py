@@ -31,7 +31,7 @@ def test_profile_detects_panel(tmp_path):
     assert fp.is_panel is True
     assert fp.unit_col == "unit"
     assert fp.time_col == "year"
-    assert "treated" in fp.treatment_candidates
+    assert "treated" in fp.binary_columns
     assert fp.column("y").kind == "continuous"
 
 

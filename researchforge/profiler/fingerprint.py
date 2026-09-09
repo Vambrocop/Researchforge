@@ -56,7 +56,14 @@ class DataFingerprint(BaseModel):
     time_col: Optional[str] = None
     is_timeseries: bool = False
     has_geo: bool = False
-    treatment_candidates: list[str] = Field(default_factory=list)
+    # EVERY binary column, in file order — a shape fact, not a role claim. It was called
+    # `treatment_candidates` until 2026-09-08, which asserted a treatment signal the value
+    # never carried; three measured bugs came out of code trusting that name (PSM matching
+    # on a survival event indicator, a study-site `group` outranking the arm, and
+    # synthetic_control failing outright on a decoy-first panel). Only
+    # `executor._helpers.core.resolve_treatment` is entitled to say which column is the
+    # treatment; this list is just its candidate pool.
+    binary_columns: list[str] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
     # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
     # run-time defaults — only suggest a `config` to the user.

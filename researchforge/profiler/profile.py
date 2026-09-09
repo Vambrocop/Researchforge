@@ -80,7 +80,7 @@ def _find_time_col(df: pd.DataFrame, fp: DataFingerprint) -> str | None:
 
 
 def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
-    fp.treatment_candidates = [c.name for c in fp.columns if c.kind == "binary"]
+    fp.binary_columns = [c.name for c in fp.columns if c.kind == "binary"]
     fp.has_geo = any(c.kind == "geo" for c in fp.columns)
 
     time_col = _find_time_col(df, fp)

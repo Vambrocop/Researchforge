@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _gsynth_via_r, resolve_outcome
+from researchforge.executor.run import _gsynth_via_r, _pick_did_treatment, resolve_outcome, resolve_treatment
 
 
 @register("gsynth")
@@ -14,12 +14,19 @@ def _branch_gsynth(ctx: Ctx) -> None:
     from researchforge.executor import rbridge
 
     unit, time = fp.unit_col, fp.time_col
-    _excl = {unit, time, *fp.treatment_candidates}
+    _excl = {unit, time, *fp.binary_columns}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
     # U3: bind the DETECTED outcome (config > high-conf role > first continuous), skipping
     # treatment-named columns — safer than the old raw cont[0] fallback.
     outcome = resolve_outcome(fp, cfg, cont) if cont else None
-    treat = cfg.get("treatment") or next((c for c in fp.treatment_candidates if c in df.columns), None)
+    # 地基(二): the treatment column was `next(c for c in <all binaries> if c in df)` — the
+    # first binary in FILE ORDER. Same defect H4d fixed in the DiD family, and it does not
+    # merely bias this one: with a decoy binary first, synthetic_control fails outright
+    # ("≥2 个对照单位") because half the panel looks treated. Panel method → the within-unit
+    # switching signal decides, name signal second (see _pick_did_treatment).
+    _switch = _pick_did_treatment(df, fp, unit=unit, time=time) if (unit and time) else []
+    _cands = [c for c in (_switch or fp.binary_columns) if c in df.columns]
+    treat = resolve_treatment(fp, cfg, _cands, df=df) if _cands else cfg.get("treatment")
     try:
         n_boots = max(100, int(cfg.get("nboots", 200)))
     except (TypeError, ValueError):

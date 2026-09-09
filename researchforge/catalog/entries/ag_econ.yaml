@@ -556,6 +556,10 @@
       type: column
       description: 结果变量
       default: 第一个连续列
+    - name: treatment
+      type: column
+      description: 二值处理指示列（用于推断处理单元与处理时点）
+      default: 组内随时间切换的二值列（其次按处理命名，最后按列序）
     - name: treated_unit
       type: str
       description: 处理单元的取值（单元列中的标签）

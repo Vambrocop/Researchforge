@@ -29,7 +29,7 @@ def _branch_cna(ctx: Ctx) -> None:
     from researchforge.executor import rbridge
 
     # CNA's factors ARE binary/continuous conditions — do NOT drop binary
-    # treatment_candidates (they're exactly the configurational factors we need).
+    # binary_columns (they're exactly the configurational factors we need).
     _excl = {fp.unit_col, fp.time_col}
     binc = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     contc = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]

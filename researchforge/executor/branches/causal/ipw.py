@@ -15,11 +15,11 @@ def _branch_ipw(ctx: Ctx) -> None:
     _excl = {fp.unit_col, fp.time_col}
     bins = [c.name for c in fp.columns if c.kind == "binary" and c.name not in _excl]
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
-    # H4d: fp.treatment_candidates is EVERY binary column, so [0] meant "first
+    # H4d: fp.binary_columns is EVERY binary column, so [0] meant "first
     # binary in file order" — on [.., event, treatment, ..] that picked the
     # survival EVENT as the intervention. resolve_treatment applies the name
     # signal that roles.py already computed (and records the binding).
-    treatment = resolve_treatment(fp, cfg, fp.treatment_candidates or bins, df=df)
+    treatment = resolve_treatment(fp, cfg, fp.binary_columns or bins, df=df)
     # H4c: bind the DETECTED outcome among the non-treatment continuous columns
     # (config > high-confidence outcome name > first non-treatment-named) instead of
     # plain column order — and record it, so the report can name what was modeled.

@@ -28,7 +28,7 @@ def _branch_event_study(ctx: Ctx) -> None:
     # So the switch signal goes in as the candidate list and the shared resolver still handles
     # config-override + recording. Name matching only decides among non-switching candidates.
     _switch = _pick_did_treatment(df, fp, unit=unit, time=time)
-    treatment = resolve_treatment(fp, cfg, _switch or fp.treatment_candidates or bins_, df=df)
+    treatment = resolve_treatment(fp, cfg, _switch or fp.binary_columns or bins_, df=df)
     # H4c: bind the DETECTED outcome among the non-treatment continuous columns
     # (config > high-confidence outcome name > first non-treatment-named) instead of
     # plain column order — and record it, so the report can name what was modeled.

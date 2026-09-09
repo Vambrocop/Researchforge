@@ -89,8 +89,8 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
                       candidates: list[str], df=None) -> str | None:
     """Pick the treatment / exposure indicator — the twin of ``resolve_outcome``.
 
-    ``fp.treatment_candidates`` is literally *every binary column* (profile.py), so taking
-    ``treatment_candidates[0]`` means "the first binary column in file order" with NO role
+    ``fp.binary_columns`` is literally *every binary column* (profile.py), so taking
+    ``binary_columns[0]`` means "the first binary column in file order" with NO role
     signal at all. On ``[duration, event, treatment, age, biomarker]`` that made PSM match on
     the survival EVENT indicator as if it were the intervention (219 "treated" of 300 — the
     event rate, not the assignment rate) while a column literally named ``treatment`` sat
@@ -165,10 +165,10 @@ def _pick_did_treatment(df, fp: DataFingerprint, unit=None, time=None) -> list[s
     if not (unit and time):
         # H4d: without a panel there is no within-unit variation to use, so fall back to
         # the NAME-aware pick rather than the first binary column.
-        t = resolve_treatment(fp, None, fp.treatment_candidates)
+        t = resolve_treatment(fp, None, fp.binary_columns)
         return [t] if t else []
     scored = []
-    for name in fp.treatment_candidates:
+    for name in fp.binary_columns:
         if name not in df.columns:
             continue
         frac = float((df.groupby(unit)[name].nunique() > 1).mean())
@@ -252,10 +252,10 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None 
     if entry.id in {"panel_fixed_effects", "did"} and fp.unit_col and fp.time_col:
         fe_terms = [f"C(Q('{fp.unit_col}'))", f"C(Q('{fp.time_col}'))"]
 
-    if entry.id == "did" and fp.treatment_candidates:
+    if entry.id == "did" and fp.binary_columns:
         # [:1] — _pick_did_treatment now returns every switcher (D1); this formula takes
         # ONE treatment term, and a naive multi-return would silently add regressors.
-        rhs_vars = _pick_did_treatment(df, fp)[:1] or fp.treatment_candidates[:1]
+        rhs_vars = _pick_did_treatment(df, fp)[:1] or fp.binary_columns[:1]
     else:
         # optional explicit predictor list via config["predictors"] (cap 8) else
         # auto continuous/count/binary columns in dataframe order (cap 5)

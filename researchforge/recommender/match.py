@@ -15,7 +15,7 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要面板数据")
     if pre.is_timeseries and not fp.is_timeseries:
         unmet.append("需要时间序列")
-    if pre.requires_treatment and not fp.treatment_candidates:
+    if pre.requires_treatment and not fp.binary_columns:
         unmet.append("需要处理组指示变量")
     if pre.requires_time and fp.time_col is None:
         unmet.append("需要时间变量")

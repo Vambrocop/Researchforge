@@ -450,11 +450,11 @@ def data_signals(fp: DataFingerprint) -> dict:
         "has_group": has_group,
         # A treatment for RANKING purposes = a TREATMENT-NAMED column (treated/arm/exposed/
         # dose…, word-boundary via semantics), NOT merely "some binary column exists"
-        # (fp.treatment_candidates = all binary cols). Causal-inference methods presuppose an
+        # (fp.binary_columns = all binary cols). Causal-inference methods presuppose an
         # identified treatment; on data with no treatment-named column (dogfood P2 cohort:
         # disease/smoking/sex are all binary but none is a declared treatment) they must not
         # collect the requires_treatment tailoring bonus and outrank logistic/epi (Wave M1).
-        # Feasibility stays loose (match.py keeps treatment_candidates — the methods still RUN).
+        # Feasibility stays loose (match.py keeps binary_columns — the methods still RUN).
         "has_treatment": any(is_treatment_named(str(c.name)) for c in fp.columns),
     }
 

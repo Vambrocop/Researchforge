@@ -1,9 +1,9 @@
 """Wave H4d — the TREATMENT side of role binding (the twin of H4/H4b/H4c's outcome side).
 
-``fp.treatment_candidates`` is literally *every binary column* (profiler/profile.py), so the
+``fp.binary_columns`` is literally *every binary column* (profiler/profile.py), so the
 family-wide idiom
 
-    treatment = cfg["treatment"] else fp.treatment_candidates[0]
+    treatment = cfg["treatment"] else fp.binary_columns[0]
 
 meant "the first binary column in file order" with no role signal whatsoever — while
 ``roles.py`` had already computed a NAME-aware ``fp.likely_treatment`` that nobody read.
@@ -64,13 +64,13 @@ def _survival_frame(n=300, seed=2):
 # ── the resolver itself ──────────────────────────────────────────────────────
 def test_resolver_prefers_a_treatment_named_candidate(tmp_path):
     fp = _fp(_survival_frame(), tmp_path)
-    assert fp.treatment_candidates == ["event", "treatment"]      # every binary, file order
-    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "treatment"
+    assert fp.binary_columns == ["event", "treatment"]      # every binary, file order
+    assert resolve_treatment(fp, {}, fp.binary_columns) == "treatment"
 
 
 def test_resolver_honors_explicit_config(tmp_path):
     fp = _fp(_survival_frame(), tmp_path)
-    assert resolve_treatment(fp, {"treatment": "event"}, fp.treatment_candidates) == "event"
+    assert resolve_treatment(fp, {"treatment": "event"}, fp.binary_columns) == "event"
 
 
 def test_resolver_falls_back_to_column_order_without_a_signal(tmp_path):
@@ -242,7 +242,7 @@ def _tier_frame(n=300, seed=7):
 def test_a_binary_outcome_is_never_bound_as_the_treatment(tmp_path):
     fp = _fp(_tier_frame(), tmp_path)
     assert fp.likely_outcome == "treatment_response"       # high-confidence binary outcome
-    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "arm"
+    assert resolve_treatment(fp, {}, fp.binary_columns) == "arm"
 
 
 def test_first_named_candidate_wins_in_dataframe_order(tmp_path):
@@ -321,8 +321,8 @@ def test_the_binary_outcome_is_excluded_even_without_any_name_signal(tmp_path):
                        "score": rng.normal(0, 1, n).round(3)})
     fp = _fp(df, tmp_path)
     assert fp.likely_outcome == "died"                      # high-confidence binary event
-    assert fp.treatment_candidates[0] == "died"             # ...and it is first in file order
-    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "flag_b"
+    assert fp.binary_columns[0] == "died"             # ...and it is first in file order
+    assert resolve_treatment(fp, {}, fp.binary_columns) == "flag_b"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -439,7 +439,7 @@ def test_did_formula_takes_only_one_treatment_term(tmp_path):
 
 def test_a_weak_whole_name_never_outranks_a_strong_word(tmp_path):
     fp = _fp(_site_group_frame(), tmp_path)
-    assert resolve_treatment(fp, {}, fp.treatment_candidates) == "treated"
+    assert resolve_treatment(fp, {}, fp.binary_columns) == "treated"
     assert fp.likely_treatment == "treated"      # the user-visible hint must agree
     res = run_analysis(fp, _CAT.by_id("psm"), output_root=str(tmp_path / "site"))
     if _ran(res):
@@ -526,13 +526,13 @@ def test_pick_did_treatment_honors_the_callers_unit_override(tmp_path):
 
 
 def test_pick_did_treatment_skips_candidates_absent_from_the_frame(tmp_path):
-    """N2: fp.treatment_candidates is computed from the fingerprint, so a caller working on a
+    """N2: fp.binary_columns is computed from the fingerprint, so a caller working on a
     narrowed frame can list a column the dataframe no longer has. Dropping the guard raises
     KeyError instead of skipping."""
     df = _panel_two_switchers("post")
     fp = _fp(df, tmp_path, name="guard.csv")
     narrowed = df.drop(columns=["post"])
-    assert "post" in fp.treatment_candidates          # still listed by the fingerprint
+    assert "post" in fp.binary_columns          # still listed by the fingerprint
     got = _pick_did_treatment(narrowed, fp, unit="unit", time="year")
     assert got == ["policy_on"], got                  # skipped, not crashed
 
@@ -586,3 +586,53 @@ def test_control_named_columns_are_never_bound(tmp_path):
     assert treatment_name_strength("control") == 0
     assert treatment_name_strength("control_group") == 0
     assert treatment_name_strength("ctrl") == 0
+
+
+# ── 地基(二): the rename surfaced two more positional treatment picks ─────────
+def _sc_panel(decoy="invariant", seed=11, n_unit=30, n_t=14):
+    """ONE truly-treated unit (u00 from t=7), true effect +3.0, with a decoy binary placed
+    FIRST in file order. Synthetic control needs a donor pool, so picking the decoy does not
+    merely bias the estimate — it destroys the analysis (half the panel looks treated)."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        for t in range(n_t):
+            d = 1 if (u == 0 and t >= 7) else 0
+            row = {"unit": f"u{u:02d}", "year": 2005 + t}
+            row["region_flag" if decoy == "invariant" else "post"] = (
+                int(u % 2) if decoy == "invariant" else (1 if t >= 7 else 0))
+            row["y"] = round(float(10 + fe + 3.0 * d + 0.1 * t + rng.normal(0, 0.5)), 3)
+            row["policy_on"] = d
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+@pytest.mark.parametrize("decoy", ["invariant", "post"])
+def test_synthetic_control_does_not_take_the_first_binary_column(decoy, tmp_path):
+    fp = _fp(_sc_panel(decoy), tmp_path, name=f"sc_{decoy}.csv")
+    assert fp.binary_columns[0] != "policy_on"        # a positional pick would land on the decoy
+    res = run_analysis(fp, _CAT.by_id("synthetic_control"),
+                       output_root=str(tmp_path / f"sc_{decoy}"))
+    if not _ran(res):
+        pytest.skip(f"synthetic_control degraded: {res.summary[:80]}")
+    assert res.treatment == "policy_on", f"bound {res.treatment!r}"
+    assert 2.0 < res.estimates["att"] < 4.0, res.estimates["att"]
+    assert res.estimates["n_donors_used"] > 20, "the decoy pick leaves almost no donor pool"
+
+
+def test_gsynth_does_not_take_the_first_binary_column(tmp_path):
+    fp = _fp(_sc_panel("post"), tmp_path, name="gs.csv")
+    res = run_analysis(fp, _CAT.by_id("gsynth"), output_root=str(tmp_path / "gs"))
+    if not _ran(res):
+        pytest.skip(f"gsynth degraded (needs R): {res.summary[:80]}")
+    assert res.treatment == "policy_on", f"bound {res.treatment!r}"
+    assert 2.0 < res.estimates["att"] < 4.0, res.estimates["att"]
+
+
+def test_the_binary_column_list_makes_no_role_claim(tmp_path):
+    """The field is a SHAPE fact. It was named `treatment_candidates`, which asserted a
+    treatment signal it never carried — three measured bugs came from trusting that name."""
+    fp = _fp(_survival_frame(), tmp_path, name="shape.csv")
+    assert fp.binary_columns == ["event", "treatment"]        # file order, every binary
+    assert not hasattr(fp, "treatment_candidates"), "the misleading alias must be gone"

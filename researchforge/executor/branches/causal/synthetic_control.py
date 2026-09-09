@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import _synthetic_control, resolve_outcome
+from researchforge.executor.run import _pick_did_treatment, _synthetic_control, resolve_outcome, resolve_treatment
 
 
 @register("synthetic_control")
@@ -10,7 +10,7 @@ def _branch_synthetic_control(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     unit, time = fp.unit_col, fp.time_col
-    _excl = {unit, time, *fp.treatment_candidates}
+    _excl = {unit, time, *fp.binary_columns}
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl]
     # U3: bind the DETECTED outcome (config > high-conf role > first continuous), skipping
     # treatment-named columns — safer than the old raw cont[0] fallback.
@@ -19,8 +19,15 @@ def _branch_synthetic_control(ctx: Ctx) -> None:
     treated = cfg.get("treated_unit")
     treat_time = cfg.get("treatment_time")
     ever_treated: set = set()  # ALL units ever treated → excluded from donor pool
-    if unit and time and fp.treatment_candidates:
-        tcol = next((c for c in fp.treatment_candidates if c in df.columns), None)
+    if unit and time and fp.binary_columns:
+    # 地基(二): the treatment column was `next(c for c in <all binaries> if c in df)` — the
+    # first binary in FILE ORDER. Same defect H4d fixed in the DiD family, and it does not
+    # merely bias this one: with a decoy binary first, synthetic_control fails outright
+    # ("≥2 个对照单位") because half the panel looks treated. Panel method → the within-unit
+    # switching signal decides, name signal second (see _pick_did_treatment).
+        _switch = _pick_did_treatment(df, fp, unit=unit, time=time)
+        _cands = [c for c in (_switch or fp.binary_columns) if c in df.columns]
+        tcol = resolve_treatment(fp, cfg, _cands, df=df) if _cands else None
         if tcol is not None:
             trows = df[df[tcol] == 1]
             if len(trows):

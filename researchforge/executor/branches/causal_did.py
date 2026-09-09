@@ -163,7 +163,7 @@ def _branch_callaway_santanna(ctx: Ctx) -> None:
         # config-override + recording. Name matching only decides among non-switching candidates.
         _switch = _pick_did_treatment(df, fp, unit=unit, time=time)
         treatment = resolve_treatment(
-            fp, cfg, _switch or fp.treatment_candidates or bins_, df=df)
+            fp, cfg, _switch or fp.binary_columns or bins_, df=df)
         if treatment is None:
             summary.append(
                 'Callaway-Sant\'Anna 失败：需要 首次处理期列(gname) 或 二值处理指示列(treatment) 之一以确定每个单位的处理时点。'
