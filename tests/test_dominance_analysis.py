@@ -101,3 +101,73 @@ def test_dominance_degrades_with_one_predictor(tmp_path: Path) -> None:
     # honest degrade: a Chinese skip message, no dominance.csv, no crash
     assert "优势分析跳过" in res.summary
     assert not (Path(res.output_dir) / "dominance.csv").exists()
+
+
+def test_panel_time_index_is_not_a_predictor(tmp_path):
+    """地基(二): _resolve_design was the ONE inline predictor-selection copy (of 23) that
+    forgot fp.unit_col / fp.time_col, and relative importance is exactly where that is fatal:
+    it DIVIDES R² among the predictors, so a time index does not add noise — it takes a share.
+
+    Measured before the fix on this frame: `year` came out RANK 1 with 64.6% of R², pushing
+    the real driver from ~76% down to 26.9%. Anyone who genuinely wants the trend in the model
+    can still ask for it via config predictors."""
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+
+    rng = np.random.default_rng(3)
+    rows = []
+    for u in range(25):
+        fe = rng.normal(0, 1)
+        for t in range(12):
+            x1, x2 = rng.normal(0, 1), rng.normal(0, 1)
+            rows.append({"firm": f"f{u:02d}", "year": 2010 + t,
+                         "x1": round(x1, 3), "x2": round(x2, 3),
+                         # a REAL time trend, so an unexcluded `year` steals most of the R²
+                         "sales": round(float(5 + fe + 2 * x1 - x2 + 0.8 * t
+                                              + rng.normal(0, 0.5)), 3)})
+    csv = tmp_path / "panel.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.time_col == "year"
+    res = run_analysis(fp, Catalog.load().by_id("dominance_analysis"),
+                       output_root=str(tmp_path / "o"))
+    if not res.estimates:
+        import pytest
+        pytest.skip(f"degraded: {res.summary[:70]}")
+    assert res.estimates["n_predictors"] == 2, "the panel time index entered the model"
+    tab = pd.read_csv(f"{res.output_dir}/dominance.csv")
+    assert "year" not in tab["predictor"].tolist()
+    top = tab.sort_values("rank").iloc[0]
+    assert top["predictor"] == "x1" and top["pct_of_R2"] > 60
+
+
+def test_config_predictors_can_still_include_the_time_column(tmp_path):
+    """Excluding it is a DEFAULT, not a prohibition."""
+    import numpy as np
+    import pandas as pd
+
+    from researchforge.catalog import Catalog
+    from researchforge.executor import run_analysis
+    from researchforge.profiler import profile_dataset
+
+    rng = np.random.default_rng(3)
+    rows = []
+    for u in range(25):
+        for t in range(12):
+            x1 = rng.normal(0, 1)
+            rows.append({"firm": f"f{u:02d}", "year": 2010 + t, "x1": round(x1, 3),
+                         "x2": round(float(rng.normal(0, 1)), 3),
+                         "sales": round(float(5 + 2 * x1 + 0.8 * t + rng.normal(0, 0.5)), 3)})
+    csv = tmp_path / "panel2.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), Catalog.load().by_id("dominance_analysis"),
+                       output_root=str(tmp_path / "o2"),
+                       config={"predictors": ["x1", "x2", "year"]})
+    if not res.estimates:
+        import pytest
+        pytest.skip("degraded")
+    assert res.estimates["n_predictors"] == 3

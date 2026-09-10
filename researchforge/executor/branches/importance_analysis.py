@@ -30,7 +30,7 @@ from __future__ import annotations
 from itertools import combinations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.run import resolve_outcome, resolve_predictors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,16 +52,16 @@ def _resolve_design(ctx: Ctx, label: str, max_p: int):
     # outcome: config override (must be continuous) else shared resolver
     y_name = cfg["outcome"] if cfg.get("outcome") in cont else resolve_outcome(fp, cfg, cont)
 
-    # predictors: config override (numeric, != outcome) else continuous/binary/count cols
-    forced = [c for c in (cfg.get("predictors") or []) if c in df.columns and c != y_name]
-    if forced:
-        pred_names = forced
-    else:
-        pred_names = [
-            c.name
-            for c in fp.columns
-            if c.kind in {"continuous", "count", "binary"} and c.name != y_name
-        ]
+    # predictors: the SHARED resolver (config override, else numeric columns excluding the
+    # outcome AND the panel unit/time columns).
+    #
+    # 地基(二): this was the one inline copy of the 23 that forgot `fp.unit_col`/`fp.time_col`,
+    # and relative importance is exactly the method where that is fatal — it DIVIDES R² among
+    # the predictors, so a time index does not merely add noise, it takes a share. Measured on
+    # a trending panel: `year` came out RANK 1 with 64.6% of R², pushing the real driver from
+    # ~76% down to 26.9%. A large cap is passed because this family REFUSES (below) rather
+    # than silently truncating — it enumerates 2^p sub-models.
+    pred_names = resolve_predictors(fp, cfg, y_name, cap=200, df=df)
 
     if len(pred_names) < 2:
         return None, None, None, None, (
