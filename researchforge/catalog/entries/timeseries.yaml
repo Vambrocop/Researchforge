@@ -9,6 +9,47 @@
   preconditions:
     is_timeseries: true
     min_rows: 30
+  params:
+    - name: column
+      type: column
+      description: 要预测的序列列（别名：value）
+      default: 第一个连续列（非单位/时间列）
+    - name: value
+      type: column
+      description: 要预测的序列列（`column` 的别名，与时序族其它方法一致）
+      default: 同 column
+    - name: seasonal
+      type: str
+      description: 设为 none/no/off 可强制关闭季节化（否则按日期频率+季节强度自动判定）
+      default: 自动判定
+    - name: seasonal_periods
+      type: int
+      description: 强制季节周期 P（如月度 12、季度 4）
+      default: 自动检测（日历感知 + 季节强度确认）
+    - name: ci
+      type: float
+      description: 预测区间的置信水平
+      default: "0.95"
+    - name: d
+      type: int
+      description: 强制非季节差分阶数 d（0-2）
+      default: 由 ADF 单位根检验逐级判定
+    - name: max_p
+      type: int
+      description: 定阶网格中 AR 阶数 p 的上限（0-5）
+      default: 非季节 3 / 季节 2
+    - name: max_q
+      type: int
+      description: 定阶网格中 MA 阶数 q 的上限（0-5）
+      default: 非季节 3 / 季节 2
+    - name: max_P
+      type: int
+      description: 季节 AR 阶数 P 的上限（0-2，仅季节模型）
+      default: "1"
+    - name: max_Q
+      type: int
+      description: 季节 MA 阶数 Q 的上限（0-2，仅季节模型）
+      default: "1"
   produces:
     - forecast
     - model summary

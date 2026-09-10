@@ -194,9 +194,18 @@ def _branch_arima(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     time_col = fp.time_col
-    # value_col: forecast the first continuous column. Time columns are
+    # value_col: config override (the family convention — `column`/`value`, same keys every
+    # other TS entry declares), else the first continuous column. Time columns are
     # datetime/id/count kind (never continuous), so they are never picked here.
-    value_col = next((c.name for c in fp.columns if c.kind == "continuous"), None)
+    #
+    # arima was the ONE branch in this module without the override (its three siblings below
+    # all have it) and its catalog entry declared no params at all — so on a multi-series
+    # frame the engine forecast whichever series came first and the user could not ask for
+    # another one.
+    _excl = {fp.unit_col, fp.time_col}
+    _cfg_col = cfg.get("column") or cfg.get("value")
+    value_col = _cfg_col if _cfg_col in df.columns else next(
+        (c.name for c in fp.columns if c.kind == "continuous" and c.name not in _excl), None)
 
     if time_col is None or value_col is None:
         summary.append(

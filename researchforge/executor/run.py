@@ -172,23 +172,36 @@ def run_analysis(
     #                                      the report contradict itself) so the user can
     #                                      override deliberately;
     #   * nothing bound (branch doesn't use the shared resolver) → suggest only, claim nothing.
-    if (fp.likely_outcome and not (cfg.get("outcome") or cfg.get("y"))
-            and any(p.name in ("outcome", "y") for p in entry.params)):
+    # The gate was keyed on the param NAMES `outcome`/`y`. The time-series family names its
+    # role param `column`/`value`, so every TS method was invisible to this disclosure — on a
+    # 3-series frame the engine forecast the first column and said nothing about the other
+    # two. Include the series keys, and suggest the key the entry ACTUALLY declares (telling
+    # a forecasting user to "use config outcome" would just fail).
+    _role_keys = {p.name for p in entry.params} & {"outcome", "y", "column", "value", "series"}
+    _cfg_key = "outcome" if _role_keys & {"outcome", "y"} else (
+        "column" if "column" in _role_keys else ("value" if "value" in _role_keys else "series"))
+    if (fp.likely_outcome and _role_keys
+            and not any(cfg.get(k) for k in ("outcome", "y", "column", "value", "series"))):
         if bound_outcome and bound_outcome == fp.likely_outcome:
             _conf = "，高置信" if fp.likely_outcome_confidence == "high" else ""
             _nudge = (
                 f"💡 已自动选取 '{bound_outcome}' 为结果变量（{fp.role_hint_reason}{_conf}）；"
-                "如需改用其他列，用 config outcome 指定。"
+                f"如需改用其他列，用 config {_cfg_key} 指定。"
             )
         elif bound_outcome:
             _nudge = (
                 f"💡 本方法建模的结果变量是 '{bound_outcome}'；但检测到 '{fp.likely_outcome}' "
-                f"可能才是结果变量（{fp.role_hint_reason}）——若要改用它，用 config outcome 指定。"
+                f"可能才是结果变量（{fp.role_hint_reason}）——若要改用它，用 config {_cfg_key} 指定。"
             )
         else:
+            # naming the count is the part that matters: on a single-series frame there is
+            # nothing to choose, on a 3-series frame the user needs to know two were skipped.
+            _ncol = sum(1 for c in fp.columns
+                        if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col})
+            _n_cand = f"；本数据有 {_ncol} 个候选列" if _ncol > 1 else ""
             _nudge = (
                 f"💡 检测到 '{fp.likely_outcome}' 可能是结果变量（{fp.role_hint_reason}）；"
-                "本方法未使用统一的结果解析（默认取第一连续列）——若不符，用 config outcome 指定。"
+                f"本方法未使用统一的结果解析（默认取第一连续列{_n_cand}）——若不符，用 config {_cfg_key} 指定。"
             )
         summary.insert(_nudge_pos, _nudge)
 
