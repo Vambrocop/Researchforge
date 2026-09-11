@@ -116,6 +116,11 @@
   description: Random-forest regression (continuous outcome) or classification (binary outcome) with feature importances.
   preconditions:
     min_rows: 50
+  params:
+    - name: outcome
+      type: column
+      description: 结果变量（连续→回归，二值/分类→分类）
+      default: 检测到的结果变量
   produces:
     - test-set score
     - feature importances

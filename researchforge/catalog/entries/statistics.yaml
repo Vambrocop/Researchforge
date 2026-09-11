@@ -9,6 +9,15 @@
   preconditions:
     requires_binary_outcome: true
     min_rows: 30
+  params:
+    - name: outcome
+      type: column
+      description: 二值结果变量
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的候选列）
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值/二值列（排除结果与单位/时间列）
   produces:
     - regression table
     - odds ratios
@@ -26,6 +35,11 @@
   preconditions:
     min_continuous: 3
     min_rows: 30
+  params:
+    - name: outcome
+      type: column
+      description: X→M→Y 路径中的结果变量 Y
+      default: 检测到的结果变量
   produces:
     - indirect (ACME) / direct (ADE) / total effect with CIs
     - proportion mediated
@@ -245,6 +259,15 @@
   preconditions:
     min_continuous: 1
     min_rows: 30
+  params:
+    - name: outcome
+      type: column
+      description: 连续结果变量
+      default: 检测到的结果变量（高置信结果名 > 首个非处理命名的连续列）
+    - name: predictors
+      type: columns
+      description: 预测变量列表
+      default: 其余数值/二值列（排除结果与单位/时间列）
   produces:
     - quantile coefficient table (tau=0.25/0.50/0.75)
     - median coefficient plot
@@ -515,6 +538,15 @@
     requires_group: true
     min_continuous: 1
     min_rows: 10
+  params:
+    - name: outcome
+      type: column
+      description: 被比较的数值变量
+      default: 检测到的结果变量
+    - name: group
+      type: column
+      description: 分组变量（2 组或多组）
+      default: 低基数的分类/二值列
   produces:
     - group means table
     - boxplot

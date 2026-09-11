@@ -591,11 +591,20 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - **现象**：一份再普通不过的三序列数据 `[temperature, rainfall, sales]`（角色检测说 `sales`，medium），**四个时序方法全部预测 `temperature`**（第一个连续列），报告对另外两条序列**只字不提**。
 - 🔴 **缺口一：`arima` 根本无法被指向别的序列。** 它是**自己模块里的唯一异类**——`timeseries.py` 里另外三个分支（622/719/824 行）都写着 `cfg.get("value") if ... else next(...)`，每个其它时序条目都声明 `column`/`value`，**只有 `arima` 一个参数都没声明**。所以用户想预测 `sales` 时，**没有任何办法可以要求**。修：按本模块自己的惯例接 `cfg["column"]/["value"]` + 补声明。
 - 🔴 **缺口二：披露机制的门只认参数名 `outcome`/`y`。** 时序族命名的是 `column`/`value` → **整个族对提示机制不可见**；而且就算当时触发了，它建议的键名（`config outcome`）对时序方法也是**错的**。修：门扩到序列角色键，并按条目**实际声明的键**给建议；「本数据有 N 个候选列」只在 N>1 时出现（单序列没得选，不该假装有）。
-- ✅ **门禁第三次当场兑现，这次照出的是旧账**：给 arima 补上声明后，门禁立刻报「handler reads ['ci','seasonal'] but declares ['column','value']」——**Wave S1 加预测区间和季节化时就在读这两个键、从没声明过**，用户传了会收到假的「未知参数」警告。它此前一直逃过检查，**正因为它一个参数都没声明**（那条测试只查「有 params 的条目」）。查全后一次补齐 10 个键（column/value/seasonal/seasonal_periods/ci/d/max_p/max_q/max_P/max_Q）。
+- ✅ **门禁第三次当场兑现，这次照出的是旧账**：给 arima 补上声明后，门禁立刻报「handler reads ['ci','seasonal'] but declares ['column','value']」——**Wave S1 加预测区间和季节化时就在读这两个键、从没声明过**。（⚠ 更正：我起初写「用户传了会收到假的『未知参数』警告」，**这对零声明条目是错的**——`config_schema.validate_config` 在 `entry.params` 为空时直接返回 `[]`（静默）。真实后果是**用户无从发现该键可配置**，以及**守卫永远查不到它**。假警告只发生在「声明了一部分、漏了一个」的条目上。）它此前一直逃过检查，**正因为它一个参数都没声明**（那条测试只查「有 params 的条目」）。查全后一次补齐 10 个键（column/value/seasonal/seasonal_periods/ci/d/max_p/max_q/max_P/max_Q）。
   - 🟡 **顺带暴露门禁自身的一个盲区（记账，未修）**：它只逮到 `ci`/`seasonal` 两个——`_auto_order` 用**变量键** `cfg[key]` 正则看不见，`_detect_period` 住在**兄弟模块** forecasting.py 被模块内规则排除。**「零声明」的条目等于免检**，这个洞值得单独补一条守卫（例如：读了 config 却零声明的 handler 直接判红）。
 - **刻意不做（边界，已写测试钉死）**：时序值列**仍然不走 `resolve_outcome`**。H4 当初的理由成立——单变量序列不是「结果 vs 预测变量」的区分，`sales` 这种**名字信号不该悄悄改变预测目标**。`RunResult.outcome` 对时序方法保持 `None`。**披露是修法，按名字绑定不是。**
 - **验证**：新 `tests/test_timeseries_series_choice.py`（7 测：四方法都要披露候选数 / 单序列不得声称有选择 / arima 两个键都能改向 / arima 必须声明它读的键 / **边界守卫：不得按名字改绑**）；受影响时序 11 个文件 147 绿；门禁 130 绿。
 - 💡 **教训**：**「某某族被跳过了」通常不是一个原因，而是两个**——一个是能力缺失（改不了），一个是机制盲区（不吭声）。分开量才修得准。
+
+
+**门禁盲区（2026-09-11）：守卫存在，坏的是它的覆盖面——同一类病的第二例：**
+- **起因**：上一波给 `arima` 补声明后，门禁立刻报出它读了两个没声明的键。追问「那它之前为什么没被逮到？」→ **因为它一个参数都没声明**。
+- 📏 **量出盲区**：`test_declared_params_cover_read_keys` 只遍历 `_entries_with_params()`（已声明至少一个参数的条目），于是**零声明 = 免检**。全量扫描：**9 个条目逃检，且全是核心方法**——`logistic_regression`(outcome/predictors)、`quantile_regression`(同)、`random_forest`、`xgboost`、`poisson_regression`、`negative_binomial_regression`、`mixed_effects`、`mediation`、`group_comparison`(group/outcome)。
+- ⚠️ **实测纠正了我自己一个未经验证的说法**：我起先写「这些键没声明 → 用户传了会收到假的『未知参数』警告」。**对零声明条目是错的**——`config_schema.validate_config` 开头就是 `if not entry.params: return []`（"spec not declared yet — stay silent"）。真实后果是：① 用户**无从发现**该键可配置（CLI/web/docs 只列已声明的参数）；② **守卫永远查不到它的漂移**。假警告只发生在「声明了一部分、漏了一个」的条目上。**已把这个区分写进断言消息**，省得下次有人照着错的理由做决定。
+- ✅ **修**：守卫改为遍历**全部条目**（`_all_entry_ids()`）；补齐 9 个条目的声明；加**守卫的守卫** `test_the_guard_itself_covers_every_entry`（断言覆盖面是全集，且不存在「零声明却读 config」的条目）。
+- 💡 **同一类病的第二例**：第一例是「门禁被停在 `SLOW_MODULES` 这个从不运行的桶里」，这一例是「门禁只遍历已声明的条目」。**两次的洞都恰好让最该被查的对象逃掉**——因为「还没配置好」的东西正是「最可能有问题」的东西。判据：**给一条守卫写覆盖面时，先问「什么样的对象会落在这个集合之外，它们是不是恰好最可疑」。**
+- **仍未做（记账）**：`validate_config` 在零声明时静默这条本身还在。现在守卫已保证「读了就必须声明」，所以「零声明」真正等价于「不接受任何 config 键」，那么此时传键**应该**告警。但这是运行时行为改动、独立于本波，单列。
 
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

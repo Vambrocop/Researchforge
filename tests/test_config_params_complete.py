@@ -268,19 +268,25 @@ def _declared_params() -> dict[str, set[str]]:
     return {e.id: {p.name for p in e.params} for e in cat.all()}
 
 
-def _entries_with_params() -> set[str]:
+def _all_entry_ids() -> set[str]:
+    """EVERY catalog entry — not just the ones that already declare params.
+
+    This used to be `_entries_with_params()`, i.e. entries declaring at least one param. An
+    entry that declared NOTHING was therefore exempt from the check no matter how many config
+    keys its handler read — which is precisely how `arima` carried `ci`/`seasonal` undeclared
+    through a whole wave. A guard whose coverage excludes the worst offenders is not a guard.
+    """
     cat = Catalog.load()
-    return {e.id for e in cat.all() if e.params}
+    return {e.id for e in cat.all()}
 
 
 def test_declared_params_cover_read_keys() -> None:
-    """For every entry that DECLARES params, read_keys ⊆ declared names."""
+    """For EVERY entry, read_keys ⊆ declared names."""
     read = _read_keys_for_handlers()
     declared = _declared_params()
-    with_params = _entries_with_params()
 
     gaps: list[str] = []
-    for entry_id in sorted(with_params):
+    for entry_id in sorted(_all_entry_ids()):
         names = declared.get(entry_id, set())
         keys = read.get(entry_id, set())
         missing = keys - names
@@ -291,8 +297,11 @@ def test_declared_params_cover_read_keys() -> None:
             )
 
     assert not gaps, (
-        "Catalog entries UNDER-declare config params their handlers read "
-        "(users passing these keys get a spurious '未知参数' warning). "
+        "Catalog entries UNDER-declare config params their handlers read. Costs: the key is "
+        "UNDISCOVERABLE (CLI/web/docs list the declared params, so users never learn it is "
+        "configurable), and an entry that declares SOME params but misses one also gives "
+        "whoever passes it a spurious '未知参数' warning (config_schema.validate_config stays "
+        "silent only when NOTHING is declared). "
         "Add the missing param(s) to the entry yaml (mirror correlation_suite.yaml):\n"
         + "\n".join(gaps)
     )
@@ -336,3 +345,27 @@ def test_report_entries_with_read_keys_but_no_params() -> None:
         )
     # Always passes; this is a backlog report, not a gate.
     assert True
+
+
+def test_the_guard_itself_covers_every_entry() -> None:
+    """守卫的守卫：这条检查的覆盖面必须是「全部条目」，不是「已声明参数的条目」。
+
+    The coverage bug this pins: iterating only entries that already declare params exempted
+    the worst offenders — an entry declaring NOTHING could read any number of config keys
+    forever. Nine core methods (logistic_regression / quantile_regression / random_forest /
+    xgboost / poisson_regression / negative_binomial_regression / mixed_effects / mediation /
+    group_comparison) sat in that hole, and `arima` used it to carry two undeclared keys
+    through a whole wave. Same disease as a gate parked in SLOW_MODULES: the guard exists,
+    its coverage is what fails.
+    """
+    cat = Catalog.load()
+    assert _all_entry_ids() == {e.id for e in cat.all()}
+    # and the hole is actually closed: no live handler reads config keys it never declares
+    read = _read_keys_for_handlers()
+    declared = _declared_params()
+    silent = sorted(cid for cid in _all_entry_ids()
+                    if not declared.get(cid) and read.get(cid))
+    assert not silent, (
+        "entries that declare NOTHING yet read config keys — invisible to the check above "
+        f"unless it iterates every entry: {silent}"
+    )
