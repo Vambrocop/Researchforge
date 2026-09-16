@@ -50,6 +50,17 @@
       type: int
       description: 季节 MA 阶数 Q 的上限（0-2，仅季节模型）
       default: "1"
+    - name: search_seconds
+      type: float
+      description: 自动定阶搜索的墙钟预算（秒）；到点后保留已试候选中的最优并如实说明
+      default: "20"
+    - name: fit_cost_budget
+      type: float
+      description: >-
+        单个候选的投影计算成本上限（n × 状态维度²，状态维度 ≈ max(p,q+1) + 季节周期×(P+Q)）。
+        季节 AR/MA 项会把季节周期整个装进状态，实测 n=2225/周期52 时单次拟合达 213s；
+        超预算的候选在拟合前跳过并披露。调大可搜索它们（配合 search_seconds）。
+      default: "5e6"
   produces:
     - forecast
     - model summary

@@ -606,5 +606,27 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
 - 💡 **同一类病的第二例**：第一例是「门禁被停在 `SLOW_MODULES` 这个从不运行的桶里」，这一例是「门禁只遍历已声明的条目」。**两次的洞都恰好让最该被查的对象逃掉**——因为「还没配置好」的东西正是「最可能有问题」的东西。判据：**给一条守卫写覆盖面时，先问「什么样的对象会落在这个集合之外，它们是不是恰好最可疑」。**
 - **仍未做（记账）**：`validate_config` 在零声明时静默这条本身还在。现在守卫已保证「读了就必须声明」，所以「零声明」真正等价于「不接受任何 config 键」，那么此时传键**应该**告警。但这是运行时行为改动、独立于本波，单列。
 
+
+**冷审 nice-to-have 三条（2026-09-15）：量完之后有两条是会翻符号/衰减 70% 的真 bug：**
+- **① 处理后协变量**：`event = 1{T≤C}` 是时长的后代、进而是**处理变量的后代**，放进倾向得分是教科书级的处理后调整。冷审在它自己的删失设定下测出 |Δ|≤0.04、归为 nice-to-have；我测出**衰减 33–73%**（事件率 0.99/0.89/0.64 分别 33%/67%/73%），事件率饱和时 PSM **直接失败**。它那句「只在事件强依赖时长时才咬人」是对的，**只是这个条件比它以为的常见**——只要删失独立于处理，`event` 仍通过 T 与处理相关。修：只排除**一列**（survival 家族自己认定的事件指示列，不扫词表——`prior_relapse` 也匹配事件词汇，误删真混杂因子是另一种偏差），并**如实披露**，`config covariates` 仍是用户的决定。
+  - **顺带逮到第二个缺陷**：事件率饱和时 `event` 只剩一个取值 → profiler 判成 `count` → 排除器看不见 → 常数列进模型 → 用户收到一句裸的 `Singular matrix`。加常数协变量守卫（违反「诚实降级」约定）。
+- **② `likely_treatment` 的置信度**：它既显示给用户（cli/study_report/web）又参与绑定（tier 3），却和 `likely_outcome` 不同——**没有置信度**。补 `likely_treatment_confidence`（high 强词 / medium 弱整名或复合 / low 纯列序）。
+- **③ 绑定词表**：冷审列的「丢失召回」**一半其实没丢**（`intervention_group`/`exposure_group`/`treatment_group`/`dose_group`/`arm_group`/`treat_cohort` 都含强词）。真陷阱在反方向——**我的词表会绑 `control_arm`**（含 `arm` → strength 2）。实测 `control_arm = 1 - treated`、真 ATT = −8，IPW 报 **+6.683**。加**负向规则**（control/ctrl/placebo/comparator/sham 一律 0，覆盖一切），修后 −6.683。补真正缺的复合召回（study/case/experimental + group/grp/cohort，弱档）。
+
+**dogfood 四个新域（2026-09-15/16）：四个都误判，正解排名 141–144/303：**
+- **测量先于判断**：先查 catalog 有没有正解方法，因为「缺方法」和「选模问题」修法完全不同。conjoint 有 `conditional_logit`（正解）却排 **141/303**，头条是 `dif_detection`(IRT) + 序数回归；repeated_measures 有 `repeated_measures_anova` 却排 **144/303**，头条是**7 个 DiD 变体**；compositional **`correlation` 排第 2**（闭合数据伪相关，1897 年就知道的陷阱，零警告）；multilabel **0 个方法**，引擎拿一个标签当结果、其余标签当预测变量。
+- 🔴 **①已修 `repeated_measures_anova` 读不懂长表**：长表路径要求 config 显式给 `subject`+`within`，**没有任何自动检测**；而 `fp.unit_col='subject'`、`fp.time_col='week'` 早就算好了——分支在向用户索要引擎已经知道的信息。修后教科书输出齐全：F(4,236)=139.39, p=6e-61, 偏 η²=0.703，Mauchly 拒绝→GG 校正。守卫：**within 因子必须在同一受试者内取到 ≥2 个值**，挡住组间因子 `arm`。
+- 🔴 **②已修 回归族「完成」却零估计**：(a) `estimates[v]` 只在 `Q('<列>')` 精确命中时记录，而**字符串编码**的二值/分类列被 patsy 处理成 `Q('arm')[T.placebo]` → 估计被静默丢弃、summary 只剩一句「完成」（coefficients.csv 里一直有值）；(b) **秩亏**：`arm` 在 subject 内恒定→与 subject 固定效应完全共线，设计矩阵**秩 64/65 列**，statsmodels 返回系数 −1.398、**SE=1.09e-13**，分支照报「完成」。修：设计矩阵秩检查（第一版用 `max(bse)` 判**失败了**——秩亏只毁掉**一个方向**，其余 64 个 SE 完全正常，max=0.80）+ 诚实失败并**指向 repeated_measures_anova/mixed_effects**。
+- 🔴 **③已修 回归族静默丢弃多水平分类预测变量**：`[y, grp, x]` 上 `grp` 解释约 95% 方差却不进模型，报告只说「关键系数 x=-0.057 (p=0.724)」——读者会得出「没有变量能预测 y」。`mixed_effects` 在 Wave K-B3 修过同一个病，回归族没修。**先加披露**（哑变量化是跨族的规格改动，需审，单列）。
+- **仍未修（记账）**：conjoint/compositional 的选模信号；multilabel 方法族（0 个，要单开一波）；`mixed_effects` 拟合 `~arm + C(week)` **无 arm×week 交互**、且不读 `predictors` config，表达不了重复测量的估计量。
+
+**ARIMA 在大季节周期上实际挂死（2026-09-16）——我在 Wave S1 引入的性能回归：**
+- **线索是一行红**：`test_end_to_end[co2_timeseries]` 报 `FileNotFoundError: analysis_code.py`，看着像文件系统问题。顺下去：arima 在 co2（**周频 n=2225**）上跑**超过 10 分钟**；检出 sp=52（**检测是对的**）；单次 `SARIMAX(1,1,1)(1,1,1,52)` = **219 秒** → 48 次网格 ≈ **2.7 小时**。那个 FileNotFoundError 是跑太久后并行 worker 的 tmp 目录被回收。**S1 的冷审测的是月度 sp=12（整个搜索 8.6s），没碰到这个量级。**
+- **修它花了三次迭代，每次都是测量推翻上一个方案**：① 只加墙钟预算 → 2.7h→**216s**（预算只在拟合**之间**检查，第一次昂贵拟合已付掉）；② 加投影成本闸 → 仍 **189s**（成本模型把季节**差分**也算进状态维度，而实测 `(0,1,0)(0,1,0,52)` 只要 0.8s → 全部跳过、`best is None` → **回退阶数又是那个 219s 的模型**）；③ 成本只计季节 AR/MA + **回退也受同一预算约束** → **22.6s** ✓。
+- **关键判断：不是「大周期就别做季节」。** 实测那个贵模型统计上确实最优（AICc 2772 vs 3669），静默丢弃等于**拿挂死换一个更差的答案还不告诉用户**。所以是「花有界的时间、保留已试候选中的最优、**说清跳过了什么和怎么要回来**」（`config={"fit_cost_budget":1e8,"search_seconds":900}`）。
+- **回归守卫**：月度 airline 案例（S1 验证过的 n=60/sp=12）仍选 (0,1,1)(0,1,1)[12]、**零跳过**。
+- ✅ **门禁第四次当场兑现**：新增的 `search_seconds`/`fit_cost_budget` 没声明，立刻被 `test_config_params_complete` 抓（已补）。
+- 💡 **教训**：**一条「文件找不到」的报错可以是一个两小时的算法成本问题。** 别从错误信息的表面类别推断根因。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*

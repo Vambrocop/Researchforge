@@ -44,6 +44,16 @@ def _periodogram_period(x, n):
 
 # ── auto-order selection (Hyndman-Khandakar style) ───────────────────────────────────
 _GRID_FIT_BUDGET = 48   # hard cap on candidate fits so a long grid can't stall a run
+# Wall-clock ceiling for the whole order search. A seasonal state-space model carries `sp`
+# lags of state, so one fit costs 0.2s at sp=0 and 219s at sp=52 (measured, n=2225) — a
+# fit-COUNT budget alone cannot bound the work. The search spends up to this long, keeps
+# the best candidate it reached, and discloses that it stopped early.
+_SEARCH_TIME_BUDGET_S = 20.0
+# Projected Kalman cost of ONE candidate: n · dim², dim ≈ max(p, q+1) + sp·(P+Q+D).
+# Calibrated on measurements above: n=2225/sp=52 with a seasonal MA projects ~2.4e7 and
+# costs 213s; n=60/sp=12 (the airline case S1 was verified on) projects ~3.5e4. 5e6 sits
+# between them with two orders of magnitude of headroom on each side.
+_FIT_COST_BUDGET = 5e6
 
 
 def _ndiffs_adf(y, max_d: int = 2) -> int:
@@ -156,8 +166,35 @@ def _auto_order(y, sp, cfg):
     ]
     # parsimonious-first, so a truncated budget still covers the simple models
     cands.sort(key=lambda c: (c[0][0] + c[0][2] + c[1][0] + c[1][2]))
+    import time as _time
+
+    _budget = float(cfg.get("search_seconds") or _SEARCH_TIME_BUDGET_S)
+    _n = int(len(y))
+    _cost_budget = float(cfg.get("fit_cost_budget") or _FIT_COST_BUDGET)
+
+    def _cost(order, sorder):
+        _p, _, _q = order
+        _P, _D, _Q, _s = sorder
+        # Seasonal DIFFERENCING is applied to the data, not carried in the state — measured
+        # (0,1,0)(0,1,0,52) at n=2225 costs 0.8s while (0,1,0)(0,1,1,52) costs 213s. So only
+        # the seasonal AR/MA terms enter the state dimension; counting D over-penalised the
+        # one cheap seasonal model and skipped everything.
+        dim = max(_p, _q + 1) + int(_s) * (_P + _Q)
+        return float(_n) * float(dim) ** 2
+
+    skipped_costly = 0
     best, best_ic, n_fits = None, np.inf, 0
+    timed_out = False
+    _t0 = _time.perf_counter()
     for order, sorder in cands[:_GRID_FIT_BUDGET]:
+        # Candidates are parsimony-sorted, so stopping early keeps the simple models that were
+        # already fitted rather than abandoning the search with nothing.
+        if best is not None and _time.perf_counter() - _t0 > _budget:
+            timed_out = True
+            break
+        if _cost(order, sorder) > _cost_budget:
+            skipped_costly += 1
+            continue
         try:
             res = _fit_sarimax(y, order, sorder)
         except Exception:
@@ -166,6 +203,7 @@ def _auto_order(y, sp, cfg):
         ic = _aicc(res)
         if ic < best_ic:
             best, best_ic = (order, sorder, res), ic
+    _elapsed = _time.perf_counter() - _t0
     # A winner sitting ON the grid edge means the search was cut short of the true optimum —
     # report it rather than presenting a boundary pick as "the" selected order.
     at_edge = False
@@ -181,11 +219,22 @@ def _auto_order(y, sp, cfg):
         "d": d, "D": D, "d_source": d_source, "n_fits": n_fits,
         "grid": f"p≤{max_p}, q≤{max_q}" + (f", P≤{max_P}, Q≤{max_Q}" if seasonal else ""),
         "aicc": None if best is None else float(best_ic),
-        "truncated": len(cands) > _GRID_FIT_BUDGET,
+        "truncated": len(cands) > _GRID_FIT_BUDGET or timed_out,
+        "timed_out": timed_out,
+        "skipped_costly": skipped_costly,
+        "elapsed_s": round(float(_elapsed), 1),
+        "n_candidates": len(cands),
         "at_edge": at_edge,
     }
     if best is None:
-        return (1, d, 1), ((1, D, 1, sp) if seasonal else (0, 0, 0, 0)), None, info
+        # The fallback must respect the cost gate too: skipping 36 costly candidates saved
+        # nothing when the caller then fitted (1,d,1)(1,D,1,sp) — the very model that costs
+        # 219s. Fall back to the cheapest admissible shape instead.
+        _fb_order, _fb_sorder = (1, d, 1), ((1, D, 1, sp) if seasonal else (0, 0, 0, 0))
+        if seasonal and _cost(_fb_order, _fb_sorder) > _cost_budget:
+            _fb_order, _fb_sorder = (0, d, 1), (0, D, 0, sp)
+            info["fallback_cheap"] = True
+        return _fb_order, _fb_sorder, None, info
     return best[0], best[1], best[2], info
 
 
@@ -329,7 +378,19 @@ def _branch_arima(ctx: Ctx) -> None:
                 f"阶数由自动定阶选出（差分 d={oinfo['d']} 来自{oinfo['d_source']}，随后在 "
                 f"{oinfo['grid']} 的网格上按 AICc 排序，实拟合 {oinfo['n_fits']} 个候选"
                 + (f"；网格超预算已截断，按简约优先取前 {_GRID_FIT_BUDGET} 个"
-                   if oinfo["truncated"] else "")
+                   if oinfo["truncated"] and not oinfo.get("timed_out") else "")
+                # 墙钟预算：季节状态空间模型带 sp 阶状态，单次拟合的成本随周期爆炸
+                # （实测 n=2225：sp=0 时 0.2s，sp=52 时 219s）。只报「拟合了几个候选」会让
+                # 用户以为搜索完整；必须说清是时间到了，以及怎么要更多。
+                + (f"；⚠ 有 {oinfo.get('skipped_costly')} 个含季节 AR/MA 的候选按投影计算成本"
+                   f"被跳过（季节周期 {sp} 下单次拟合可达数百秒）——当前阶数是**可承受候选中的最优**，"
+                   '若要搜索它们：config={"fit_cost_budget":1e8,"search_seconds":900}'
+                   if oinfo.get("skipped_costly") else "")
+                + (f"；⚠ 搜索在 {oinfo.get('elapsed_s')}s 处达到时间预算而提前停止"
+                   f"（季节周期 {sp} 下单次拟合很贵，{oinfo.get('n_candidates')} 个候选只试了 "
+                   f"{oinfo['n_fits']} 个），当前阶数是**已试候选中的最优**、未必是全局最优——"
+                   'config={"search_seconds":<秒>} 可放宽，或 config seasonal="none" 关季节'
+                   if oinfo.get("timed_out") else "")
                 + "）。"
                 + ("⚠ 选中阶数落在网格边界，真优可能在更高阶——可 config max_p/max_q(/max_P/max_Q) 放宽后重跑。"
                    if oinfo.get("at_edge") else "")
