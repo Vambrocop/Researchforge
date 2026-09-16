@@ -448,8 +448,32 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
         return
 
     # ── resolve long-format roles (config wins), else try to detect wide format ──
+    # dogfood: these used to be config-ONLY, so a textbook long frame
+    # [subject, week, arm, pain_score] fell through to the wide path (which needs >=2
+    # continuous columns, and there is exactly one) and failed with "需要 长表 或 宽表" —
+    # while fp.unit_col/'subject' and fp.time_col/'week' were sitting right there. The
+    # branch was asking for what the profiler had already detected.
+    #
+    # `within` must actually vary within a subject to be a repeated-measures factor; a
+    # column constant per subject is a BETWEEN-subject factor (the `arm` of an RCT) and
+    # would make every cell a single observation.
     subject = cfg.get("subject") if cfg.get("subject") in df.columns else None
     within = cfg.get("within") if cfg.get("within") in df.columns else None
+    if subject is None and fp.unit_col in df.columns:
+        subject = fp.unit_col
+    if within is None and subject is not None:
+        _cands = [fp.time_col] + [c.name for c in fp.columns
+                                  if c.kind in {"categorical", "count", "binary"}]
+        for _c in _cands:
+            if _c is None or _c not in df.columns or _c == subject:
+                continue
+            _nu = int(df[_c].nunique(dropna=True))
+            if _nu < 2 or _nu > max(2, len(df) // 2):
+                continue
+            # varies WITHIN at least one subject → a within-subject factor
+            if bool((df.groupby(subject, observed=True)[_c].nunique(dropna=True) > 1).any()):
+                within = _c
+                break
     cont = _continuous(fp)
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
 
@@ -488,6 +512,8 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
     if long_df is None or subject is None or within is None or outcome is None:
         summary.append(
             "重复测量方差分析失败：需要 长表(subject + within 条件 + outcome) 或 宽表(每受试者多列重复测量)。"
+            f"（已自动查找：受试者={subject!r}、within 因子={within!r}、结果={outcome!r}；"
+            "within 因子须在同一受试者内取到 ≥2 个值——组间因子如试验臂不算）"
             'config={"subject":..,"within":..,"outcome":..} 或 {"measures":[列..]} 指定。'
         )
         return

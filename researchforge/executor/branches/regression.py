@@ -16,6 +16,48 @@ def _branch_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     y, rhs_vars, formula, model = _regression(df, fp, entry, cfg)
+    # dogfood: a treatment that never varies within unit is perfectly collinear with the unit
+    # fixed effects. statsmodels still "fits" — it reported a coefficient with SE ≈ 1e-13 on a
+    # repeated-measures RCT where `arm` is constant per subject — and the branch reported 完成.
+    # An SE orders of magnitude below the coefficient is an artefact of a rank-deficient design,
+    # not an estimate. (The experimental-design family has refused this shape since its own
+    # cold review; the regression family never checked.)
+    _degenerate = None
+    try:
+        import numpy as _np
+
+        _exog = _np.asarray(model.model.exog, dtype=float)
+        if _exog.ndim == 2 and _exog.shape[1] and _exog.size <= 20_000_000:
+            _rank = int(_np.linalg.matrix_rank(_exog))
+            if _rank < _exog.shape[1]:
+                _degenerate = (f"设计矩阵秩亏（秩 {_rank} < 列数 {_exog.shape[1]}）")
+        if _degenerate is None:
+            # near-collinearity the rank test rounds away: a KEY term whose SE is orders of
+            # magnitude below its own coefficient. Check the key terms themselves — a max over
+            # all params never sees it, because rank deficiency kills one DIRECTION, not the
+            # whole fit (measured: max|bse|=0.80 while the treatment term's bse was 1.09e-13).
+            for _v in rhs_vars:
+                _b = f"Q('{_v}')"
+                for _k in model.params.index:
+                    if _k == _b or _k.startswith(_b + "[") or _k.startswith(f"C({_b})["):
+                        _c = abs(float(model.params[_k]))
+                        _se = float(model.bse[_k])
+                        if _c > 0 and (not _np.isfinite(_se) or _se < 1e-8 * _c):
+                            _degenerate = (f"关键系数 {_k} 的标准误≈0（{_se:.3g}）")
+                            break
+                if _degenerate:
+                    break
+    except Exception:  # noqa: BLE001 — a guard must never break the run
+        _degenerate = None
+    if _degenerate:
+        summary.append(
+            f"{entry.method} 失败：{_degenerate}——说明某个预测变量被其它项完全解释"
+            "（最常见：处理变量在每个单位内不随时间变化，被单位固定效应吸收）。"
+            "此时该系数与其 p 值无意义。"
+            "若为重复测量设计，请改用 repeated_measures_anova / mixed_effects；"
+            '或用 config={"predictors":[..]} 换一组预测变量。'
+        )
+        return
     (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
     files.append("summary.txt")
     model.summary2().tables[1].to_csv(d / "coefficients.csv", encoding="utf-8")
@@ -25,18 +67,47 @@ def _branch_regression(ctx: Ctx) -> None:
     _resid_plot(model, d / "residuals_vs_fitted.png")
     if (d / "residuals_vs_fitted.png").exists():
         files.append("residuals_vs_fitted.png")
+    # dogfood: a STRING-coded binary/categorical predictor is treatment-coded by patsy, so
+    # its real parameter name is `Q('arm')[T.placebo]`, not `Q('arm')`. Matching only the bare
+    # key dropped the estimate silently and left the summary as a naked "完成" — while
+    # coefficients.csv had the number all along. Match the level terms too, and when a factor
+    # expands to several levels report each.
+    def _terms_for(v):
+        base = f"Q('{v}')"
+        exact = [k for k in model.params.index if k == base]
+        if exact:
+            return [(v, base)]
+        return [(f"{v}{k[len(base):]}", k) for k in model.params.index
+                if k.startswith(base + "[") or k.startswith(f"C({base})[")]
+
+    _key_terms = []
     for v in rhs_vars:
-        kn = f"Q('{v}')"
-        if kn in model.params.index:
-            estimates[v] = float(model.params[kn])
+        for label, kn in _terms_for(v):
+            estimates[label] = float(model.params[kn])
+            if v == rhs_vars[0]:
+                _key_terms.append((label, kn))
     key = ""
-    if rhs_vars:
-        kname = f"Q('{rhs_vars[0]}')"
-        if kname in model.params.index:
-            key = f"，关键系数 {rhs_vars[0]} = {model.params[kname]:.4f} (p={model.pvalues[kname]:.3g})"
+    if _key_terms:
+        _lbl, _kn = _key_terms[0]
+        key = f"，关键系数 {_lbl} = {model.params[_kn]:.4f} (p={model.pvalues[_kn]:.3g})"
+    # Columns the model never saw. The predictor set is continuous/count/binary, so a
+    # multi-level categorical is dropped — measured: `grp` explaining ~95% of the
+    # variance vanished and the report still read "关键系数 x = -0.057 (p=0.724)".
+    # mixed_effects fixed this by dummy-coding (Wave K-B3); doing that here changes the
+    # model spec across the whole family, so for now say it out loud.
+    _dropped = [c.name for c in fp.columns
+                if c.kind == "categorical" and c.name not in set(rhs_vars)
+                and c.name not in {y, fp.unit_col, fp.time_col}
+                and 1 < int(df[c.name].nunique(dropna=True)) <= 20]
     n_cont = sum(1 for c in fp.columns if c.kind == "continuous")
     dv_note = f"（数据有 {n_cont} 个连续列，默认取 {y} 为因变量）" if n_cont > 1 else ""
     summary.append(f"{entry.method} 完成：因变量 {y}{key}{dv_note}")
+    if _dropped:
+        summary.append(
+            f"⚠ 分类预测变量 {_dropped} 未进入模型（本族只取 连续/计数/二值 预测变量）——"
+            "若它们与结果有关，上面的系数是在未控制它们的情况下估计的，R² 也会被低估。"
+            '需要纳入可改用 mixed_effects（分类固定效应已哑变量化）或 factorial_anova。'
+        )
     clustered = bool(fp.is_panel and fp.unit_col)
     if clustered:
         _n_clusters = int(df[fp.unit_col].nunique()) if fp.unit_col in df.columns else 0
