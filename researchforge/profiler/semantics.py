@@ -70,6 +70,19 @@ _TREATMENT_BIND_RE = re.compile(
 # so PSM/IPW would silently report -ATT.
 _TREATMENT_BIND_EXACT_RE = re.compile(r"(group|grp|groups|condition|cond|tx)", re.I)
 
+# NEVER bind, whatever else the name contains: a control/placebo indicator is the SAME
+# contrast with the sign inverted, so binding it silently reports -ATT. `control_arm` used to
+# score 2 (it contains `arm`) and IPW reported +6.683 on data whose true ATT is -8.
+# This rule overrides both vocabularies above.
+_TREATMENT_NEVER_RE = re.compile(
+    r"(?:^|_|\b)(control|ctrl|placebo|comparator|sham)(?:$|_|\b)", re.I)
+
+# WEAK compound: `<study|case|experimental> + <group|grp|cohort>` is an arm in RCT/case-control
+# layouts. Kept weak (never outranks a strong word) because "study group" can also just mean
+# "the group being studied". `control` is excluded by the rule above even in compound form.
+_TREATMENT_BIND_COMPOUND_RE = re.compile(
+    r"(?:^|_|\b)(study|case|experimental)[_\s-]?(group|grp|cohort)(?:$|_|\b)", re.I)
+
 
 def is_treatment_binding_named(name: str) -> bool:
     """True when a column NAME is a strong enough treatment signal to BIND the treatment.
@@ -77,8 +90,7 @@ def is_treatment_binding_named(name: str) -> bool:
     Stricter than :func:`is_treatment_named` on purpose — see the vocabulary note above.
     A false positive here picks the wrong causal estimand, so `group`/`condition` only
     count when they are the WHOLE name."""
-    n = str(name).strip()
-    return bool(_TREATMENT_BIND_RE.search(n) or _TREATMENT_BIND_EXACT_RE.fullmatch(n))
+    return treatment_name_strength(name) > 0
 
 
 def treatment_name_strength(name: str) -> int:
@@ -89,9 +101,13 @@ def treatment_name_strength(name: str) -> int:
     ``[score, group, treated, age]`` — `group` = study site, `treated` = the arm — the weak
     escape outranked the strong word and PSM reported ATT=+3.87 against a truth of -8."""
     n = str(name).strip()
+    if _TREATMENT_NEVER_RE.search(n):
+        return 0              # a control/placebo flag inverts the contrast — never bind it
     if _TREATMENT_BIND_RE.search(n):
         return 2
-    return 1 if _TREATMENT_BIND_EXACT_RE.fullmatch(n) else 0
+    if _TREATMENT_BIND_EXACT_RE.fullmatch(n) or _TREATMENT_BIND_COMPOUND_RE.search(n):
+        return 1
+    return 0
 
 
 def role_hint(name: str, role: str) -> bool:
@@ -119,6 +135,24 @@ def looks_like_survival(fp) -> bool:
     names = [str(c.name) for c in fp.columns]
     return (any(role_hint(nm, "duration") for nm in names)
             and any(role_hint(nm, "event") for nm in names))
+
+
+def survival_event_column(fp) -> str | None:
+    """The single event/censoring indicator in a survival-shaped frame, else None.
+
+    Same rule the survival family uses to pick it (an event-NAMED binary column, file order),
+    so whatever the engine calls "the event" is consistent everywhere. Returns None when the
+    frame is not survival-shaped — a binary called ``status`` in ordinary cross-sectional data
+    is nobody's censoring indicator.
+
+    Consumers: the treatment-effect family excludes it from AUTO covariates, because
+    ``event = 1{T <= C}`` is a descendant of the duration and therefore of the treatment, so
+    adjusting for it is post-treatment adjustment (measured: 33-73% attenuation of the ATT,
+    and an outright failure once the event rate saturates into a constant column)."""
+    if not looks_like_survival(fp):
+        return None
+    return next((str(c.name) for c in fp.columns
+                 if c.kind == "binary" and role_hint(str(c.name), "event")), None)
 
 
 def has_design_signal(fp) -> bool:

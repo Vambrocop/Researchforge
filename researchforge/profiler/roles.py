@@ -164,7 +164,8 @@ def detect_roles(columns, df=None) -> dict:
     see _structure_evidence); without df, behavior is unchanged (name/position only)."""
     out: dict[str, object] = {
         "likely_outcome": None, "likely_outcome_confidence": "",
-        "likely_treatment": None, "likely_time": None, "reason": "",
+        "likely_treatment": None, "likely_treatment_confidence": "",
+        "likely_time": None, "reason": "",
     }
     names = [c.name for c in columns]
     numeric = [c for c in columns if c.kind in _NUMERIC_KINDS]
@@ -238,6 +239,12 @@ def detect_roles(columns, df=None) -> dict:
     # ends up recommending the column that makes the estimate worse.
     _scored = [(treatment_name_strength(str(c.name)), c) for c in treat_cands]
     t_named = [c for st, c in sorted(_scored, key=lambda kv: -kv[0]) if st > 0]
+    _best = max((st for st, _ in _scored), default=0)
+    # H4d cold-review D7: say how much evidence this pick has. `likely_treatment` is shown to
+    # the user (cli / study_report / web) AND binds via resolve_treatment tier 3, so a
+    # positional fallback must not read like a name match.
+    out["likely_treatment_confidence"] = (
+        "high" if _best == 2 else ("medium" if _best == 1 else ("low" if treat_cands else "")))
     if t_named:
         out["likely_treatment"] = t_named[0].name
     elif treat_cands:

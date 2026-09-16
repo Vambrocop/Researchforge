@@ -75,7 +75,10 @@ def _fp_quality_lines(fp, clean_log: Optional[list[dict]]) -> list[str]:
             + (f" — {fp.role_hint_reason}" if fp.role_hint_reason else "")
         )
     if fp.likely_treatment:
-        lines.append(f"- 角色提示：可能的处理变量 `{fp.likely_treatment}`")
+        _tc = {"high": "名称信号明确", "medium": "名称信号较弱", "low": "无名称信号，按列序推定"}.get(
+            getattr(fp, "likely_treatment_confidence", ""), "")
+        lines.append(f"- 角色提示：可能的处理变量 `{fp.likely_treatment}`"
+                     + (f"（{_tc}）" if _tc else ""))
     if fp.issues:
         lines.append(f"- 质量发现（{len(fp.issues)} 项）：")
         for iss in fp.issues:

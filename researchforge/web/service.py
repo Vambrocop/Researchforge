@@ -48,6 +48,7 @@ def analyze_path(path: str | Path) -> dict:
         # non-binding semantic role hints (smarter auto-selection slice 1)
         "likely_outcome": fp.likely_outcome,
         "likely_treatment": fp.likely_treatment,
+        "likely_treatment_confidence": fp.likely_treatment_confidence,
         "role_hint_reason": fp.role_hint_reason,
     }
 

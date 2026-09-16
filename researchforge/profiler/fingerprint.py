@@ -74,6 +74,12 @@ class DataFingerprint(BaseModel):
     # surfaced as a hint only, never binds; "low" = position convention; "" = none detected.
     likely_outcome_confidence: str = ""
     likely_treatment: Optional[str] = None
+    # Evidence behind likely_treatment: "high" = a strong treatment word (treated/arm/trt/
+    # dose…), "medium" = a weak whole-name or compound match (a bare `group`, `study_group`),
+    # "low" = no name signal at all — the first non-outcome binary, i.e. column order.
+    # The hint is shown to users AND binds (resolve_treatment tier 3), so the distinction
+    # has to travel with it.
+    likely_treatment_confidence: str = ""
     likely_time: Optional[str] = None
     role_hint_reason: str = ""
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.profiler.semantics import survival_event_column
 from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
@@ -29,8 +30,33 @@ def _branch_ipw(ctx: Ctx) -> None:
     if cfg.get("covariates"):
         covs = [c for c in cfg["covariates"] if c in df.columns and c not in {outcome, treatment}]
     else:
+        # 处理后协变量: in a survival-shaped frame the event indicator is a descendant of
+        # the duration (event = 1{T<=C}) and hence of the treatment, so adjusting for it is
+        # post-treatment adjustment. Measured 33-73% attenuation of the ATT, and an outright
+        # failure once the event rate saturates. AUTO set only — an explicit config
+        # covariates list stays the user's call — and disclosed in the summary.
+        _post = survival_event_column(fp)
         covs = [c.name for c in fp.columns if c.kind in {"continuous", "binary", "count"}
-                and c.name not in (_excl | {outcome, treatment})]
+                and c.name not in (_excl | {outcome, treatment}
+                                   | ({_post} if _post else set()))]
+        if _post:
+            summary.append(
+                f"⚠ 已把 '{_post}' 排除在自动协变量之外：它是生存数据的事件指示列"
+                "（event = 1{时长 ≤ 删失时间}），是时长、进而是处理变量的后代，"
+                "放进倾向得分属于处理后调整（实测会把 ATT 衰减 33-73%，"
+                "事件率饱和时甚至直接失败）。若确需纳入，用 config covariates 显式指定。"
+            )
+    # 常数协变量：zero variance cannot inform a propensity model and makes the design
+    # matrix singular (surfaced by a saturated event rate, where the indicator collapses to
+    # one value and the profiler types it `count`, so the survival-event exclusion above
+    # cannot see it). Drop with disclosure instead of failing on "Singular matrix".
+    _const = [c for c in covs if df[c].dropna().nunique() < 2]
+    if _const:
+        covs = [c for c in covs if c not in set(_const)]
+        summary.append(
+            f"⚠ 已剔除常数协变量 {_const}：取值唯一，无法为倾向得分提供信息，"
+            "保留会让设计矩阵奇异（报 Singular matrix）。"
+        )
     if treatment is None or outcome is None or not covs:
         summary.append('逆概率加权失败：需要 二值处理 + 连续结果 + ≥1 协变量。'
                        'config={"treatment":..,"outcome":..,"covariates":[..]}。')

@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 
 from researchforge.executor._branch_api import Ctx, register
+from researchforge.profiler.semantics import survival_event_column
 from researchforge.executor.run import _record_bound_treatment, resolve_outcome, resolve_treatment
 
 
@@ -508,7 +509,21 @@ def _branch_rosenbaum_bounds(ctx: Ctx) -> None:
     if cfg.get("covariates"):
         covs = [c for c in cfg["covariates"] if c in df.columns and c not in {outcome, treatment}]
     else:
-        covs = [c for c in numeric if c not in {outcome, treatment}]
+        # 处理后协变量: in a survival-shaped frame the event indicator is a descendant of
+        # the duration (event = 1{T<=C}) and hence of the treatment, so adjusting for it is
+        # post-treatment adjustment. Measured 33-73% attenuation of the ATT, and an outright
+        # failure once the event rate saturates. AUTO set only — an explicit config
+        # covariates list stays the user's call — and disclosed in the summary.
+        _post = survival_event_column(fp)
+        covs = [c for c in numeric
+                if c not in ({outcome, treatment} | ({_post} if _post else set()))]
+        if _post:
+            summary.append(
+                f"⚠ 已把 '{_post}' 排除在自动协变量之外：它是生存数据的事件指示列"
+                "（event = 1{时长 ≤ 删失时间}），是时长、进而是处理变量的后代，"
+                "放进倾向得分属于处理后调整（实测会把 ATT 衰减 33-73%，"
+                "事件率饱和时甚至直接失败）。若确需纳入，用 config covariates 显式指定。"
+            )
 
     if treatment is None or outcome is None:
         summary.append(

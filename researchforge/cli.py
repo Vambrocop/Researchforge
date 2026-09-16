@@ -64,7 +64,9 @@ def _cmd_recommend(path: str, goal: str | None = None, top: int = 6) -> int:
     if fp.likely_outcome:
         hint = f"💡 可能的结果变量：{fp.likely_outcome}（{fp.role_hint_reason}）"
         if fp.likely_treatment:
-            hint += f"；处理变量：{fp.likely_treatment}"
+            _tc = {"high": "名称信号明确", "medium": "名称信号较弱", "low": "无名称信号，按列序推定"}.get(
+                fp.likely_treatment_confidence, "")
+            hint += f"；处理变量：{fp.likely_treatment}" + (f"（{_tc}）" if _tc else "")
         hint += " —— 运行建模方法时可用 --config 指定"
         print(hint)
 
