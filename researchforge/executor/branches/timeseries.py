@@ -49,11 +49,39 @@ _GRID_FIT_BUDGET = 48   # hard cap on candidate fits so a long grid can't stall 
 # fit-COUNT budget alone cannot bound the work. The search spends up to this long, keeps
 # the best candidate it reached, and discloses that it stopped early.
 _SEARCH_TIME_BUDGET_S = 20.0
-# Projected Kalman cost of ONE candidate: n · dim², dim ≈ max(p, q+1) + sp·(P+Q+D).
-# Calibrated on measurements above: n=2225/sp=52 with a seasonal MA projects ~2.4e7 and
-# costs 213s; n=60/sp=12 (the airline case S1 was verified on) projects ~3.5e4. 5e6 sits
-# between them with two orders of magnitude of headroom on each side.
-_FIT_COST_BUDGET = 5e6
+# Projected wall-clock SECONDS for one candidate fit. Two corrections from cold review B:
+#
+# 1. The state dimension is statsmodels' own k_states (sarimax.py:425 / 453-457, and
+#    simple_differencing defaults to False, so the differencing DOES ride in the state):
+#        k_states = max(p + sp*P, q + sp*Q + 1) + sp*D + d
+#    verified against `SARIMAX(...).k_states` on 12 order combinations, 12/12. The previous
+#    model `max(p, q+1) + sp*(P+Q)` was wrong twice — it dropped `sp*D + d`, and it ADDED the
+#    AR and MA sides where statsmodels takes their max. (The 266x gap I had used to argue that
+#    D does not count was optimiser ITERATIONS, nfev 15 vs 212 — the dimensions are 54 vs 106.)
+#
+# 2. The budget is time, not a dimensionless score. Measured fit time tracks
+#    t ≈ c · n · k_states**4 (exponent 4.09 / 4.06 across sp=12/24/52); the old n·dim² made one
+#    threshold mean 8s at sp=12, 31s at sp=24 and 151s at sp=52 — 19x spread, and looser for
+#    exactly the big periods that motivated the gate. c is calibrated on this machine
+#    (n=600, sp=52, k_states=107 -> 51.1s measured); projections are labelled as estimates.
+_KALMAN_SEC_PER_UNIT = 6.5e-10
+
+
+def _sarimax_k_states(order, sorder) -> int:
+    """statsmodels' state dimension for a SARIMAX with simple_differencing=False.
+
+    Mirrors sarimax.py:425 (`_k_order`) and 453-457 (`k_states += sp*seasonal_diff + diff`).
+    Module-level and covered by a test that compares it with `SARIMAX(...).k_states` itself,
+    so the formula cannot drift from the library without something going red."""
+    p, d, q = order
+    P, D, Q, s = sorder
+    return max(p + int(s) * P, q + int(s) * Q + 1) + int(s) * D + d
+
+
+def _fit_seconds(n, order, sorder) -> float:
+    """Projected wall-clock seconds for ONE SARIMAX fit — see _KALMAN_SEC_PER_UNIT."""
+    return _KALMAN_SEC_PER_UNIT * float(n) * float(_sarimax_k_states(order, sorder)) ** 4
+
 
 
 def _ndiffs_adf(y, max_d: int = 2) -> int:
@@ -170,19 +198,14 @@ def _auto_order(y, sp, cfg):
 
     _budget = float(cfg.get("search_seconds") or _SEARCH_TIME_BUDGET_S)
     _n = int(len(y))
-    _cost_budget = float(cfg.get("fit_cost_budget") or _FIT_COST_BUDGET)
-
-    def _cost(order, sorder):
-        _p, _, _q = order
-        _P, _D, _Q, _s = sorder
-        # Seasonal DIFFERENCING is applied to the data, not carried in the state — measured
-        # (0,1,0)(0,1,0,52) at n=2225 costs 0.8s while (0,1,0)(0,1,1,52) costs 213s. So only
-        # the seasonal AR/MA terms enter the state dimension; counting D over-penalised the
-        # one cheap seasonal model and skipped everything.
-        dim = max(_p, _q + 1) + int(_s) * (_P + _Q)
-        return float(_n) * float(dim) ** 2
+    # One fit may spend the whole search budget, never more. The previous gate let a candidate
+    # projected under a dimensionless threshold run for 51s inside a 20s search budget
+    # (measured: n=600, sp=52, (0,1,1)(0,1,1,52)) — a per-fit cap in the same unit as the
+    # search budget is what makes the two coherent.
+    _fit_budget_s = float(cfg.get("fit_seconds") or _budget)
 
     skipped_costly = 0
+    skipped_min_s = None
     best, best_ic, n_fits = None, np.inf, 0
     timed_out = False
     _t0 = _time.perf_counter()
@@ -192,8 +215,10 @@ def _auto_order(y, sp, cfg):
         if best is not None and _time.perf_counter() - _t0 > _budget:
             timed_out = True
             break
-        if _cost(order, sorder) > _cost_budget:
+        _proj = _fit_seconds(_n, order, sorder)
+        if _proj > _fit_budget_s:
             skipped_costly += 1
+            skipped_min_s = _proj if skipped_min_s is None else min(skipped_min_s, _proj)
             continue
         try:
             res = _fit_sarimax(y, order, sorder)
@@ -222,6 +247,8 @@ def _auto_order(y, sp, cfg):
         "truncated": len(cands) > _GRID_FIT_BUDGET or timed_out,
         "timed_out": timed_out,
         "skipped_costly": skipped_costly,
+        "skipped_min_s": None if skipped_min_s is None else round(float(skipped_min_s), 1),
+        "fit_budget_s": round(float(_fit_budget_s), 1),
         "elapsed_s": round(float(_elapsed), 1),
         "n_candidates": len(cands),
         "at_edge": at_edge,
@@ -231,7 +258,7 @@ def _auto_order(y, sp, cfg):
         # nothing when the caller then fitted (1,d,1)(1,D,1,sp) — the very model that costs
         # 219s. Fall back to the cheapest admissible shape instead.
         _fb_order, _fb_sorder = (1, d, 1), ((1, D, 1, sp) if seasonal else (0, 0, 0, 0))
-        if seasonal and _cost(_fb_order, _fb_sorder) > _cost_budget:
+        if seasonal and _fit_seconds(_n, _fb_order, _fb_sorder) > _fit_budget_s:
             _fb_order, _fb_sorder = (0, d, 1), (0, D, 0, sp)
             info["fallback_cheap"] = True
         return _fb_order, _fb_sorder, None, info
@@ -295,11 +322,18 @@ def _branch_arima(ctx: Ctx) -> None:
                 sp = None
 
             order, sorder, model, oinfo = _auto_order(y.to_numpy(), sp, cfg)
-            if model is None:                      # every candidate failed → honest fallback
-                order = (1, oinfo["d"], 1)
-                sorder = (1, oinfo["D"], 1, sp) if sp else (0, 0, 0, 0)
+            if model is None:
+                # Cold review B/A1: this used to OVERWRITE _auto_order's return with
+                # (1,d,1)(1,D,1,sp) — the very 219s model the cost gate had just skipped, so
+                # the hang protection was void on exactly this path. _auto_order already
+                # returns a budget-respecting order; fit THAT.
                 model = _fit_sarimax(y.to_numpy(), order, sorder)
-                degrade_note += " ⚠ 自动定阶网格全部拟合失败，已回退默认阶数 (1,d,1)。"
+                _why = ("全部候选的投影计算成本都超出预算" if oinfo.get("skipped_costly")
+                        and not oinfo["n_fits"] else "网格全部拟合失败")
+                degrade_note += (
+                    f" ⚠ 自动定阶未能拟合任何候选（{_why}），已回退 "
+                    f"{order}{sorder[:3]} —— **该阶数未经 AICc 比较**，不是任何候选集里的最优。"
+                )
             seasonal_used = int(sorder[3]) if sp else 0
             if not bool(getattr(model, "mle_retvals", {}).get("converged", True)):
                 degrade_note += (
@@ -382,9 +416,19 @@ def _branch_arima(ctx: Ctx) -> None:
                 # 墙钟预算：季节状态空间模型带 sp 阶状态，单次拟合的成本随周期爆炸
                 # （实测 n=2225：sp=0 时 0.2s，sp=52 时 219s）。只报「拟合了几个候选」会让
                 # 用户以为搜索完整；必须说清是时间到了，以及怎么要更多。
-                + (f"；⚠ 有 {oinfo.get('skipped_costly')} 个含季节 AR/MA 的候选按投影计算成本"
-                   f"被跳过（季节周期 {sp} 下单次拟合可达数百秒）——当前阶数是**可承受候选中的最优**，"
-                   '若要搜索它们：config={"fit_cost_budget":1e8,"search_seconds":900}'
+                # A4: the old text asserted "单次拟合可达数百秒" regardless of sp and n — it
+                # printed that on an sp=12 / n=72 run whose seasonal fits take 0.4s. Print the
+                # projection that was actually computed. A1: "可承受候选中的最优" is only true
+                # when something was in fact fitted.
+                + (f"；⚠ 有 {oinfo.get('skipped_costly')} 个候选的投影单次拟合耗时超过 "
+                   f"{oinfo.get('fit_budget_s')}s 的预算被跳过"
+                   + (f"（最便宜的一个估计约 {oinfo.get('skipped_min_s')}s，按本机基准）"
+                      if oinfo.get("skipped_min_s") is not None else "")
+                   + ("——当前阶数是**可承受候选中的最优**" if oinfo["n_fits"]
+                      else "——**一个候选都没能拟合**，当前阶数是未经比较的回退阶数")
+                   + "，被跳过的候选完全可能才是 AICc 最优的"
+                   '（实测过 11637 vs 16412 的差距）；若要搜索它们：'
+                   'config={"search_seconds":<秒>} 或 {"fit_seconds":<秒>}'
                    if oinfo.get("skipped_costly") else "")
                 + (f"；⚠ 搜索在 {oinfo.get('elapsed_s')}s 处达到时间预算而提前停止"
                    f"（季节周期 {sp} 下单次拟合很贵，{oinfo.get('n_candidates')} 个候选只试了 "

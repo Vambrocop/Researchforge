@@ -54,13 +54,14 @@
       type: float
       description: 自动定阶搜索的墙钟预算（秒）；到点后保留已试候选中的最优并如实说明
       default: "20"
-    - name: fit_cost_budget
+    - name: fit_seconds
       type: float
       description: >-
-        单个候选的投影计算成本上限（n × 状态维度²，状态维度 ≈ max(p,q+1) + 季节周期×(P+Q)）。
-        季节 AR/MA 项会把季节周期整个装进状态，实测 n=2225/周期52 时单次拟合达 213s；
-        超预算的候选在拟合前跳过并披露。调大可搜索它们（配合 search_seconds）。
-      default: "5e6"
+        单个候选的投影拟合耗时上限（秒）。投影用 statsmodels 的真实状态维数
+        k_states = max(p+sp·P, q+sp·Q+1) + sp·D + d，时间按 c·n·k_states⁴ 估算
+        （c 为本机基准）。超预算的候选在拟合前跳过并披露预计秒数；
+        默认等于 search_seconds——单次拟合不该比整个搜索预算还长。
+      default: 同 search_seconds（20）
   produces:
     - forecast
     - model summary

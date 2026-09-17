@@ -83,7 +83,8 @@ def test_the_skipped_candidates_are_disclosed_with_a_way_in(tmp_path):
     fp = _fp(_weekly_seasonal(), tmp_path, name="weekly2.csv")
     res = run_analysis(fp, _CAT.by_id("arima"), output_root=str(tmp_path / "p"))
     assert "被跳过" in res.summary, res.summary[:300]
-    assert "fit_cost_budget" in res.summary, "an honest skip names the escape hatch"
+    assert "fit_seconds" in res.summary or "search_seconds" in res.summary, (
+        "an honest skip names the escape hatch")
 
 
 def test_the_monthly_airline_case_is_untouched(tmp_path):
@@ -96,31 +97,72 @@ def test_the_monthly_airline_case_is_untouched(tmp_path):
     assert "被跳过" not in res.summary, "a cheap seasonal grid must not be gated"
 
 
-def test_seasonal_differencing_is_not_priced_like_a_seasonal_arma_term(tmp_path):
-    """The cost model counts only the seasonal AR/MA terms. Counting D too over-penalised the
-    ONE cheap seasonal model (0.8s measured) and left the search fitting zero candidates."""
-    from researchforge.executor.branches.timeseries import _FIT_COST_BUDGET
+@pytest.mark.parametrize(
+    "order,sorder",
+    [((0, 1, 0), (0, 1, 0, 52)), ((0, 1, 1), (0, 1, 0, 52)), ((0, 1, 0), (0, 1, 1, 52)),
+     ((1, 1, 1), (1, 1, 1, 52)), ((2, 1, 2), (0, 1, 0, 12)), ((0, 1, 1), (0, 1, 1, 12)),
+     ((1, 0, 1), (1, 0, 1, 12)), ((2, 1, 2), (1, 1, 1, 12)), ((3, 0, 0), (0, 0, 0, 0))],
+)
+def test_the_state_dimension_matches_statsmodels_itself(order, sorder):
+    """The cost model is only as good as its state dimension, so compare with the library
+    rather than with a restatement of our own formula.
 
-    n = 2225
-    sp = 52
+    The version of this test I wrote first RE-IMPLEMENTED the cost function inside the test
+    file and asserted against that copy — it would have stayed green no matter what the branch
+    computed, and it did stay green while the branch's formula was wrong in two places (cold
+    review A5.2). The formula it was defending, `max(p, q+1) + sp*(P+Q)`, gets 1 instead of 54
+    on the very first case below.
+    """
+    import statsmodels.api as sm
 
-    def cost(order, sorder):
-        p, _, q = order
-        P, D, Q, s = sorder
-        return float(n) * float(max(p, q + 1) + s * (P + Q)) ** 2
+    from researchforge.executor.branches.timeseries import _sarimax_k_states
 
-    assert cost((0, 1, 1), (0, 1, 0, sp)) < _FIT_COST_BUDGET     # differencing only: cheap
-    assert cost((0, 1, 0), (0, 1, 1, sp)) > _FIT_COST_BUDGET     # one seasonal MA: 213s
-    # ...and the monthly airline model must stay affordable
-    assert 60.0 * float(max(0, 2) + 12 * (0 + 1)) ** 2 < _FIT_COST_BUDGET
+    y = np.random.default_rng(0).normal(0, 1, 400).cumsum()
+    real = sm.tsa.SARIMAX(y, order=order, seasonal_order=sorder).k_states
+    assert _sarimax_k_states(order, sorder) == real, (order, sorder)
+
+
+def test_the_projection_tracks_measured_fit_time():
+    """Calibration anchors, measured on this machine by the cold review:
+    n=600 / sp=52 / (0,1,1)(0,1,1,52) took 51.1s; n=7000 / sp=24 / (0,1,1)(0,1,1,24) 29.3s."""
+    from researchforge.executor.branches.timeseries import _fit_seconds
+
+    assert _fit_seconds(600, (0, 1, 1), (0, 1, 1, 52)) == pytest.approx(51.1, rel=0.25)
+    assert _fit_seconds(7000, (0, 1, 1), (0, 1, 1, 24)) == pytest.approx(29.3, rel=0.25)
+    # the monthly airline case S1 was verified on must stay far inside any sane budget
+    assert _fit_seconds(60, (0, 1, 1), (0, 1, 1, 12)) < 0.1
 
 
 def test_config_can_buy_the_expensive_search_back(tmp_path):
     """The gate is a default, not a prohibition."""
-    from researchforge.executor.branches.timeseries import _FIT_COST_BUDGET
-
     fp = _fp(_monthly_airline(), tmp_path, name="cfg.csv")
     res = run_analysis(fp, _CAT.by_id("arima"), output_root=str(tmp_path / "r"),
-                       config={"fit_cost_budget": _FIT_COST_BUDGET * 100,
-                               "search_seconds": 120})
+                       config={"fit_seconds": 600, "search_seconds": 120})
     assert res.estimates.get("forecast_next") is not None
+
+
+def test_the_fallback_respects_the_budget_instead_of_fitting_the_worst_model(tmp_path):
+    """Cold review A1 (MUST-FIX): when every candidate was gated out, the CALLER overwrote
+    _auto_order's budget-respecting order with (1,d,1)(1,D,1,sp) and fitted it — the very
+    shape the gate exists to avoid (219s at sp=52). The protection was void on this path.
+
+    Driven through the public config key, so it is the user-reachable path that is pinned."""
+    fp = _fp(_monthly_airline(n=72), tmp_path, name="fb.csv")
+    res = run_analysis(fp, _CAT.by_id("arima"), output_root=str(tmp_path / "s"),
+                       config={"fit_seconds": 1e-9})       # gate out literally everything
+    e = res.estimates
+    assert (e["P"], e["Q"]) == (0.0, 0.0), f"fallback must not carry seasonal AR/MA: {e}"
+    assert e["p"] <= 1.0 and e["q"] <= 1.0, e
+    # ...and it must not be described as the best of anything
+    assert "未经 AICc 比较" in res.summary, res.summary[-400:]
+    assert "可承受候选中的最优" not in res.summary
+
+
+def test_the_skip_notice_does_not_invent_a_magnitude(tmp_path):
+    """Cold review A4: the old text asserted '单次拟合可达数百秒' irrespective of sp and n,
+    and printed it on an sp=12 / n=72 run whose seasonal fits take well under a second."""
+    fp = _fp(_monthly_airline(n=72), tmp_path, name="mag.csv")
+    res = run_analysis(fp, _CAT.by_id("arima"), output_root=str(tmp_path / "t"),
+                       config={"fit_seconds": 1e-9})
+    assert "数百秒" not in res.summary
+    assert "被跳过" in res.summary
