@@ -171,7 +171,7 @@ def _run_dir(root: str, entry_id: str) -> Path:
     return d
 
 
-def _pick_did_treatment(df, fp: DataFingerprint, unit=None, time=None) -> list[str]:
+def _pick_did_treatment(df, fp: DataFingerprint, unit=None, time=None, cfg=None) -> list[str]:
     """The DID treatment is the binary that varies WITHIN units over time (a treatment that
     switches on), not a fixed group flag. Returns [] if none vary.
 
@@ -183,7 +183,10 @@ def _pick_did_treatment(df, fp: DataFingerprint, unit=None, time=None) -> list[s
     if not (unit and time):
         # H4d: without a panel there is no within-unit variation to use, so fall back to
         # the NAME-aware pick rather than the first binary column.
-        t = resolve_treatment(fp, None, fp.binary_columns)
+        # cold review A#11: this passed cfg=None, so an explicit config["treatment"] was
+        # silently inert on the no-panel path — the next place a config key would have
+        # quietly stopped working.
+        t = resolve_treatment(fp, cfg, fp.binary_columns, df=df)
         return [t] if t else []
     scored = []
     for name in fp.binary_columns:
@@ -271,9 +274,19 @@ def _regression(df, fp: DataFingerprint, entry: AnalysisEntry, cfg: dict | None 
         fe_terms = [f"C(Q('{fp.unit_col}'))", f"C(Q('{fp.time_col}'))"]
 
     if entry.id == "did" and fp.binary_columns:
-        # [:1] — _pick_did_treatment now returns every switcher (D1); this formula takes
-        # ONE treatment term, and a naive multi-return would silently add regressors.
-        rhs_vars = _pick_did_treatment(df, fp)[:1] or fp.binary_columns[:1]
+        # Cold review A MUST-FIX 10: `_pick_did_treatment(df, fp)[:1]` took the column with
+        # the HIGHEST switch rate and stopped there — re-introducing, inside _regression, the
+        # very argmax bug D1 removed from _pick_did_treatment itself. It also ignored
+        # config["treatment"] entirely. Measured on a panel whose true ATT is +3.0 with
+        # switchers ['hospitalized', 'policy_on']: resolve_treatment picks `policy_on`, but
+        # did reported 关键系数 hospitalized = 0.2744 (p=0.006), and
+        # config={"treatment":"policy_on"} changed nothing.
+        # Route the switchers through the same resolver the other DiD branches use
+        # (event_study.py / staggered_did.py), which applies config > name ladder and records
+        # the binding for the audit invariant.
+        _t = resolve_treatment(fp, cfg, _pick_did_treatment(df, fp, cfg=cfg)
+                               or fp.binary_columns, df=df)
+        rhs_vars = [_t] if _t else fp.binary_columns[:1]
     else:
         # optional explicit predictor list via config["predictors"] (cap 8) else
         # auto continuous/count/binary columns in dataframe order (cap 5)

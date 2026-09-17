@@ -714,3 +714,41 @@ def test_the_control_mirror_does_not_enter_the_propensity_model(tmp_path):
     assert "失败：" not in res.summary, res.summary[:200]
     assert -9.0 < res.estimates["ate"] < -7.0, res.estimates
     assert "确定性函数" in res.summary and "control_arm" in res.summary
+
+
+# ── cold review A MUST-FIX 10: did re-introduced the argmax bug inside _regression ──
+def _decoy_switcher_panel(n_unit=40, n_t=14, seed=5):
+    """True ATT = +3.0 on `policy_on`. `hospitalized` also switches within unit — more
+    often, in fact — so a switch-rate argmax picks the decoy."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for u in range(n_unit):
+        fe = rng.normal(0, 1)
+        g = 7 if u % 2 == 0 else 10 ** 9
+        for t in range(n_t):
+            d = 1 if t >= g else 0
+            rows.append({"unit": f"u{u:02d}", "year": 2005 + t,
+                         "hospitalized": int(rng.random() < 0.45), "policy_on": d,
+                         "y": round(10 + fe + 3.0 * d + 0.1 * t + rng.normal(0, 0.6), 3)})
+    return pd.DataFrame(rows)
+
+
+def test_did_uses_the_name_ladder_not_the_highest_switch_rate(tmp_path):
+    """`_pick_did_treatment(df, fp)[:1]` inside _regression took the top switcher and stopped
+    — the same argmax bug D1 removed from _pick_did_treatment itself, moved one level up.
+    Measured: did reported 关键系数 hospitalized = 0.2744 (p=0.006) on this frame."""
+    fp = _fp(_decoy_switcher_panel(), tmp_path, name="decoy.csv")
+    res = run_analysis(fp, _CAT.by_id("did"), output_root=str(tmp_path / "o"))
+    assert res.treatment == "policy_on", f"bound {res.treatment!r}"
+    assert 2.5 < res.estimates["policy_on"] < 3.5, res.estimates
+    assert "hospitalized" not in res.estimates
+
+
+@pytest.mark.parametrize("named", ["policy_on", "hospitalized"])
+def test_did_config_treatment_is_no_longer_inert(named, tmp_path):
+    """config={"treatment": ...} had NO effect on did — the branch never consulted cfg."""
+    fp = _fp(_decoy_switcher_panel(), tmp_path, name="cfgdid.csv")
+    res = run_analysis(fp, _CAT.by_id("did"), output_root=str(tmp_path / named),
+                       config={"treatment": named})
+    assert res.treatment == named
+    assert named in res.estimates
