@@ -54,6 +54,24 @@ def _branch_ipw(ctx: Ctx) -> None:
                 "放进倾向模型会造成完全分离（此前表现为一句裸的 Singular matrix）。"
                 "若确需纳入，用 config covariates 显式指定。"
             )
+        # Cold review A MUST-FIX 5: the AUTO covariate set is "every numeric column that is
+        # not the outcome/treatment" — it cannot tell a confounder from a MEDIATOR, and a
+        # mediator is post-treatment adjustment. Measured on a randomised trial whose true
+        # effect is -8, with a post-treatment mediator `adherence` carrying the full effect:
+        #     IPW -3.207   PSM +1.197 (SIGN FLIPPED)   AIPW -1.358, 95% CI [-2.04, -0.68]
+        # i.e. the AIPW interval does not cover the truth at all. Auto-DROPPING mediators is
+        # not the fix (there is no name test that separates a mediator from a real
+        # confounder, and dropping a confounder is the opposite bias) — but the set was never
+        # even shown. Name it, and say what would make it wrong.
+        if covs:
+            summary.append(
+                f"⚠ 自动选取的协变量：{'、'.join(covs)}。它们是按「非结果、非处理的数值列」"
+                "挑的，**引擎无法分辨混杂因子与中介变量**。若其中任何一列是在处理之后"
+                "测得的（依从性、实际剂量、随访时长、中间结局），那是处理后调整，"
+                "会把效应吸走甚至翻号（实测中介占比 100% 时 PSM 由 −8 变成 +1.197、"
+                "AIPW 的 95% CI 完全不覆盖真值）。请核对这份名单，必要时"
+                '用 config={"covariates":[..]} 指定基线前（处理前）变量。'
+            )
         if _post:
             summary.append(
                 f"⚠ 已把 '{_post}' 排除在自动协变量之外：它是生存数据的事件指示列"
