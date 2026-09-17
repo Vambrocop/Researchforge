@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from researchforge.catalog import Catalog
 from researchforge.executor import run_analysis
@@ -152,3 +153,65 @@ def test_no_disclosure_when_nothing_was_dropped(tmp_path):
     fp = _fp(df, tmp_path, name="plain.csv")
     res = run_analysis(fp, _CAT.by_id("ols_regression"), output_root=str(tmp_path / "u"))
     assert "分类预测变量" not in res.summary
+
+
+# ── cold review B1: the guard's first version killed the flagship panel shape ─
+def _panel_with_time_invariant_covariate(n_unit=40, n_t=6, seed=11):
+    """A firm x year panel carrying ONE time-invariant covariate — a baseline value, a
+    sex code, a region code. Under two-way fixed effects that column is absorbed by the
+    unit dummies BY CONSTRUCTION, so this is not an exotic shape: it is the ordinary one.
+    True ATT = 3.0."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for i in range(n_unit):
+        baseline = rng.normal(50, 10)
+        a = rng.normal(0, 2)
+        for t in range(n_t):
+            treat = 1 if (i % 2 == 0 and t >= 3) else 0
+            rows.append({"firm": f"F{i:02d}", "year": 2010 + t, "baseline": round(baseline, 2),
+                         "capex": round(rng.normal(20, 5), 2), "treat": treat,
+                         "profit": round(10 + a + 0.5 * t + 3.0 * treat
+                                         + 0.2 * rng.normal(), 3)})
+    return pd.DataFrame(rows)
+
+
+def test_an_absorbed_covariate_does_not_void_the_whole_panel_analysis(tmp_path):
+    """v1 of the guard returned 失败 with estimates={} here. But the effect IS estimable:
+    rank deficiency kills the absorbed DIRECTION, not the fit."""
+    fp = _fp(_panel_with_time_invariant_covariate(), tmp_path, name="tinv.csv")
+    res = run_analysis(fp, _CAT.by_id("panel_fixed_effects"), output_root=str(tmp_path / "o"))
+    assert "失败" not in res.summary, res.summary[:260]
+    assert res.estimates, "a panel whose treatment effect is identified must report it"
+    assert 2.5 < res.estimates["treat"] < 3.5, res.estimates
+
+
+def test_the_absorbed_column_is_named_not_silently_dropped(tmp_path):
+    fp = _fp(_panel_with_time_invariant_covariate(), tmp_path, name="tinv2.csv")
+    res = run_analysis(fp, _CAT.by_id("panel_fixed_effects"), output_root=str(tmp_path / "p"))
+    assert "完全共线" in res.summary and "baseline" in res.summary
+    assert "baseline" not in res.estimates, "an aliased column must not be reported"
+    # the headline moved off the dropped column — say so rather than let it shift silently
+    assert "关键系数" in res.summary and "已从 baseline" in res.summary
+
+
+def test_the_surviving_estimate_equals_the_manual_drop_and_refit(tmp_path):
+    """The claim the fix rests on: dropping the aliased column changes nothing else."""
+    import statsmodels.formula.api as smf
+
+    df = _panel_with_time_invariant_covariate()
+    fp = _fp(df, tmp_path, name="tinv3.csv")
+    res = run_analysis(fp, _CAT.by_id("panel_fixed_effects"), output_root=str(tmp_path / "q"))
+    manual = smf.ols(
+        "Q('profit') ~ Q('capex') + Q('treat') + C(Q('firm')) + C(Q('year'))", data=df
+    ).fit(cov_type="cluster", cov_kwds={"groups": df["firm"]})
+    assert res.estimates["treat"] == pytest.approx(
+        float(manual.params["Q('treat')"]), rel=1e-9
+    )
+
+
+def test_nothing_estimable_still_fails_honestly(tmp_path):
+    """When every predictor is absorbed there is nothing to salvage — keep failing."""
+    fp = _fp(_rm_rct(), tmp_path, name="none.csv")
+    res = run_analysis(fp, _CAT.by_id("did"), output_root=str(tmp_path / "r"))
+    assert "失败" in res.summary and "秩亏" in res.summary
+    assert not res.estimates

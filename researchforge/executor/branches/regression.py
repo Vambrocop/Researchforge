@@ -22,7 +22,36 @@ def _branch_regression(ctx: Ctx) -> None:
     # An SE orders of magnitude below the coefficient is an artefact of a rank-deficient design,
     # not an estimate. (The experimental-design family has refused this shape since its own
     # cold review; the regression family never checked.)
+    # Cold review B1: v1 of this guard threw the WHOLE analysis away on any rank deficiency,
+    # which killed the flagship panel method on its most ordinary shape — a firm x year panel
+    # carrying one time-invariant covariate (baseline value / sex / region code). Measured on
+    # such a panel (true ATT 3.0): the rank-deficient fit already gives treat = 2.9788,
+    # se = 0.0599, IDENTICAL to the digit after dropping the absorbed column; only the
+    # absorbed column's own coefficient is garbage. Rank deficiency kills one DIRECTION, not
+    # the fit. So: name the aliased predictors, drop them, refit, disclose loudly — and fail
+    # outright only when NOTHING is left to estimate.
     _degenerate = None
+    _absorbed: list[str] = []
+
+    def _alias_of(exog, names, vars_):
+        """Which of `vars_` are exactly explained by the remaining design columns."""
+        import numpy as _np
+
+        out = []
+        for _v in vars_:
+            _b = f"Q('{_v}')"
+            for _j, _nm in enumerate(names):
+                if _nm == _b or _nm.startswith(_b + "[") or _nm.startswith(f"C({_b})["):
+                    _rest = _np.delete(exog, _j, axis=1)
+                    if not _rest.size:
+                        break
+                    _col = exog[:, _j]
+                    _res = _col - _rest @ _np.linalg.lstsq(_rest, _col, rcond=None)[0]
+                    if float(_res @ _res) <= 1e-18 * float(_col @ _col):
+                        out.append(_v)
+                    break
+        return out
+
     try:
         import numpy as _np
 
@@ -31,6 +60,7 @@ def _branch_regression(ctx: Ctx) -> None:
             _rank = int(_np.linalg.matrix_rank(_exog))
             if _rank < _exog.shape[1]:
                 _degenerate = (f"设计矩阵秩亏（秩 {_rank} < 列数 {_exog.shape[1]}）")
+                _absorbed = _alias_of(_exog, list(model.model.exog_names), rhs_vars)
         if _degenerate is None:
             # near-collinearity the rank test rounds away: a KEY term whose SE is orders of
             # magnitude below its own coefficient. Check the key terms themselves — a max over
@@ -49,13 +79,45 @@ def _branch_regression(ctx: Ctx) -> None:
                     break
     except Exception:  # noqa: BLE001 — a guard must never break the run
         _degenerate = None
+    # Recoverable case: the aliased columns are NOT the key term, so drop them and refit —
+    # the surviving coefficients are the same numbers the rank-deficient fit already held.
+    # The test is "is anything still estimable", NOT "is the first predictor estimable".
+    # resolve_predictors returns dataframe order, so on the B1 panel the absorbed column
+    # (`baseline`) happens to come FIRST — keying off rhs_vars[0] would have kept failing
+    # on exactly the shape this fix exists for. Fail only when nothing survives.
+    _keep = [v for v in rhs_vars if v not in _absorbed]
+    if _degenerate and _absorbed and _keep:
+        try:
+            import numpy as _np
+
+            _cfg2 = dict(cfg or {})
+            _cfg2["predictors"] = _keep
+            _first_before = rhs_vars[0] if rhs_vars else None
+            _y2, _rhs2, _f2, _m2 = _regression(df, fp, entry, _cfg2)
+            _e2 = _np.asarray(_m2.model.exog, dtype=float)
+            if int(_np.linalg.matrix_rank(_e2)) == _e2.shape[1]:
+                y, rhs_vars, formula, model = _y2, _rhs2, _f2, _m2
+                summary.append(
+                    f"⚠ 预测变量 {'、'.join(_absorbed)} 与模型中其它项完全共线"
+                    "（面板里最常见的原因：时不变的列被单位固定效应吸收），"
+                    "已剔除后重新估计。秩亏只毁掉被吸收的那一个方向，"
+                    "其余系数与剔除前逐位相同。"
+                    + (f"注意下面的「关键系数」已从 {_first_before} 随之改为 {_keep[0]}。"
+                       if _first_before in _absorbed else "")
+                )
+                _degenerate = None
+        except Exception:  # noqa: BLE001 — the refit is an improvement, never a new failure mode
+            pass
     if _degenerate:
+        _who = (f"被完全解释的是预测变量 {'、'.join(_absorbed)}" if _absorbed
+                else "共线性出现在固定效应项之间（例如某个单位只出现在一个时期）")
         summary.append(
-            f"{entry.method} 失败：{_degenerate}——说明某个预测变量被其它项完全解释"
-            "（最常见：处理变量在每个单位内不随时间变化，被单位固定效应吸收）。"
-            "此时该系数与其 p 值无意义。"
-            "若为重复测量设计，请改用 repeated_measures_anova / mixed_effects；"
-            '或用 config={"predictors":[..]} 换一组预测变量。'
+            f"{entry.method} 失败：{_degenerate}——{_who}，此时该系数与其 p 值无意义。"
+            + ("关键预测变量本身不可估（最常见：处理变量在每个单位内不随时间变化，"
+               "被单位固定效应吸收）——若为重复测量设计，请改用 "
+               "repeated_measures_anova / mixed_effects；"
+               if _absorbed and not _keep else "")
+            + '可用 config={"predictors":[..]} 换一组预测变量。'
         )
         return
     (d / "summary.txt").write_text(str(model.summary()), encoding="utf-8")
