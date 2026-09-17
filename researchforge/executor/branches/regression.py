@@ -16,6 +16,14 @@ def _branch_regression(ctx: Ctx) -> None:
     df, fp, entry, cfg, d = ctx.df, ctx.fp, ctx.entry, ctx.cfg, ctx.d
     files, summary, estimates, code = ctx.files, ctx.summary, ctx.estimates, ctx.code
     y, rhs_vars, formula, model = _regression(df, fp, entry, cfg)
+    # `treatment` reaches this family through the shared _regression body, but only the did
+    # path consults it. Saying so beats a silent no-op — the config gate makes every entry
+    # declare the key, so a user who passes it here would otherwise get nothing and no word.
+    if (cfg or {}).get("treatment") and entry.id != "did":
+        summary.append(
+            f"⚠ config treatment 对 {entry.id} 无效（本族只有 did 用它来选处理项）——"
+            '要指定进入模型的变量请用 config={"predictors":[..]}。'
+        )
     # dogfood: a treatment that never varies within unit is perfectly collinear with the unit
     # fixed effects. statsmodels still "fits" — it reported a coefficient with SE ≈ 1e-13 on a
     # repeated-measures RCT where `arm` is constant per subject — and the branch reported 完成.

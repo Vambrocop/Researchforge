@@ -43,6 +43,13 @@
     - coefficient plot
   executor_ref: empirical-analysis-python
   params:
+    - name: treatment
+      type: column
+      description: >-
+        处理/暴露列（二值）。本族只有 did 使用它：从「单位内会切换」的二值列里选处理项，
+        缺省走 config > 名字阶梯（treat/arm/exposed/处理组/TRT01P…）> 切换率。
+        ols_regression / panel_fixed_effects 会忽略并提示，改用 predictors。
+      default: 自动（见上）
     - name: outcome
       type: column
       description: 结果（因变量）
@@ -68,6 +75,13 @@
     - fixed-effects regression table
   executor_ref: empirical-analysis-python
   params:
+    - name: treatment
+      type: column
+      description: >-
+        处理/暴露列（二值）。本族只有 did 使用它：从「单位内会切换」的二值列里选处理项，
+        缺省走 config > 名字阶梯（treat/arm/exposed/处理组/TRT01P…）> 切换率。
+        ols_regression / panel_fixed_effects 会忽略并提示，改用 predictors。
+      default: 自动（见上）
     - name: outcome
       type: column
       description: 结果（因变量）
@@ -593,6 +607,13 @@
     - event-study plot
   executor_ref: empirical-analysis-python
   params:
+    - name: treatment
+      type: column
+      description: >-
+        处理/暴露列（二值）。本族只有 did 使用它：从「单位内会切换」的二值列里选处理项，
+        缺省走 config > 名字阶梯（treat/arm/exposed/处理组/TRT01P…）> 切换率。
+        ols_regression / panel_fixed_effects 会忽略并提示，改用 predictors。
+      default: 自动（见上）
     - name: outcome
       type: column
       description: 结果（因变量）
