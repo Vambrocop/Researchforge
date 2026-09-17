@@ -1,0 +1,106 @@
+# Multi-label catalog entries — a data shape the engine previously had NO method for.
+#
+# Multi-label ≠ multi-class: a row carries a SET of labels at once (a document is both
+# 'politics' and 'economy'). Dogfood measured the gap: 0 of 303 methods covered it, and
+# the engine silently reduced a five-label problem to a one-label logistic regression,
+# or drifted off-task entirely (regressing one feature on the others at R²=0.88).
+#
+# The family is deliberately ordered describe → baseline → dependence, because the
+# profile is what tells you whether the chain can pay at all.
+
+- id: multilabel_profile
+  method: Multi-label structure profile (cardinality, density, co-occurrence)
+  domain: machine learning
+  family: multilabel
+  goal: describe
+  description: 'Descriptive structure of a multi-label target set — label cardinality (mean labels per row), label density, the number of distinct label combinations observed against the 2^L possible, per-label prevalence and imbalance ratio, and the pairwise co-occurrence structure as both phi correlation and Jaccard overlap. Answers the question that has to come first: are the labels actually dependent, i.e. can a chain-type method pay for its complexity? Guards against the common mix-up by refusing one-hot encoded multi-class data (no row carrying two labels) and naming the right method instead.'
+  preconditions:
+    min_categorical_cols: 3
+    min_rows: 60
+  produces:
+    - label cardinality / density / distinct vs possible label sets
+    - per-label prevalence + imbalance ratio (labels.csv)
+    - pairwise Jaccard co-occurrence matrix (label_cooccurrence.csv)
+    - prevalence bar + co-occurrence heatmap
+  executor_ref: pandas/numpy
+  params:
+    - name: labels
+      type: columns
+      description: 标签列（二值）
+      default: fingerprint 的全部二值列
+  biases:
+    - descriptive only — no prediction, no inference
+    - cardinality/density/co-occurrence are all sample-size dependent; rare-label co-occurrence is very unstable in small samples
+    - label columns are taken to be every binary column unless config labels is given — a binary FEATURE would be mistaken for a label
+
+- id: binary_relevance
+  method: Binary relevance (one classifier per label, cross-validated)
+  domain: machine learning
+  family: multilabel
+  goal: predict
+  description: 'The multi-label workhorse baseline — fits one independent logistic classifier per label under k-fold cross-validation and reports the metric set that multi-label problems actually require: Hamming loss, subset (exact-match) accuracy, micro/macro F1 and per-label F1. Every run also reports the MAJORITY-CLASS baseline for the same split, because Hamming loss rewards a model that never predicts a rare label and flatters nonsense when quoted alone. By construction it models no dependence between labels, which is exactly what makes it the baseline classifier_chain must beat.'
+  preconditions:
+    min_categorical_cols: 3
+    min_numeric_cols: 1
+    min_rows: 60
+  produces:
+    - cross-validated Hamming loss / subset accuracy / micro-F1 / macro-F1
+    - majority-class baseline for the same split (the honesty anchor)
+    - per-label CV F1 vs prevalence (labels.csv + plot)
+  executor_ref: scikit-learn
+  params:
+    - name: labels
+      type: columns
+      description: 标签列（二值）
+      default: fingerprint 的全部二值列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 数值列（二值列不自动入选，因为多标签数据里二值列多半是标签）
+    - name: folds
+      type: int
+      description: 交叉验证折数
+      default: "5"
+  biases:
+    - models each label independently — ignores label dependence by construction
+    - Hamming loss rewards never predicting a rare label; read it against the reported majority-class baseline
+    - binary columns are not auto-selected as predictors (they are presumptively labels) — use config predictors to force one in
+    - folds whose training slice holds a single class fall back to a constant prediction (counted and disclosed)
+
+- id: classifier_chain
+  method: Classifier chains (ensemble over random label orders, cross-validated)
+  domain: machine learning
+  family: multilabel
+  goal: predict
+  description: 'Models dependence BETWEEN labels by feeding each label''s prediction forward as a feature for the next. A single chain''s result depends on an arbitrary label order, so one chain is not evidence — this fits an ensemble of chains over random orders, averages their probabilities, and reports the spread of the individual chains alongside the gain over a binary-relevance baseline computed on the same CV splits. When the single-chain spread exceeds the gain, the summary says outright that "the chain is better" does not hold.'
+  preconditions:
+    min_categorical_cols: 3
+    min_numeric_cols: 1
+    min_rows: 60
+  produces:
+    - cross-validated subset accuracy / Hamming loss / micro-F1 / macro-F1
+    - gain over the binary-relevance baseline on the same splits, plus the single-chain spread
+    - chain-vs-baseline comparison plot with the majority baseline drawn in
+  executor_ref: scikit-learn
+  params:
+    - name: labels
+      type: columns
+      description: 标签列（二值）
+      default: fingerprint 的全部二值列
+    - name: predictors
+      type: columns
+      description: 预测变量
+      default: 数值列（二值列不自动入选，因为多标签数据里二值列多半是标签）
+    - name: folds
+      type: int
+      description: 交叉验证折数
+      default: "5"
+    - name: chains
+      type: int
+      description: 集成的随机标签顺序条数
+      default: "10"
+  biases:
+    - exposure bias — trained on true labels, predicts from predicted labels; errors propagate along the chain
+    - the gain over binary relevance can be smaller than the spread across label orders (reported, and called out when so)
+    - a rare label that is single-class within any training fold makes the chain unfittable — the run degrades honestly rather than dropping the label
+    - costs n_chains x folds model fits; larger label sets get expensive
