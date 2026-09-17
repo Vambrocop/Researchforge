@@ -31,7 +31,8 @@ from researchforge.executor.run import _pick_did_treatment, resolve_treatment
 from researchforge.profiler import profile_dataset
 
 _CAT = Catalog.load()
-_DEGRADED = ("失败", "跳过", "暂未接入", "未检测到")
+# 判据必须是**降级标记**，不是散文里的词。原先用裸子串 "失败"/"跳过" 判降级，而同一波新增的披露文案里就有「事件率饱和时甚至直接**失败**」——旗舰 survival frame 上 psm/ipw/aipw/rosenbaum 的 _ran() 因此恒为 False，10 个断言集体休眠、棘轮短路（冷审 A#12）。降级消息一律是「<方法>失败：」/「<方法>跳过：」的冒号形式。
+_DEGRADED = ("失败：", "跳过：", "暂未接入", "未检测到")
 
 # the causal branches that resolve a treatment through the shared helper
 _WIRED = ["psm", "ipw", "aipw", "rosenbaum_bounds", "evalue"]

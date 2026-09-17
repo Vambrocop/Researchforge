@@ -59,7 +59,7 @@ def _nudge(res) -> str:
 
 def _ran(res) -> bool:
     return bool(res.estimates) and not any(
-        k in res.summary for k in ("失败", "跳过", "暂未接入", "未检测到"))
+        k in res.summary for k in ("失败：", "跳过：", "暂未接入", "未检测到"))
 
 
 @pytest.mark.parametrize("cid", _TS_METHODS)

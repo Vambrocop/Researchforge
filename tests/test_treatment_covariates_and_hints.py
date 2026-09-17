@@ -43,7 +43,7 @@ def _fp(df, tmp_path, name="d.csv"):
 
 def _ran(res) -> bool:
     return bool(res.estimates) and not any(
-        k in res.summary for k in ("失败", "跳过", "暂未接入", "未检测到"))
+        k in res.summary for k in ("失败：", "跳过：", "暂未接入", "未检测到"))
 
 
 def _survival(censor_scale=10.0, n=400, seed=2):
