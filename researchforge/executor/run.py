@@ -211,6 +211,19 @@ def run_analysis(
     # all. So state it whenever a branch bound one, and flag disagreement with the detected
     # column. An explicitly configured treatment is the user's own call: named, not second-
     # guessed. Mirrors the outcome nudge above: one place, no branch edits.
+    if bound_treatment is None and getattr(fp, "binary_columns", None):
+        # resolve_treatment refuses to bind a frame whose only binary columns mark the
+        # ABSENCE of treatment. Without this line the branch's generic degrade message
+        # ("needs a binary treatment column") reads as false to a user who can see one.
+        from researchforge.profiler.semantics import treatment_never_named as _never
+
+        _vetoed = [c for c in fp.binary_columns if _never(c)]
+        if _vetoed and len(_vetoed) == len(fp.binary_columns):
+            summary.insert(0, (
+                f"💡 未绑定处理变量：二值列 {'、'.join(_vetoed)} 标记的是**未处理/对照**"
+                "（control/placebo 或 no_/pre_/naive 等否定形式），"
+                "绑定它会让 1=对照、估计量整体反号。"
+                '若其中某列确实是处理标记，用 config={"treatment":"<列名>"} 指定。'))
     if bound_treatment:
         _explicit = bound_treatment in {cfg.get("treatment"), cfg.get("exposure")}
         _lt = getattr(fp, "likely_treatment", None)

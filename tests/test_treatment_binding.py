@@ -574,9 +574,13 @@ def test_tx_is_only_a_treatment_when_it_is_the_whole_name(tmp_path):
         assert treatment_name_strength(n) == 0, n
     # ...while `trt` stays safe as a substring
     assert treatment_name_strength("trt") == 2
-    assert treatment_name_strength("pre_trt") == 2
+    assert treatment_name_strength("trt_group") == 2
     for n in ("part", "sort", "trtn"):
         assert treatment_name_strength(n) == 0, n
+    # `pre_trt` was asserted at 2 here until cold review A MUST-FIX 2. That assertion encoded
+    # the bug: a `pre_*` column marks the period BEFORE treatment, so binding it as the
+    # treatment inverts (or, for a calendar dummy, hijacks) the contrast.
+    assert treatment_name_strength("pre_trt") == 0
 
 
 def test_control_named_columns_are_never_bound(tmp_path):
@@ -637,3 +641,76 @@ def test_the_binary_column_list_makes_no_role_claim(tmp_path):
     fp = _fp(_survival_frame(), tmp_path, name="shape.csv")
     assert fp.binary_columns == ["event", "treatment"]        # file order, every binary
     assert not hasattr(fp, "treatment_candidates"), "the misleading alias must be gone"
+
+
+# ── cold review A MUST-FIX 1/2/4: the veto has to reach every tier ───────────
+def _confounded(flag_name, n=600, seed=7, complement=True):
+    """True ATT = -8. `flag_name` holds 1 - treated when complement, else treated."""
+    rng = np.random.default_rng(seed)
+    x1, x2 = rng.normal(0, 1, n), rng.normal(0, 1, n)
+    treated = (1 / (1 + np.exp(-(0.8 * x1 - 0.5 * x2))) > rng.random(n)).astype(int)
+    y = 20 + 2 * x1 - 1.5 * x2 - 8.0 * treated + rng.normal(0, 1, n)
+    return pd.DataFrame({"severity": x1.round(3), "biomarker": x2.round(3),
+                         flag_name: (1 - treated) if complement else treated,
+                         "outcome_score": y.round(3)})
+
+
+@pytest.mark.parametrize(
+    "flag", ["control_arm", "placebo", "untreated", "unexposed", "no_treatment",
+             "non_exposed", "never_exposed", "treatment_naive", "baseline_arm",
+             "dose_0", "pre_treatment"])
+def test_an_absence_of_treatment_flag_is_never_bound_even_when_it_is_the_only_one(
+        flag, tmp_path):
+    """The test that used to guard this had `treated` in the frame too, so it pinned the
+    ORDERING and nothing else. As the SOLE binary column each of these was bound and the
+    estimate came back with the sign inverted: measured IPW +7.652 / PSM +7.042 against a
+    truth of -8 (cold review A MUST-FIX 1 and 2)."""
+    fp = _fp(_confounded(flag), tmp_path, name=f"{flag}.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "o"))
+    assert res.treatment is None, f"bound {res.treatment!r}"
+    assert "未处理/对照" in res.summary, res.summary[:200]
+    assert not res.estimates
+
+
+def test_the_user_can_still_force_one_through_config(tmp_path):
+    """A veto on the AUTO path, not a prohibition — the estimand is then the user's call."""
+    fp = _fp(_confounded("control_arm"), tmp_path, name="forced.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "p"),
+                       config={"treatment": "control_arm"})
+    assert res.treatment == "control_arm"
+    assert res.estimates.get("ate", 0) > 0, "1 = control, so the sign is legitimately flipped"
+
+
+@pytest.mark.parametrize("name", ["处理组", "干预组", "治疗组", "实验组", "是否用药",
+                                  "TRT01PN", "TRTA", "armcd", "ACTARM", "grupo_tratado",
+                                  "tratamiento", "behandelt"])
+def test_the_binding_vocabulary_is_not_english_only(name, tmp_path):
+    """The module calls itself bilingual and ROLE_HINTS already carries 处理/组别, but the
+    BINDING vocabulary consulted neither. Measured on a Chinese frame: every one of these
+    scored 0, the resolver fell through to `sex`, and the report said +1.385 where the
+    truth was -7.84 — with no warning, because the fallback tier issues none.
+    CDISC is the same hole in Latin script: TRT01P / TRTA / ARMCD are THE standard
+    treatment variables in clinical submissions."""
+    df = _confounded(name, complement=False)
+    df["sex"] = np.random.default_rng(1).integers(0, 2, len(df))
+    fp = _fp(df, tmp_path, name="i18n.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "q"))
+    assert res.treatment == name, f"bound {res.treatment!r} instead"
+    assert res.estimates["ate"] < -6.0, res.estimates
+
+
+def test_the_control_mirror_does_not_enter_the_propensity_model(tmp_path):
+    """Found while verifying the veto: with `treated` correctly bound, `control_arm`
+    (= 1 - treated) still went into the AUTO covariate set, separating the propensity model
+    perfectly. The user got a naked '逆概率加权失败：Singular matrix' and estimates={}."""
+    df = _confounded("control_arm")
+    df["treated"] = 1 - df["control_arm"]
+    fp = _fp(df, tmp_path, name="mirror.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "r"))
+    assert res.treatment == "treated"
+    # NOT `"Singular matrix" not in summary` — the disclosure this fix adds quotes that very
+    # phrase to explain what used to happen, so the naive check fails on the fixed build.
+    # Same disease as cold review A#12: prose and degrade marker sharing a vocabulary.
+    assert "失败：" not in res.summary, res.summary[:200]
+    assert -9.0 < res.estimates["ate"] < -7.0, res.estimates
+    assert "确定性函数" in res.summary and "control_arm" in res.summary

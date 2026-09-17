@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.profiler.semantics import survival_event_column
+from researchforge.profiler.semantics import (
+    survival_event_column,
+    treatment_never_named,
+)
 from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
@@ -36,9 +39,21 @@ def _branch_ipw(ctx: Ctx) -> None:
         # failure once the event rate saturates. AUTO set only — an explicit config
         # covariates list stays the user's call — and disclosed in the summary.
         _post = survival_event_column(fp)
+        # A control/negated flag is a deterministic function of the treatment (control_arm
+        # = 1 - treated), so it is never a confounder — and putting it in the propensity
+        # model separates it perfectly, which surfaced as a naked "Singular matrix".
+        _mirror = {c.name for c in fp.columns
+                   if c.name != treatment and treatment_never_named(c.name)}
         covs = [c.name for c in fp.columns if c.kind in {"continuous", "binary", "count"}
-                and c.name not in (_excl | {outcome, treatment}
+                and c.name not in (_excl | {outcome, treatment} | _mirror
                                    | ({_post} if _post else set()))]
+        if _mirror:
+            summary.append(
+                f"⚠ 已把 {'、'.join(sorted(_mirror))} 排除在自动协变量之外："
+                "它标记的是未处理/对照，是处理变量的确定性函数（而非混杂因子），"
+                "放进倾向模型会造成完全分离（此前表现为一句裸的 Singular matrix）。"
+                "若确需纳入，用 config covariates 显式指定。"
+            )
         if _post:
             summary.append(
                 f"⚠ 已把 '{_post}' 排除在自动协变量之外：它是生存数据的事件指示列"

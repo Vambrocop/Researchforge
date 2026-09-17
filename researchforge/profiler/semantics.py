@@ -63,7 +63,11 @@ _TREATMENT_BIND_RE = re.compile(
 #   `tx` lives here, not above: as a substring it fires across the whole payments/crypto
 #   domain (tx_date / tx_id / tx_amount / tx_online / tx_declined …) and bound `tx_online`
 #   as the "treatment", reporting ATT=+7.4 where the truth was -15. A bare `tx` column is
-#   rare and CDISC standardises on TRT01P/TRTA, so the recall it buys is ~0.
+#   rare, so the recall it buys is ~0.
+#   (This note used to argue the point with "CDISC standardises on TRT01P/TRTA". True, but it
+#   was an argument AGAINST the code as written: `trt` matched neither of them, because
+#   TRT01P has a digit after the root rather than a word boundary. They are covered now by
+#   _TREATMENT_BIND_CDISC_RE — cold review A MUST-FIX 4.)
 #   `trt` stays a substring above — verified safe: no English word contains it at word
 #   boundaries (trt / trt_group / pre_trt match; part / sort / trtn do not).
 # NOT here on purpose: `control`/`control_group`. Binding a control indicator makes 1=control,
@@ -76,6 +80,52 @@ _TREATMENT_BIND_EXACT_RE = re.compile(r"(group|grp|groups|condition|cond|tx)", r
 # This rule overrides both vocabularies above.
 _TREATMENT_NEVER_RE = re.compile(
     r"(?:^|_|\b)(control|ctrl|placebo|comparator|sham)(?:$|_|\b)", re.I)
+
+# NEGATED forms mark the ABSENCE of treatment, so binding one inverts the contrast exactly
+# like a control flag does. Cold review A MUST-FIX 2 measured every one of these at
+# strength 2 (`no_treatment` even reported high confidence): as the sole binary they gave
+# IPW +7.652 against a truth of -8, and alongside a correct `treated` column they won on
+# file order for +6.435. That `untreated` / `unexposed` happened to score 0 was luck, not
+# design — there is no separator before the word root, so the strong regex missed them.
+#
+# `pre_`/`post_`/`baseline_` are here for a different reason than `no_`/`non_`: they mark a
+# PERIOD, not an assignment. A calendar `post` dummy is exactly the column that hijacked the
+# DiD estimand in the H4d cold review.
+_TREATMENT_NEGATED_RE = re.compile(
+    r"(?:^|_|\b)("
+    r"no|non|not|never|without|un|anti|"
+    r"pre|post|prior|baseline|before|after|"
+    r"naive|untreated|unexposed|nontreated|nonexposed|"
+    r"treatment_naive|treatment_failure"
+    r")[_\s-]?(treat|treated|treatment|trt|exposed|exposure|arm|dose|intervention|"
+    r"assigned|assignment|policy|program)(?:$|_|\b)",
+    re.I,
+)
+# ...and the same idea written the other way round (`treatment_naive`, `dose_0`, `arm_0`).
+_TREATMENT_NEGATED_SUFFIX_RE = re.compile(
+    r"(?:^|_|\b)(treat|treated|treatment|trt|exposed|exposure|arm|dose|intervention)"
+    r"[_\s-]?(naive|failure|free|none|0|zero|neg|negative)(?:$|_|\b)",
+    re.I,
+)
+
+# MUST-FIX 4: the strong vocabulary above is ENGLISH-ONLY, while this module calls itself
+# bilingual and ROLE_HINTS["treatment"] already carries 处理/组别/剂量/水平. Measured on a
+# Chinese frame (true effect -7.84): 处理组 / 干预组 / 治疗组 / 实验组 / 是否用药 scored 0,
+# the resolver fell through to `sex`, and the report said +1.385 with no warning at all.
+# CDISC is the same hole in Latin script: TRT01P / TRT01PN / TRTA / TRTAN / ARMCD / ACTARM
+# are THE standard treatment variables in clinical submissions, and `trt` never matched any
+# of them (TRT01P has a digit after the root, not a word boundary).
+_TREATMENT_BIND_I18N = (
+    "处理", "干预", "治疗", "实验组", "试验组", "用药", "给药", "施肥", "剂量",
+    "tratado", "tratamiento", "tratamento", "traitement", "behandelt", "behandlung",
+    "trattamento", "лечение",
+)
+# Pinned to the ACTUAL CDISC variable names, not a loose prefix: TRT01P / TRT01PN / TRT02A
+# (period-indexed planned/actual treatment), TRTA / TRTAN / TRTP / TRTPN, ARM / ARMCD /
+# ACTARM / ACTARMCD. My first version was `trt\d*[apn]*`, which also swallowed `trtn` —
+# a name test_treatment_binding.py has pinned at 0 since Wave H4d.
+_TREATMENT_BIND_CDISC_RE = re.compile(
+    r"^(trt\d{2}[apn]{1,2}|trt[ap]n?|armcd|actarm(cd)?|arm\d+)$", re.I)
 
 # WEAK compound: `<study|case|experimental> + <group|grp|cohort>` is an arm in RCT/case-control
 # layouts. Kept weak (never outranks a strong word) because "study group" can also just mean
@@ -101,13 +151,32 @@ def treatment_name_strength(name: str) -> int:
     ``[score, group, treated, age]`` — `group` = study site, `treated` = the arm — the weak
     escape outranked the strong word and PSM reported ATT=+3.87 against a truth of -8."""
     n = str(name).strip()
-    if _TREATMENT_NEVER_RE.search(n):
-        return 0              # a control/placebo flag inverts the contrast — never bind it
+    if treatment_never_named(n):
+        return 0              # control / placebo / negated — binding it inverts the contrast
+    if _TREATMENT_BIND_CDISC_RE.match(n):
+        return 2              # CDISC standard treatment variables (TRT01PN / TRTA / ARMCD)
     if _TREATMENT_BIND_RE.search(n):
         return 2
+    _low = n.lower()
+    if any(h in _low for h in _TREATMENT_BIND_I18N):
+        return 2              # 处理组 / 干预组 / tratamiento / behandlung …
     if _TREATMENT_BIND_EXACT_RE.fullmatch(n) or _TREATMENT_BIND_COMPOUND_RE.search(n):
         return 1
     return 0
+
+
+def treatment_never_named(name: str) -> bool:
+    """True when a column name marks the ABSENCE of treatment — a control/placebo flag, or a
+    negated/period form (`no_treatment`, `pre_treatment`, `dose_0`, `treatment_failure`).
+
+    Binding any of these reports the same contrast with the sign inverted, silently. This is
+    a VETO, not a demotion: cold review A MUST-FIX 1 showed that scoring them 0 only removed
+    them from the name-ranked tier, while the positional tiers below happily bound them when
+    they were the only binary column in the frame."""
+    n = str(name).strip()
+    return bool(_TREATMENT_NEVER_RE.search(n)
+                or _TREATMENT_NEGATED_RE.search(n)
+                or _TREATMENT_NEGATED_SUFFIX_RE.search(n))
 
 
 def role_hint(name: str, role: str) -> bool:

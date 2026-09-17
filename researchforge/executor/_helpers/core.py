@@ -110,6 +110,7 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
     frame (the same escape ``resolve_predictors`` takes). Returns None only when there is
     no candidate and no configured column."""
     from researchforge.profiler.roles import treatment_name_strength
+    from researchforge.profiler.semantics import role_hint, treatment_never_named
 
     cfg = cfg or {}
     if not candidates and not (df is not None and cfg.get("treatment") in df.columns):
@@ -133,15 +134,32 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
         # delta-review D2: rank by SIGNAL STRENGTH, not file order — a weak whole-name
         # match (`group` as a study site) must never outrank a strong word (`treated`).
         # Ties keep dataframe order (sorted is stable).
-        _scored = [(treatment_name_strength(c), c) for c in candidates if c != lo]
+        # cold review A MUST-FIX 1: scoring a control/negated flag 0 only removed it from the
+        # RANKED tier. The positional tiers below had no filter at all, so when `control_arm`
+        # (or `placebo`, `untreated`, `no_treatment`) was the only binary column the resolver
+        # bound it and the estimate came back with the sign inverted and no warning: measured
+        # IPW +7.652 / PSM +7.042 against a truth of -8. The veto has to apply to EVERY tier.
+        _ok = [c for c in candidates if not treatment_never_named(c)]
+        if not _ok:
+            # Every candidate marks the ABSENCE of treatment. There is no orientation we can
+            # honestly assume (flipping it for the user would be a silent re-definition of the
+            # estimand), so decline to bind — callers degrade and ask for config treatment.
+            return None
+        _scored = [(treatment_name_strength(c), c) for c in _ok if c != lo]
         named = [c for st, c in sorted(_scored, key=lambda kv: -kv[0]) if st > 0]
         if named:
             chosen = named[0]
-        elif lt in candidates:
+        elif lt in _ok:
             chosen = lt
         else:
-            non_out = [c for c in candidates if c != lo]
-            chosen = non_out[0] if non_out else candidates[0]
+            # MUST-FIX 3: the positional fallback excluded only `fp.likely_outcome`, so a
+            # SECOND outcome-named binary was fair game — on [severity, relapse,
+            # treatment_failure, treated, age] it bound `treatment_failure`, a post-treatment
+            # outcome, for IPW +6.689. A strong treatment word still wins above; down here,
+            # where the only signal is column order, an outcome-shaped name is a reason to
+            # keep looking.
+            non_out = [c for c in _ok if c != lo and not role_hint(c, "event")]
+            chosen = non_out[0] if non_out else next((c for c in _ok if c != lo), _ok[0])
     _record_bound_treatment(chosen)
     return chosen
 
