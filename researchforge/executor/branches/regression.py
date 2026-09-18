@@ -121,9 +121,14 @@ def _branch_regression(ctx: Ctx) -> None:
                 else "共线性出现在固定效应项之间（例如某个单位只出现在一个时期）")
         summary.append(
             f"{entry.method} 失败：{_degenerate}——{_who}，此时该系数与其 p 值无意义。"
+            # cold review C/S6: the B1 gating is right, but `repeated_measures_anova` was the
+            # wrong name to offer. A column absorbed by the unit fixed effects is BETWEEN-
+            # subject by definition, and a one-way within-subject RM-ANOVA can never estimate
+            # a between factor — it silently drops it, picks `year` instead, and returns
+            # p=7.56e-12 for a question the user did not ask. mixed_effects recovers it.
             + ("关键预测变量本身不可估（最常见：处理变量在每个单位内不随时间变化，"
-               "被单位固定效应吸收）——若为重复测量设计，请改用 "
-               "repeated_measures_anova / mixed_effects；"
+               "被单位固定效应吸收）——它按定义是**组间**变量，"
+               "请改用 mixed_effects（随机截距可同时容纳组间与组内项）；"
                if _absorbed and not _keep else "")
             + '可用 config={"predictors":[..]} 换一组预测变量。'
         )

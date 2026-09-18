@@ -122,3 +122,97 @@ def test_wide_format_inference_is_untouched(tmp_path):
     if "失败" in res.summary:
         pytest.skip(res.summary[:80])
     assert res.estimates["n_conditions"] == 3
+
+
+# ── cold review C ────────────────────────────────────────────────────────────
+def _tiny_rm(n_subj=3, k=5, seed=1):
+    """n <= k-1, so the covariance of the (k-1) contrasts is RANK DEFICIENT."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for s in range(n_subj):
+        b = rng.normal(0, 3)
+        for w in range(k):
+            rows.append({"subject": f"p{s}", "week": w,
+                         "score": round(float(50 + b - 1.2 * w + rng.normal(0, 1.5)), 2)})
+    return pd.DataFrame(rows)
+
+
+def _rct_with_arm(n_subj=60, n_t=5, seed=3):
+    """`arm` is constant within subject — a BETWEEN-subject factor."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for s in range(n_subj):
+        grp = "drug" if s % 2 == 0 else "placebo"
+        re_s = rng.normal(0, 4.0)
+        for t in range(n_t):
+            rows.append({"subject": f"p{s:03d}", "week": t, "arm": grp,
+                         "pain_score": round(float(50 + re_s - 1.5 * t
+                                                   - 2.5 * t * (grp == "drug")
+                                                   + rng.normal(0, 2.0)), 2)})
+    return pd.DataFrame(rows)
+
+
+def test_mauchly_is_refused_when_the_contrast_covariance_is_rank_deficient(tmp_path):
+    """C/M1: dropping the zero eigenvalues left GG intact but turned Mauchly's W into a
+    ratio over the surviving eigenvalues only, so W jumped up and the test reported
+    'sphericity is fine'. Measured at 3 subjects x 5 conditions: true W = -6.5e-32, the
+    engine returned W = 0.0282 and p = 0.997, so the summary recommended the UNCORRECTED
+    p (0.012, significant) where the GG-corrected one is 0.0886. R refuses on this matrix."""
+    csv = tmp_path / "tiny.csv"
+    _tiny_rm().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "o"))
+    mp = res.estimates.get("mauchly_p")
+    assert mp != mp, f"Mauchly must be NOT COMPUTABLE here, got {mp}"
+    assert "无法检验" in res.summary, res.summary[:300]
+    assert "GG 校正" in res.summary
+    assert "未拒绝" not in res.summary, "silence must not read as 'sphericity is fine'"
+
+
+def test_a_between_subject_factor_is_named_instead_of_silently_dropped(tmp_path):
+    """C/M2: AnovaRM fits a pure within model, so `arm` and arm x week are not in it and
+    their sums of squares land in the error term. Against R's split-plot on this exact
+    fixture: within F 260.30 -> 139.39 (error SS 1007 -> 1850), arm:week F(4,232)=48.57
+    never estimated, GG epsilon 0.9531 -> 0.6324 — the branch then announced a sphericity
+    violation that the correctly specified model does not have."""
+    csv = tmp_path / "rct.csv"
+    _rct_with_arm().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "p"))
+    assert "组间因子" in res.summary and "arm" in res.summary, res.summary[:300]
+    assert "交互项都没有被估计" in res.summary
+    assert "mixed_effects" in res.summary, "the honest exit has to be named"
+
+
+def test_the_between_factor_notice_does_not_cry_wolf(tmp_path):
+    """The first version of this detection keyed off `long_df.columns` — which carries only
+    subject/within/outcome — so it never fired on the fixture it was written for. Both
+    directions get pinned."""
+    csv = tmp_path / "nobetween.csv"
+    _rct_with_arm().drop(columns=["arm"]).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "q"))
+    assert "组间因子" not in res.summary
+
+
+def test_the_rank_guard_no_longer_sends_panels_to_rm_anova(tmp_path):
+    """C/S6: a column absorbed by the unit fixed effects is BETWEEN-subject by definition,
+    and a one-way within RM-ANOVA can never estimate a between factor — it drops it, picks
+    `year`, and returns p=7.56e-12 for a question nobody asked."""
+    rng = np.random.default_rng(3)
+    rows = []
+    for s in range(60):
+        grp = "drug" if s % 2 == 0 else "placebo"
+        re_s = rng.normal(0, 4.0)
+        for t in range(5):
+            rows.append({"subject": f"p{s:03d}", "week": t, "arm": grp,
+                         "pain_score": round(float(50 + re_s - 1.5 * t
+                                                   - 2.5 * t * (grp == "drug")
+                                                   + rng.normal(0, 2.0)), 2)})
+    csv = tmp_path / "absorbed.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("did"), output_root=str(tmp_path / "r"))
+    assert "失败" in res.summary and "秩亏" in res.summary
+    assert "mixed_effects" in res.summary
+    assert "repeated_measures_anova" not in res.summary, (
+        "RM-ANOVA cannot estimate a between-subject factor")

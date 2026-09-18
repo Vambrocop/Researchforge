@@ -627,16 +627,54 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
         except Exception:
             pass
 
+        # cold review C/M2: a column that is CONSTANT within subject but varies BETWEEN them
+        # is a between-subject factor (an RCT arm, a sex, a site). AnovaRM fits a pure
+        # within-subject model, so such a factor and its interaction with `within` are not in
+        # the model at all — their sum of squares lands in the ERROR term. Measured against
+        # R's split-plot on the RCT fixture this branch was built on: the within main effect
+        # fell 260.30 -> 139.39 (error SS 1007 -> 1850), arm:week F(4,232)=48.57 — the actual
+        # treatment effect — was never estimated, and GG epsilon moved 0.9531 -> 0.6324, so
+        # the branch announced a sphericity violation that the correctly specified model does
+        # not have. Fitting the split-plot is a spec change (deferred, needs its own review);
+        # the silence is what gets fixed here.
+        _between = []
+        try:
+            for _c in df.columns:
+                # against `df`, not `long_df`: the long frame carries only
+                # subject/within/outcome, so keying off it found nothing at all — the first
+                # version of this disclosure never fired on the very fixture it was written
+                # for. (Guards have to be watched firing; this one was not, twice in a row.)
+                if _c in {subject, within, outcome}:
+                    continue
+                if int(df[_c].nunique(dropna=True)) not in range(2, max(3, len(df) // 2)):
+                    continue
+                _per = df.groupby(subject, observed=True)[_c].nunique(dropna=True)
+                if bool((_per <= 1).all()) and int(df[_c].nunique(dropna=True)) > 1:
+                    _between.append(_c)
+        except Exception:  # noqa: BLE001 — a disclosure must never break the run
+            _between = []
+
         fmt = "宽表(已自动 melt)" if wide_used else "长表"
         drop_note = f"（去除 {n_dropped} 名缺条件/重复的受试者）" if n_dropped > 0 else ""
         sig = "显著" if (p_value == p_value and p_value < 0.05) else "不显著"
         if mauchly_p == mauchly_p and mauchly_p < 0.05:
+            # HF is reported alongside GG because GG is over-conservative once eps > 0.75,
+            # which is exactly where the two diverge. Verified against R: HF = 0.6630327.
             sph_note = (f"⚠ Mauchly 球形度检验被拒绝(p≈{mauchly_p:.3g})——球形假定违反，"
-                        f"采用 GG 校正 p={gg_p:.3g}（ε_GG={gg_eps:.3f}）。")
+                        f"采用 GG 校正 p={gg_p:.3g}（ε_GG={gg_eps:.3f}）"
+                        + (f"；HF ε={hf_eps:.4f}（ε>0.75 时 GG 偏保守，可改用 HF）。"
+                           if hf_eps == hf_eps else "。"))
         elif mauchly_p == mauchly_p:
-            sph_note = f"Mauchly 球形度检验未拒绝(p≈{mauchly_p:.3g})，未校正 p 可用；GG 校正 p={gg_p:.3g} 备查。"
+            sph_note = (f"Mauchly 球形度检验未拒绝(p≈{mauchly_p:.3g})，未校正 p 可用；"
+                        f"GG 校正 p={gg_p:.3g} 备查"
+                        + (f"；HF ε={hf_eps:.4f}" if hf_eps == hf_eps else "") + "。")
         else:
-            sph_note = f"（Mauchly 近似不可估，仍报 GG 校正 p={gg_p:.3g}, ε_GG={gg_eps:.3f}）"
+            # cold review C/M1: no Mauchly p at all (n <= k-1 -> rank-deficient contrast
+            # covariance). Silence here used to read as "sphericity is fine". It is not
+            # tested; the conservative correction is the honest default.
+            sph_note = (f"⚠ 球形度**无法检验**（受试者数 {n_subj} ≤ 条件数−1 = {n_cond - 1}，"
+                        "对比协方差矩阵秩亏，Mauchly's W 无定义——R 在同样的数据上也拒绝给出）。"
+                        f"**请用 GG 校正 p={gg_p:.3g}**（ε_GG={gg_eps:.3f}），不要用未校正 p。")
         summary.append(
             f"{entry.method} 完成（{fmt}{drop_note}）：{n_subj} 名受试者 × {n_cond} 个条件（{within}，结果 {outcome}）；"
             f"组内主效应 F({num_df:.0f},{den_df:.0f})={f_stat:.3f}, p={p_value:.3g}（{sig}），偏 η²={partial_eta:.3f}。"
@@ -644,6 +682,18 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
             " ⚠ RM-ANOVA 假定球形度（Mauchly 查；违反时用已报的 GG 校正 p）；需 ≥2 条件且平衡（缺条件的受试者已删并披露）；"
             "Mauchly p 由卡方近似得出（小样本近似），ε 由条件协方差阵算。config 可指定 subject/within/outcome（或 measures 宽表）。"
         )
+        if _between:
+            summary.append(
+                f"⚠ **检测到组间因子 {'、'.join(_between)}，但本模型没有包含它**。"
+                "AnovaRM 拟合的是纯组内模型，组间主效应与 "
+                f"{'、'.join(_between)}×{within} **交互项都没有被估计**，"
+                "它们的平方和全部落进误差项——这会**压低**上面的组内 F，"
+                "并且可能**凭空造出一个球形性违反**"
+                "（实测一份 RCT：正确设定下组内 F=260.30、GG ε=0.953，"
+                "本模型给出 F=139.39、GG ε=0.632，而真正的处理效应 arm×week F=48.57 从未出现）。"
+                "若组间因子是你关心的对象（随机对照试验的臂别、性别、中心），"
+                "**请改用 mixed_effects**，或用 config within 指定你真正要检验的组内因子。"
+            )
         code += [
             "from statsmodels.stats.anova import AnovaRM",
             f"rm = AnovaRM(long_df, depvar='{outcome}', subject='{subject}', within=['{within}']).fit()",
@@ -680,6 +730,17 @@ def _sphericity(M):
         m = len(eig)
         if m == 0:
             return float("nan"), float("nan"), float("nan")
+        # cold review C/M1: with n <= k-1 the covariance of the contrasts is RANK DEFICIENT.
+        # Dropping its zero eigenvalues leaves GG intact (zeros contribute nothing to either
+        # sum) but destroys Mauchly's W = prod(lambda) / (sum(lambda)/p)**p, which is a ratio
+        # over ALL p eigenvalues: the product silently loses its zero factors and W jumps up.
+        # Measured, 3 subjects x 5 conditions: true W = -6.5e-32, this returned W = 0.0282
+        # and Mauchly p = 0.997 — "sphericity is fine", so the summary recommended the
+        # UNCORRECTED p (0.012, significant) where the GG-corrected one is 0.0886. Worst
+        # Monte Carlo case at n=5, k=6: p = 1.0000 against a truth of 4.25e-09.
+        # R refuses outright here (car::Anova returns an empty sphericity.tests and GG = NA);
+        # we keep GG (still well defined) and report the TEST as not computable.
+        _rank_deficient = m < (k - 1)
         # Greenhouse-Geisser epsilon = (sum λ)^2 / ((k-1) * sum λ^2)
         gg = float((eig.sum() ** 2) / ((k - 1) * (eig ** 2).sum()))
         gg = max(1.0 / (k - 1), min(1.0, gg))  # bound to [1/(k-1), 1]
@@ -698,6 +759,8 @@ def _sphericity(M):
         p = k - 1
         W = detS / ((trS / p) ** p) if trS > 1e-12 else float("nan")
         mauchly_p = float("nan")
+        if _rank_deficient:
+            W = float("nan")
         if W == W and W > 0:
             dfree = p * (p + 1) // 2 - 1
             d_corr = 1.0 - (2.0 * p ** 2 + p + 2.0) / (6.0 * p * (n - 1))
