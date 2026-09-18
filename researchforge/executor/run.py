@@ -247,7 +247,16 @@ def run_analysis(
             except Exception:  # noqa: BLE001 — a disclosure must never break a run
                 pass
         else:
-            _tnote = "——如需改用其他列，用 config treatment 指定"
+            # cold review A#8: the confidence roles.py computes was shown in cli/study_report/
+            # web but NOT here — and the run summary is exactly where a reader needs to know
+            # that "treatment" was a positional guess. Measured danger case: a frame whose
+            # treatment name the vocabulary did not know, conf='low', a significant ATE, and
+            # nothing in the report to suggest the number meant nothing.
+            _conf = getattr(fp, "likely_treatment_confidence", None)
+            _qual = {"high": "", "medium": "（角色检测置信度 中）",
+                     "low": "（⚠ 角色检测置信度 **低**——这更接近按列序猜的，"
+                            "请核对它确实是处理/暴露列）"}.get(_conf, "")
+            _tnote = _qual + "——如需改用其他列，用 config treatment 指定"
         summary.insert(_nudge_pos,
                        f"💡 本方法把 '{bound_treatment}' 当作处理/暴露变量{_tnote}。")
 

@@ -798,3 +798,49 @@ def test_the_event_indicator_stays_out_of_their_covariates(mid, tmp_path):
     if "跳过" in res.summary or "需要" in res.summary:
         pytest.skip(f"{mid} degraded (optional backend missing)")
     assert "排除在自动协变量之外" in res.summary and "event" in res.summary
+
+
+# ── cold review A#8 / A#9 ────────────────────────────────────────────────────
+@pytest.mark.parametrize("mid", ["psm", "ipw", "aipw"])
+def test_a_configured_outcome_is_not_also_bound_as_the_treatment(mid, tmp_path):
+    """A#9: the exclusion consulted only the DETECTED outcome, so config={"outcome":"relapse"}
+    on a frame with no treatment word bound `relapse` as BOTH roles and the branch died with
+    a bare `TypeError: '<' not supported between instances of 'str' and 'NoneType'`."""
+    rng = np.random.default_rng(3)
+    n = 400
+    df = pd.DataFrame({"severity": rng.normal(0, 1, n).round(3),
+                       "relapse": (rng.random(n) < 0.4).astype(int),
+                       "age": rng.normal(50, 10, n).round(1),
+                       "score": rng.normal(20, 3, n).round(3)})
+    fp = _fp(df, tmp_path, name=f"{mid}_cfg.csv")
+    res = run_analysis(fp, _CAT.by_id(mid), output_root=str(tmp_path / mid),
+                       config={"outcome": "relapse"})
+    assert res.treatment != "relapse", "treatment == outcome is not an estimand"
+    assert "TypeError" not in res.summary, res.summary[-200:]
+    # either degrade marker — aipw says 跳过, psm/ipw say 失败; both are the colon form the
+    # ratchet was tightened to in cold review A#12.
+    assert any(k in res.summary for k in _DEGRADED), "an honest degrade, not a traceback"
+
+
+def test_a_low_confidence_treatment_says_so_in_the_run_summary(tmp_path):
+    """A#8: roles.py computes the confidence and cli/study_report/web show it, but the RUN
+    summary — the one place a reader sees the number — did not. The dangerous case is a
+    positional guess that produces a perfectly significant-looking estimate."""
+    rng = np.random.default_rng(3)
+    n = 400
+    df = pd.DataFrame({"severity": rng.normal(0, 1, n).round(3),
+                       "flagx": (rng.random(n) < 0.5).astype(int),
+                       "age": rng.normal(50, 10, n).round(1),
+                       "score": rng.normal(20, 3, n).round(3)})
+    fp = _fp(df, tmp_path, name="lowconf.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "o"))
+    assert res.treatment == "flagx"
+    assert "置信度" in res.summary and "低" in res.summary, res.summary[:300]
+
+
+def test_a_named_treatment_carries_no_confidence_hedge(tmp_path):
+    """The qualifier must not cry wolf on an unambiguous name."""
+    fp = _fp(_confounded("treated", complement=False), tmp_path, name="highconf.csv")
+    res = run_analysis(fp, _CAT.by_id("ipw"), output_root=str(tmp_path / "p"))
+    assert res.treatment == "treated"
+    assert "角色检测置信度" not in res.summary

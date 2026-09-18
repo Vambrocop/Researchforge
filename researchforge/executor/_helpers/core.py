@@ -124,7 +124,15 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
         chosen = forced
     else:
         lt = getattr(fp, "likely_treatment", None)
-        lo = getattr(fp, "likely_outcome", None)
+        # cold review A#9: the exclusion used ONLY the DETECTED outcome, so an explicitly
+        # configured one was fair game — config={"outcome":"relapse"} on a frame with no
+        # treatment word bound `relapse` as BOTH roles and psm/ipw/aipw died with a bare
+        # `TypeError: '<' not supported between instances of 'str' and 'NoneType'`, with no
+        # word about the treatment and the outcome being the same column. The user's own
+        # declaration is the strongest outcome signal there is; it has to win here too.
+        lo = (cfg.get("outcome")
+              if cfg.get("outcome") in (df.columns if df is not None else candidates)
+              else getattr(fp, "likely_outcome", None))
         # cold-review SHOULD-FIX 4: roles.py builds likely_treatment as "first
         # treatment-named binary EXCLUDING the detected outcome"; re-running the name
         # match without that exclusion let tier 2 short-circuit tier 3 and bind a binary
@@ -159,7 +167,11 @@ def resolve_treatment(fp: DataFingerprint, cfg: dict | None,
             # where the only signal is column order, an outcome-shaped name is a reason to
             # keep looking.
             non_out = [c for c in _ok if c != lo and not role_hint(c, "event")]
-            chosen = non_out[0] if non_out else next((c for c in _ok if c != lo), _ok[0])
+            chosen = non_out[0] if non_out else next((c for c in _ok if c != lo), None)
+            if chosen is None:
+                # Every candidate is the outcome. Binding it makes treatment == outcome,
+                # which is not an estimand — decline and let the caller degrade honestly.
+                return None
     _record_bound_treatment(chosen)
     return chosen
 
