@@ -661,13 +661,18 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
   旗舰 survival frame 上 psm/ipw/aipw/rosenbaum 的 `_ran()` 恒 False，分析其实成功。
   实测 124 passed/14 skipped → **134 passed/4 skipped**，断言全部正确，是棘轮脱扣。
   **判据收紧为「失败：」「跳过：」的冒号形式。**
-- 🟡 **未修（记账）**：#6 `g_computation`/`double_ml`/`causal_forest` 三个分支**根本没接**
-  共享解析器（旗舰 frame 真 ATE≈−7.0，三者报 **+1.240 / −15.798 / +1.341**，摘要直接写
-  「处理 **event** → duration」）；#8 `likely_treatment_confidence` **是纯披露，且运行摘要
-  里根本没显示**——最需要看到「这只是列序猜测」的场合恰恰是运行报告；#9 outcome 排除不认
-  `config["outcome"]` → 处理列==结果列 → 裸 `TypeError`；#7 其余处理后变量偏差温和
-  （处理后二值结局 −6.947 vs 正确 −8.616；碰撞变量 −8.581 vs −7.649），
-  **中介是唯一会翻符号的那一类**。
+- 🔴 **同族另外三个分支根本没接共享解析器**（#6，已修）。`g_computation`/`double_ml`/
+  `causal_forest` 仍是「第一个二值列」——**H4d 修掉的那个 bug 的原样，只是没人回来看过**。
+  旗舰 frame 实测三者报 **+1.240 / −15.798 / +1.341**，后两个的摘要**直接写着
+  「处理 event → duration」**。`RunResult.treatment is None` **一直指着它们**，H4d 建这个
+  不变式就是为了这个，上一波却没回头处理。修后 5.592 / 5.527 / 5.536（真实分组差 +5.691）。
+  协变量卫生抽到 `causal/_covariate_hygiene.py`——这条规则现在有六个使用方。
+- 🟡 **#8/#9 已修**：`likely_treatment_confidence` 在 cli/study_report/web 都显示、
+  **唯独运行摘要没有**（而运行摘要恰恰是读者看数字的地方）；outcome 排除只认检测到的结果列，
+  `config={"outcome":"relapse"}` 让同一列同时当处理和结果 → 三个分支裸 `TypeError`，
+  且没有一句提示两个角色撞了。
+- 🟡 **未修（记账）**：#7 其余处理后变量偏差温和（处理后二值结局 −6.947 vs 正确 −8.616；
+  碰撞变量 −8.581 vs −7.649），**中介是唯一会翻符号的那一类**。
 
 **B · ARIMA 成本模型 + 秩亏守卫（我上一波的两个自伤）：**
 - 🔴 **成本公式两处都错**（A0）。冷审去查了 statsmodels 源码（sarimax.py:425/453-457），
@@ -710,6 +715,11 @@ R：lavaan, QCA, SetMethods, frontier, plm, gstat, spdep, vegan, cna, metafor, m
    （`"Singular matrix" not in summary`，而新披露正是在引用这句话解释「此前会怎样」）。
 3. **我的反推可以整条是错的。** ARIMA 那条我不是算错了一个数，是**把优化器迭代次数当成了
    状态维数**——两个不同量纲的东西。测量对了，归因错了，结论就整条塌掉。
+4. **守卫存在 ≠ 守卫在跑 ≠ 守卫覆盖到。** 全量套件在门禁跑绿之后又逮到两条红：新加的
+   multilabel 家族没有 affinity/scoring 画像——而那两个守卫**根本不在 GATE_MODULES 里**。
+   家族缺画像不会报错，只会静默回退 `_DEFAULT`、推荐质量变差，正是门禁的收录判据。
+   已收进门禁（合计 ~3s）。**这是门禁第三次因「覆盖面」而非「守卫本身」失灵**：
+   第一次是守卫被登记在 SLOW_MODULES（快循环从不跑），第二次是「零声明」条目等于免检。
 
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
