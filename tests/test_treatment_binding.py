@@ -752,3 +752,49 @@ def test_did_config_treatment_is_no_longer_inert(named, tmp_path):
                        config={"treatment": named})
     assert res.treatment == named
     assert named in res.estimates
+
+
+# ── cold review A#6: three branches never wired to the shared resolver ───────
+def _survival_shaped(n=600, seed=11):
+    """The flagship shape the whole role-binding line started from: a duration, an EVENT
+    indicator, and a treatment. The event indicator is the decoy — it is a descendant of
+    the duration, so grouping by it produces a difference of the WRONG SIGN."""
+    rng = np.random.default_rng(seed)
+    treatment = (rng.random(n) < 0.5).astype(int)
+    age = rng.normal(55, 12, n)
+    biomarker = rng.normal(0, 1, n)
+    dur = np.exp(2.2 + 0.9 * treatment - 0.01 * age + 0.15 * biomarker
+                 + rng.normal(0, 0.35, n))
+    cens = np.exp(2.6 + rng.normal(0, 0.5, n))
+    return pd.DataFrame({"duration": np.minimum(dur, cens).round(3),
+                         "event": (dur <= cens).astype(int), "treatment": treatment,
+                         "age": age.round(1), "biomarker": biomarker.round(3)})
+
+
+@pytest.mark.parametrize("mid", ["g_computation", "double_ml", "causal_forest"])
+def test_the_rest_of_the_causal_family_binds_the_treatment_too(mid, tmp_path):
+    """These three still selected "the first binary column" — the Wave H4d bug, untouched,
+    in branches nobody came back to. Measured on this shape (true difference about +5.7):
+    g_computation +1.240, double_ml -15.798, causal_forest +1.341, and the last two said
+    "处理 event → duration" in so many words. RunResult.treatment was None for all three —
+    the audit invariant had been pointing at them the whole time."""
+    df = _survival_shaped()
+    fp = _fp(df, tmp_path, name=f"{mid}.csv")
+    res = run_analysis(fp, _CAT.by_id(mid), output_root=str(tmp_path / mid))
+    if "跳过" in res.summary or "需要" in res.summary:
+        pytest.skip(f"{mid} degraded (optional backend missing)")
+    assert res.treatment == "treatment", f"bound {res.treatment!r}"
+    truth = (df[df.treatment == 1].duration.mean() - df[df.treatment == 0].duration.mean())
+    ate = res.estimates.get("ate")
+    assert ate is not None, res.estimates
+    assert abs(ate - truth) < 1.5, f"ate={ate} vs group difference {truth}"
+
+
+@pytest.mark.parametrize("mid", ["g_computation", "double_ml", "causal_forest"])
+def test_the_event_indicator_stays_out_of_their_covariates(mid, tmp_path):
+    """Same post-treatment rule psm/ipw/aipw already apply, via one shared helper."""
+    fp = _fp(_survival_shaped(), tmp_path, name=f"{mid}_ev.csv")
+    res = run_analysis(fp, _CAT.by_id(mid), output_root=str(tmp_path / (mid + "e")))
+    if "跳过" in res.summary or "需要" in res.summary:
+        pytest.skip(f"{mid} degraded (optional backend missing)")
+    assert "排除在自动协变量之外" in res.summary and "event" in res.summary

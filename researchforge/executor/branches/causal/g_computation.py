@@ -11,7 +11,10 @@ difference). Confidence intervals by nonparametric bootstrap. Pure Python (stats
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.branches.causal._covariate_hygiene import (
+    _drop_post_treatment,
+)
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 
 
 @register("g_computation")
@@ -29,12 +32,14 @@ def _branch_g_computation(ctx: Ctx) -> None:
     def _is_binary(col):
         return pd.to_numeric(df[col], errors="coerce").dropna().nunique() == 2
 
-    treat = cfg.get("treatment")
+    # cold review A#6: "first binary column" — the Wave H4d bug still in place here. On the
+    # flagship survival frame it bound the EVENT indicator and reported ATE +1.240 where the
+    # truth is about -7.0. resolve_treatment applies config > name ladder > position and
+    # records the binding (RunResult.treatment), which is what surfaced this branch at all.
+    _bins = [c.name for c in fp.columns if c.kind == "binary" and c.name not in excl]
+    treat = resolve_treatment(fp, cfg, _bins, df=df)
     if treat not in df.columns:
-        treat = next((c.name for c in fp.columns
-                      if c.kind == "binary" and c.name not in excl), None)
-        if treat is None:
-            treat = next((c for c in df.columns if c not in excl and _is_binary(c)), None)
+        treat = next((c for c in df.columns if c not in excl and _is_binary(c)), None)
     if treat is None:
         summary.append("g-计算跳过：未找到二值处理变量（treatment，需 0/1 两类）。")
         return
@@ -58,6 +63,7 @@ def _branch_g_computation(ctx: Ctx) -> None:
         covs = [c.name for c in fp.columns
                 if c.kind in {"continuous", "count", "binary"}
                 and c.name not in {treat, outcome, fp.unit_col, fp.time_col}][:15]
+        covs = _drop_post_treatment(fp, treat, covs, summary)
     if not covs:
         summary.append("g-计算跳过：未找到协变量（≥1 个用于标准化/混杂调整）。")
         return

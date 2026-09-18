@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from researchforge.executor._branch_api import Ctx, register
-from researchforge.executor.run import resolve_outcome
+from researchforge.executor.branches.causal._covariate_hygiene import (
+    _drop_post_treatment,
+)
+from researchforge.executor.run import resolve_outcome, resolve_treatment
 from researchforge.executor.run import _causal_forest_via_econml
 
 
@@ -13,12 +16,14 @@ def _branch_causal_forest(ctx: Ctx) -> None:
     import importlib.util
 
     cont = [c.name for c in fp.columns if c.kind == "continuous" and c.name not in {fp.unit_col, fp.time_col}]
-    treatment = cfg.get("treatment")
-    if treatment is None:
-        treatment = next(
-            (c.name for c in fp.columns if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}),
-            None,
-        )
+    # cold review A#6: this was "first binary column" — the Wave H4d bug, untouched, in a
+    # branch nobody came back to. On the flagship survival frame it bound the EVENT
+    # indicator and reported an ATE of the wrong sign, with the summary literally saying
+    # "处理 event → duration". Route it through the shared resolver (config > name ladder >
+    # position), which also records the binding for the RunResult.treatment audit.
+    _bins = [c.name for c in fp.columns
+             if c.kind == "binary" and c.name not in {fp.unit_col, fp.time_col}]
+    treatment = resolve_treatment(fp, cfg, _bins, df=df)
     # H4c: see the note in causal/psm.py — detected outcome, not column order.
     _ocand = [c for c in cont if c != treatment]
     outcome = (cfg["outcome"] if cfg.get("outcome") in cont
@@ -32,6 +37,7 @@ def _branch_causal_forest(ctx: Ctx) -> None:
             if c.kind in {"continuous", "count", "binary"}
             and c.name not in {outcome, treatment, fp.unit_col, fp.time_col}
         ][:12]
+        modifiers = _drop_post_treatment(fp, treatment, modifiers, summary)
     try:
         n_folds = max(2, int(cfg.get("n_folds", 4)))
     except (TypeError, ValueError):
