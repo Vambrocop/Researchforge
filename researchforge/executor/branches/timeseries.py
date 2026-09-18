@@ -461,11 +461,24 @@ def _branch_arima(ctx: Ctx) -> None:
                 "（自动选阶后区间偏窄是已知现象）。"
                 + degrade_note
             )
+            # Cold review B/A5.3: this block used to emit
+            # `enforce_stationarity=False, enforce_invertibility=False` and no `trend`,
+            # i.e. the exported "reproduce this" code reproduced the TWO BUGS the previous
+            # cold review had just fixed in _fit_sarimax (an incomparable likelihood across
+            # the grid, and a mean-zero fit that forecast 0.0 for a series around 500).
+            # The exported settings must BE the fitted settings — a test now runs this code
+            # and compares its forecast with the branch's own.
+            _ex_trend = "c" if (order[1] == 0 and sorder[1] == 0) else None
             code += [
                 "from statsmodels.tsa.statespace.sarimax import SARIMAX",
                 f"y = df.sort_values('{time_col}')['{value_col}'].astype(float).reset_index(drop=True)",
+                "# enforce_stationarity/invertibility=True 与 d==0 时的常数项都是 load-bearing:",
+                "# 关掉前者会让不同阶数的对数似然算在不同有效样本上(AICc 失效);",
+                "# 缺后者会把未差分序列当成零均值过程(均值 500 的序列预测成 0)。",
                 f"model = SARIMAX(y, order={order}, seasonal_order={sorder},"
-                " enforce_stationarity=False, enforce_invertibility=False).fit(disp=False)",
+                f" trend={_ex_trend!r},",
+                "                enforce_stationarity=True,"
+                " enforce_invertibility=True).fit(disp=False)",
                 "print(model.summary())",
                 f"fc = model.get_forecast(steps={steps})",
                 f"mean, ci = fc.predicted_mean, fc.conf_int(alpha={alpha:.3g})  # 点预测 + 预测区间",
