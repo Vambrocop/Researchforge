@@ -97,6 +97,11 @@ FAMILY_AFFINITY: dict[str, FamilyAffinity] = {
     "statistics": _a("cross_section", ("continuous", "binary", "categorical", "multi_numeric", "none"), min_rows=8),
     "regression": _a("cross_section", ("continuous", "none"), needs_predictors=True, min_rows=20),
     "ml": _a("any", ("continuous", "binary", "multi_numeric"), needs_predictors=True, min_rows=50),
+    # multi-label: the target is a SET of binary columns, so the outcome kind that matters is
+    # "binary" (several of them) and predictors are required for the two predictive members.
+    # min_rows matches the family's own guard (60) — k-fold CV over several labels needs it.
+    "multilabel": _a("cross_section", ("binary", "multi_numeric"), needs_predictors=True,
+                     min_rows=60),
     "causal": _a("cross_section", ("continuous", "binary"), needs_predictors=True, min_rows=30),
     "time-series": _a("timeseries", ("continuous",), min_rows=20),
     # "any" not "panel": this family also holds ols_regression (a cross-section method),

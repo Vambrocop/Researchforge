@@ -112,6 +112,12 @@ GATE_MODULES = {
     "test_config_params_complete", "test_config_schema", "test_conftest_slow",
     "test_lint", "test_module_size", "test_r_name_guard", "test_run_dispatch_guard",
     "test_selection_guards",
+    # Added after the multilabel family shipped: a catalog family with no affinity profile
+    # falls back to FAMILY_AFFINITY's _DEFAULT and a family missing from scoring._FAMILY
+    # falls back to its _DEFAULT too — recommendations quietly get worse and NOTHING fails.
+    # Exactly the "breaks silently" criterion this set exists for, and both run in ~3s.
+    # They were only caught by the full suite, i.e. after the gate had already said green.
+    "test_affinity", "test_scoring",
 }
 
 

@@ -37,6 +37,10 @@ _FAMILY: dict[str, tuple[int, int, int, int, int]] = {
     "sem": (65, 82, 80, 75, 55),
     "meta": (60, 80, 76, 50, 50),
     "ml": (80, 65, 70, 60, 65),
+    # multi-label: a standard task in text/image/bio pipelines but rarely the headline of a
+    # paper on its own (publishability below ml); the metric set is genuinely fiddly, hence
+    # difficulty above ml; novelty high for this engine because nothing covered it at all.
+    "multilabel": (62, 60, 58, 68, 72),
     "time-series": (70, 62, 66, 62, 42),
     "spatial": (55, 74, 88, 66, 62),
     "ecology": (60, 66, 80, 55, 46),
