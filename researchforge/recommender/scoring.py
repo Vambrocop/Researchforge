@@ -377,6 +377,20 @@ def _text_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, st
     return 14.0, ""
 
 
+def _multilabel_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for the multi-label tilt. A label SET profiles as "several
+    binary columns", which carries no signal at all on its own, so the family this engine had
+    no methods for until 2026-09-16 stayed buried even after they existed: measured on its own
+    dogfood frame, multilabel_profile ranked 40 / binary_relevance 53 / classifier_chain 54
+    out of 306, behind descriptive_stats and correlation. Symmetrically, a single-outcome
+    frame must NOT surface them — see has_multilabel_target for the three measured guards."""
+    if not signals.get("has_multilabel_target"):
+        return 0.0, ""
+    if entry.family != "multilabel":
+        return 0.0, ""
+    return 18.0, ""
+
+
 def _finance_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, disclosure note) for the finance-relevance tilt: demote finance-family
     methods on a series with no financial-asset signal, so a plain sales/temperature series
@@ -462,6 +476,7 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _efficiency_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _ecology_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _cluster_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _multilabel_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))

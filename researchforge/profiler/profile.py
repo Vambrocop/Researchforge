@@ -80,9 +80,41 @@ def _find_time_col(df: pd.DataFrame, fp: DataFingerprint) -> str | None:
     return None
 
 
+def _label_shape(df: pd.DataFrame, fp: DataFingerprint) -> None:
+    """How much do the binary columns CO-OCCUR? (see DataFingerprint.label_cardinality)
+
+    The recommender only ever sees a fingerprint, so a data-derived fact has to be computed
+    here or not at all. Measured on five frames while designing the multi-label tilt:
+
+        真多标签       k=5  cardinality 2.35  multi-label rows 84%
+        医学二值协变量  k=4              1.27                   37%
+        独热多分类     k=3              1.00                    0%
+        RCT 标志列    k=3              1.21                   37%
+        独立四标志     k=4              1.70                   58%
+
+    Mean |phi| among the columns was the obvious candidate and is USELESS on its own: one-hot
+    multiclass scores highest of all (0.500 — mutual exclusion is strong NEGATIVE correlation),
+    so it would have promoted exactly the shape that must be refused.
+    """
+    cols = [c for c in fp.binary_columns if c in df.columns]
+    if len(cols) < 3:
+        return
+    try:
+        sub = df[cols]
+        ones = sub.apply(lambda s: s == s.dropna().max() if s.dropna().nunique() == 2 else s)
+        per_row = ones.sum(axis=1)
+        if not len(per_row):
+            return
+        fp.label_cardinality = round(float(per_row.mean()), 4)
+        fp.multi_label_row_frac = round(float((per_row > 1).mean()), 4)
+    except Exception:  # noqa: BLE001 — a shape fact must never break profiling
+        fp.label_cardinality = fp.multi_label_row_frac = None
+
+
 def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     fp.binary_columns = [c.name for c in fp.columns if c.kind == "binary"]
     fp.has_geo = any(c.kind == "geo" for c in fp.columns)
+    _label_shape(df, fp)
 
     time_col = _find_time_col(df, fp)
     fp.time_col = time_col

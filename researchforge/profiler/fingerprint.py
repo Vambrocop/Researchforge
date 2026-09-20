@@ -64,6 +64,15 @@ class DataFingerprint(BaseModel):
     # `executor._helpers.core.resolve_treatment` is entitled to say which column is the
     # treatment; this list is just its candidate pool.
     binary_columns: list[str] = Field(default_factory=list)
+    # Multi-label SHAPE facts, computed only when there are >=3 binary columns. They exist
+    # because the recommender sees a fingerprint and never the data, and "3 co-occurring
+    # labels" cannot be told apart from "3 unrelated binary covariates" by marginals alone.
+    #   label_cardinality  — mean number of binary columns that are 1 in a row
+    #   multi_label_row_frac — fraction of rows carrying MORE THAN ONE of them
+    # One-hot multiclass gives exactly (1.0, 0.0), which is how it is ruled out. Neither is
+    # a role claim: they say what the table looks like, not what anything means.
+    label_cardinality: Optional[float] = None
+    multi_label_row_frac: Optional[float] = None
     issues: list[Issue] = Field(default_factory=list)
     # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
     # run-time defaults — only suggest a `config` to the user.

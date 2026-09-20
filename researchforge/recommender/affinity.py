@@ -207,6 +207,34 @@ def has_efficiency_signal(fp: DataFingerprint) -> bool:
     return has_in and has_out
 
 
+def has_multilabel_target(fp: DataFingerprint) -> bool:
+    """True iff the frame looks like a MULTI-LABEL target set — several binary columns that
+    genuinely co-occur, with no single trustworthy outcome.
+
+    Three conditions, each with measured headroom (numbers in profiler._label_shape):
+      * >= 3 binary columns, and label cardinality >= 1.4 — rules out binary COVARIATES
+        (medical cohort 1.27, RCT flags 1.21) and one-hot multiclass (exactly 1.0);
+      * more than 1.4 is not enough on its own, so also >= 45% of rows carrying two labels
+        at once — one-hot multiclass scores 0% there, by construction;
+      * no HIGH-confidence single outcome — a frame with a clear target column is a
+        single-outcome problem no matter how its flags co-occur (the RCT frame above has
+        `outcome_score` at high confidence).
+
+    A frame of genuinely independent co-occurring flags DOES pass, and that is deliberate:
+    binary_relevance is a reasonable method there, and multilabel_profile will report the
+    labels as unrelated rather than manufacture a dependence. The statistics can rule shapes
+    OUT; they cannot rule one IN, so the methods themselves stay responsible for saying so."""
+    if len(fp.binary_columns or []) < 3:
+        return False
+    card = fp.label_cardinality
+    frac = fp.multi_label_row_frac
+    if card is None or frac is None:
+        return False
+    if getattr(fp, "likely_outcome_confidence", None) == "high" and fp.likely_outcome:
+        return False
+    return card >= 1.4 and frac >= 0.45
+
+
 def has_finance_signal(fp: DataFingerprint) -> bool:
     """True iff any column name carries high-precision financial-asset vocabulary (a stock
     price / return / portfolio series). The single source for "is this genuinely financial
@@ -449,6 +477,11 @@ def data_signals(fp: DataFingerprint) -> dict:
         # genuine financial-asset data (a return/close/stock/portfolio series). Absent it, the
         # finance family (VaR/EVT/Sharpe) is demoted below generic forecasting (Wave M7 tilt).
         "has_finance_signal": has_finance_signal(fp),
+        # several genuinely CO-OCCURRING binary columns and no single trustworthy outcome →
+        # the target is a label SET. Without this the multilabel family stayed buried
+        # (measured on its own dogfood frame: profile 40 / binary_relevance 53 /
+        # classifier_chain 54 out of 306, with descriptive_stats and correlation on top).
+        "has_multilabel_target": has_multilabel_target(fp),
         # DEA/SFA input→output DMU shape → boost the efficiency family over generic regressors
         # (Wave M14 tilt), which the outlier diagnostic otherwise buries on frontier data.
         "has_efficiency_signal": has_efficiency_signal(fp),

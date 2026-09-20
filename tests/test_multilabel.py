@@ -222,3 +222,90 @@ def test_config_labels_and_predictors_are_honoured(tmp_path):
     assert res.estimates["cv_folds"] == 3.0
     assert "3 个标签、1 个预测变量、3 折" in res.summary, res.summary[:200]
     assert "f1_y4" not in res.estimates
+
+
+# ── selection: the methods existed but the recommender never surfaced them ───
+from researchforge.recommender import recommend                      # noqa: E402
+from researchforge.recommender.affinity import has_multilabel_target  # noqa: E402
+
+_ML_IDS = ["multilabel_profile", "binary_relevance", "classifier_chain"]
+
+
+def _ranks(fp):
+    ids = [getattr(getattr(r, "entry", r), "id", "?") for r in recommend(fp, _CAT)]
+    return [(ids.index(m) + 1) if m in ids else None for m in _ML_IDS], ids
+
+
+def _medical_covariates(n=600, seed=0):
+    """Binary COVARIATES, not labels: sex / smoker / diabetic / hypertension, mildly
+    correlated the way they really are, alongside continuous age and bmi."""
+    rng = np.random.default_rng(seed)
+    sm = (rng.random(n) < 0.3).astype(int)
+    db = (rng.random(n) < 0.15 + 0.10 * sm).astype(int)
+    return pd.DataFrame({"age": rng.normal(55, 10, n).round(1),
+                         "bmi": rng.normal(27, 4, n).round(1),
+                         "sex": (rng.random(n) < 0.5).astype(int), "smoker": sm,
+                         "diabetic": db,
+                         "hypertension": (rng.random(n) < 0.25 + 0.12 * db).astype(int)})
+
+
+def _rct_flags(n=600, seed=0):
+    """A clear single outcome plus a few binary flags — a single-outcome problem."""
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({"outcome_score": rng.normal(0, 1, n).round(3),
+                         "treated": (rng.random(n) < 0.5).astype(int),
+                         "male": (rng.random(n) < 0.5).astype(int),
+                         "prior_event": (rng.random(n) < 0.2).astype(int)})
+
+
+def test_the_family_is_surfaced_on_a_real_label_set(tmp_path):
+    """Measured before this tilt existed, on the very frame the family was built from:
+    multilabel_profile 40, binary_relevance 53, classifier_chain 54 — out of 306, with
+    descriptive_stats / correlation / gaussian_mixture on top. Building methods does not
+    help while the recommender will not surface them."""
+    fp = _fp(_conditionally_independent(n=600), tmp_path, name="sel.csv")
+    assert has_multilabel_target(fp) is True
+    ranks, ids = _ranks(fp)
+    assert all(r is not None and r <= 5 for r in ranks), (ranks, ids[:6])
+
+
+@pytest.mark.parametrize("frame,name", [(_medical_covariates, "covariates"),
+                                        (_rct_flags, "rct"),
+                                        (_onehot_multiclass, "onehot")])
+def test_binary_columns_alone_do_not_summon_the_family(frame, name, tmp_path):
+    """The symmetric half. Binary COVARIATES (cardinality 1.27), RCT flags beside a
+    high-confidence outcome (1.21), and one-hot multiclass (exactly 1.0, 0% co-occurring)
+    must all leave the family buried."""
+    fp = _fp(frame(), tmp_path, name=f"{name}.csv")
+    assert has_multilabel_target(fp) is False
+    ranks, _ = _ranks(fp)
+    assert all(r is None or r > 20 for r in ranks), ranks
+
+
+def test_the_shape_facts_are_what_the_profiler_measured(tmp_path):
+    """`label_cardinality` / `multi_label_row_frac` are shape facts, not role claims —
+    the recommender only ever sees a fingerprint, which is why they exist at all."""
+    df = _conditionally_independent(n=600)
+    fp = _fp(df, tmp_path, name="shape.csv")
+    Y = df[["politics", "economy", "sport", "health"]].to_numpy(float)
+    assert fp.label_cardinality == pytest.approx(float(Y.sum(1).mean()), abs=1e-3)
+    assert fp.multi_label_row_frac == pytest.approx(float((Y.sum(1) > 1).mean()), abs=1e-3)
+
+
+def test_one_hot_multiclass_is_exactly_one_label_per_row(tmp_path):
+    """The one shape the statistics rule out cleanly — and the reason mean |phi| could not
+    be the signal: one-hot scores HIGHEST there (0.500, mutual exclusion), so a
+    correlation-based tilt would have promoted precisely the frame that must be refused."""
+    fp = _fp(_onehot_multiclass(), tmp_path, name="oh_shape.csv")
+    assert fp.label_cardinality == pytest.approx(1.0)
+    assert fp.multi_label_row_frac == pytest.approx(0.0)
+
+
+def test_fewer_than_three_binary_columns_leaves_the_facts_unset(tmp_path):
+    rng = np.random.default_rng(4)
+    n = 200
+    df = pd.DataFrame({"x": rng.normal(0, 1, n).round(3),
+                       "a": rng.integers(0, 2, n), "b": rng.integers(0, 2, n)})
+    fp = _fp(df, tmp_path, name="two_bin.csv")
+    assert fp.label_cardinality is None and fp.multi_label_row_frac is None
+    assert has_multilabel_target(fp) is False
