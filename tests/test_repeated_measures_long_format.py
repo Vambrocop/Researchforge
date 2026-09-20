@@ -216,3 +216,105 @@ def test_the_rank_guard_no_longer_sends_panels_to_rm_anova(tmp_path):
     assert "mixed_effects" in res.summary
     assert "repeated_measures_anova" not in res.summary, (
         "RM-ANOVA cannot estimate a between-subject factor")
+
+
+# ── cold review C · M3 / M4 ──────────────────────────────────────────────────
+def _within_subjects_no_time(n_subj=45, seed=2):
+    """The most standard within-subjects frame there is: participant x stimulus, no time
+    column at all. `profiler/profile.py` returns before setting unit_col when time_col is
+    None, so `fp.unit_col` is None here — and the detector used to read only that."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for p in range(n_subj):
+        b = rng.normal(0, 40)
+        for st, eff in (("word", 0), ("picture", 35), ("sound", 70)):
+            rows.append({"participant": f"s{p:02d}", "stimulus": st,
+                         "rt_ms": round(float(500 + b + eff + rng.normal(0, 25)), 1)})
+    return pd.DataFrame(rows)
+
+
+def _latin_square_rotation(n_subj=60, n_t=5, seed=5):
+    """A balanced technician rotation varies inside every subject, so `.any()` accepted it
+    as the within factor. Here a real discrete `week` exists alongside it."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for s in range(n_subj):
+        b = rng.normal(0, 3)
+        for t in range(n_t):
+            rows.append({"subject": f"p{s:03d}", "week": t,
+                         "operator_id": f"op{(s + t) % n_t}",
+                         "yield_kg": round(float(20 + b - 0.8 * t + rng.normal(0, 1.2)), 2)})
+    return pd.DataFrame(rows)
+
+
+def test_a_within_subjects_design_without_a_time_column_is_detected(tmp_path):
+    """C/M3: 45 x 3, perfectly balanced, and it reported 受试者=None. My earlier claim that
+    the long path no longer needs config was over-general — it held only for frames the
+    profiler already called a panel."""
+    csv = tmp_path / "stim.csv"
+    _within_subjects_no_time().to_csv(csv, index=False)
+    fp = profile_dataset(csv)
+    assert fp.unit_col is None and fp.time_col is None, "the premise of M3"
+    res = run_analysis(fp, _CAT.by_id("repeated_measures_anova"), output_root=str(tmp_path / "o"))
+    assert "完成" in res.summary, res.summary[:300]
+    e = res.estimates
+    assert e["n_subjects"] == 45.0 and e["n_conditions"] == 3.0
+    # df = (k-1, (n-1)(k-1)) = (2, 88) — cold review C checked these against R by hand
+    assert e["df_num"] == pytest.approx(2.0)
+    assert e["df_den"] == pytest.approx(88.0)
+    assert e["p_value"] < 1e-10
+
+
+def test_the_auto_chosen_roles_are_always_disclosed(tmp_path):
+    """C/M4's aggravator: outcome selection emits a 💡 notice, subject/within emitted
+    nothing at all — the reader could not tell the roles had been guessed."""
+    csv = tmp_path / "disc.csv"
+    _within_subjects_no_time().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "p"))
+    assert "自动判定" in res.summary and "participant" in res.summary
+    assert "stimulus" in res.summary
+
+
+def test_a_real_factor_wins_over_a_balanced_rotation(tmp_path):
+    """C/M4: the guard asked "does it vary inside a subject", never "is it a design
+    factor". `operator_id` varies inside every subject, so it was taken as the within
+    factor and the branch reported F(4,236)=1.787, p=0.132 for a question nobody asked."""
+    csv = tmp_path / "latin.csv"
+    _latin_square_rotation().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "q"))
+    assert "条件（week" in res.summary, res.summary[:300]
+    # ...and the rejected candidate is named, because the ambiguity is real
+    assert "operator_id 同样能解析成组内因子" in res.summary
+
+
+def test_a_nuisance_named_within_factor_is_flagged(tmp_path):
+    """When the rotation is the ONLY discrete candidate (the real time is continuous and
+    unaligned across subjects) the engine still has to run something — but it must say the
+    factor looks like a rotation/ID rather than a research factor."""
+    rng = np.random.default_rng(5)
+    rows = []
+    for s in range(60):
+        b = rng.normal(0, 3)
+        for t in range(5):
+            days = round(float(7 * t + rng.uniform(-1.5, 1.5)), 2)
+            rows.append({"subject": f"p{s:03d}", "followup_days": days,
+                         "operator_id": f"op{(s + t) % 5}",
+                         "yield_kg": round(float(20 + b - 0.11 * days + rng.normal(0, 1.2)), 2)})
+    csv = tmp_path / "nuis.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "r"))
+    assert "干扰/轮换变量" in res.summary, res.summary[:400]
+    assert "结果无意义" in res.summary
+
+
+def test_config_still_outranks_the_detector(tmp_path):
+    csv = tmp_path / "cfg.csv"
+    _latin_square_rotation().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "s"),
+                       config={"subject": "subject", "within": "operator_id"})
+    assert "条件（operator_id" in res.summary
+    assert "自动判定" not in res.summary, "nothing was auto-selected"

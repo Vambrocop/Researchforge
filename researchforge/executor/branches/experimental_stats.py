@@ -459,21 +459,9 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
     # would make every cell a single observation.
     subject = cfg.get("subject") if cfg.get("subject") in df.columns else None
     within = cfg.get("within") if cfg.get("within") in df.columns else None
-    if subject is None and fp.unit_col in df.columns:
-        subject = fp.unit_col
-    if within is None and subject is not None:
-        _cands = [fp.time_col] + [c.name for c in fp.columns
-                                  if c.kind in {"categorical", "count", "binary"}]
-        for _c in _cands:
-            if _c is None or _c not in df.columns or _c == subject:
-                continue
-            _nu = int(df[_c].nunique(dropna=True))
-            if _nu < 2 or _nu > max(2, len(df) // 2):
-                continue
-            # varies WITHIN at least one subject → a within-subject factor
-            if bool((df.groupby(subject, observed=True)[_c].nunique(dropna=True) > 1).any()):
-                within = _c
-                break
+    _auto_note, _rm_alts = None, []
+    if subject is None or within is None:
+        subject, within, _rm_alts, _auto_note = _detect_rm_roles(df, fp, subject, within)
     cont = _continuous(fp)
     outcome = cfg.get("outcome") if cfg.get("outcome") in df.columns else (resolve_outcome(fp, cfg, cont) if cont else None)
 
@@ -590,6 +578,10 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
             "mauchly_p": float(mauchly_p), "gg_epsilon": float(gg_eps),
             "gg_corrected_p": gg_p,
             "n_subjects": float(n_subj), "n_conditions": float(n_cond),
+            # cold review C verified the degrees of freedom across six pathological shapes
+            # (unbalanced, missing cells, duplicate cells, n<k) — they were right in all of
+            # them. Machine-readable so a test can keep pinning that, not just prose.
+            "df_num": float(num_df), "df_den": float(den_df),
         })
 
         # condition means table
@@ -682,6 +674,8 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
             " ⚠ RM-ANOVA 假定球形度（Mauchly 查；违反时用已报的 GG 校正 p）；需 ≥2 条件且平衡（缺条件的受试者已删并披露）；"
             "Mauchly p 由卡方近似得出（小样本近似），ε 由条件协方差阵算。config 可指定 subject/within/outcome（或 measures 宽表）。"
         )
+        if _auto_note:
+            summary.append(_auto_note)
         if _between:
             summary.append(
                 f"⚠ **检测到组间因子 {'、'.join(_between)}，但本模型没有包含它**。"
@@ -702,6 +696,90 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
         ]
     except Exception as err:
         summary.append(f"重复测量方差分析失败：{err}")
+
+
+def _detect_rm_roles(df, fp, subject=None, within=None):
+    """Pick (subject, within) by GRID COMPLETENESS, and say what was picked.
+
+    A repeated-measures design IS a (subject x within) table with one observation per cell,
+    so "which column is the subject" is a question about the shape of that table — not about
+    whether `fp.unit_col` happens to be set.
+
+    Two cold-review findings drove this (C/M3, C/M4):
+
+      * `subject` used to come ONLY from `fp.unit_col`, which `profiler/profile.py` leaves
+        None whenever there is no time column. `[participant, stimulus, rt_ms]` — 45 x 3,
+        perfectly balanced, the most standard within-subjects frame there is — reported
+        "受试者=None". The earlier claim that the long path no longer needs config was
+        over-general: it held only for frames the profiler already called a panel.
+      * `within` was the first column that varied inside ANY subject (`.any()`), which asks
+        "does it vary", never "is it a design factor". A Latin-square technician rotation
+        `operator_id` varies inside every subject, so it was taken as the within factor and
+        the branch reported F(4,236)=1.787, p=0.132 for a question nobody asked — while the
+        real (continuous) time effect went untested, and nothing was said about the choice.
+
+    Returns (subject, within, alternatives, note). `alternatives` are the other columns that
+    would also have parsed as the within factor — ambiguity is a property of the data, not
+    something the engine gets to settle silently.
+    """
+    n = len(df)
+    kinds = {"categorical", "count", "binary", "id"}
+    disc = [c.name for c in fp.columns
+            if c.kind in kinds and c.name in df.columns]
+    if fp.time_col and fp.time_col in df.columns and fp.time_col not in disc:
+        disc.append(fp.time_col)
+
+    def _nu(c):
+        return int(df[c].nunique(dropna=True))
+
+    # A within factor has FEW levels; a subject column has MANY. Both must repeat.
+    w_cands = [c for c in disc if 2 <= _nu(c) <= max(2, min(20, n // 2))]
+    s_cands = [c for c in disc if 2 <= _nu(c) <= n // 2]
+    # the profiler's own guesses go first so an already-correct detection is preserved
+    for pref, lst in ((fp.time_col, w_cands), (fp.unit_col, s_cands)):
+        if pref in lst:
+            lst.remove(pref)
+            lst.insert(0, pref)
+    s_cands = sorted(s_cands, key=lambda c: (c != fp.unit_col, -_nu(c)))[:5]
+    w_cands = w_cands[:6]
+
+    def _score(sc, wc):
+        """Fraction of the (subject x within) grid that is present exactly once."""
+        if sc == wc:
+            return -1.0
+        k = _nu(wc)
+        g = df.groupby(sc, observed=True)[wc]
+        complete = float((g.nunique(dropna=True) == k).mean())
+        if complete <= 0.0:
+            return -1.0
+        dup = float((df.groupby([sc, wc], observed=True).size() > 1).mean())
+        return complete - dup
+
+    best, best_score = (subject, within), -1.0
+    for sc in ([subject] if subject else s_cands):
+        for wc in ([within] if within else w_cands):
+            if sc is None or wc is None:
+                continue
+            sco = _score(sc, wc)
+            if sco > best_score:
+                best, best_score = (sc, wc), sco
+    if best_score < 0:
+        return subject, within, [], None
+    sc, wc = best
+    alts = [c for c in w_cands if c != wc and c != sc and _score(sc, c) > 0]
+
+    # M4's aggravator: outcome selection emits a 💡 notice, this emitted nothing at all.
+    note = (f"💡 自动判定：受试者列 = '{sc}'，组内因子 = '{wc}'"
+            f"（(受试者 × 条件) 网格完整度 {max(0.0, best_score):.0%}）")
+    if alts:
+        note += f"；**{'、'.join(alts)} 同样能解析成组内因子**，若你要检验的是它们，请用 config within 指定"
+    _nuis = ("id", "operator", "technician", "rater", "machine", "batch", "lot",
+             "session", "order", "sequence", "轮次", "操作", "批次")
+    if any(t in str(wc).lower() for t in _nuis):
+        note += (f"；⚠ '{wc}' 的列名像**干扰/轮换变量**而非研究因子"
+                 "（平衡的轮换设计在每个受试者内都在变，因此能通过检测）——"
+                 "若它不是你要检验的因子，结果无意义")
+    return sc, wc, alts, note + "。"
 
 
 def _sphericity(M):
