@@ -211,6 +211,15 @@ def has_efficiency_signal(fp: DataFingerprint) -> bool:
     return has_in and has_out
 
 
+def has_choice_design(fp: DataFingerprint) -> bool:
+    """True iff the frame is a DISCRETE-CHOICE design — a binary flag that is 1 exactly once
+    per stratum (conjoint / choice-based survey, or a matched case-control study).
+
+    Reads the profiler's shape fact: the signature is about GROUP structure, which needs the
+    data, and the recommender only ever sees a fingerprint. See profiler.profile._choice_shape."""
+    return bool(getattr(fp, "choice_flag", None)) and bool(getattr(fp, "choice_set_cols", None))
+
+
 def has_closed_composition(fp: DataFingerprint) -> bool:
     """True iff the frame carries CLOSED (compositional) columns — parts of a whole.
 
@@ -500,6 +509,11 @@ def data_signals(fp: DataFingerprint) -> dict:
         # -0.292 and -0.657, both artefacts), and `correlation` ranked 2 of 306 there with no
         # warning at all. Boosts the compositional family and demotes correlation methods.
         "has_closed_composition": has_closed_composition(fp),
+        # a binary flag that is 1 exactly ONCE per stratum = the conditional-logit setting.
+        # Without it the choice family stayed buried on its own shape (measured on a 120x8x3
+        # conjoint: conditional_logit 76 / mnl_choice 44 of 306, with IRT's dif_detection and
+        # a stack of ordinal regressions on top).
+        "has_choice_design": has_choice_design(fp),
         # DEA/SFA input→output DMU shape → boost the efficiency family over generic regressors
         # (Wave M14 tilt), which the outlier diagnostic otherwise buries on frontier data.
         "has_efficiency_signal": has_efficiency_signal(fp),

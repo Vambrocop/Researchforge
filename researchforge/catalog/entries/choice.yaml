@@ -71,6 +71,7 @@
     coefficient table and a coefficient plot. Degrades honestly without a choice_id,
     a 0/1 chosen, at least one varying attribute, or enough well-formed choice sets.
   preconditions:
+    requires_choice_design: true
     min_rows: 10
     min_numeric_cols: 1
   produces:

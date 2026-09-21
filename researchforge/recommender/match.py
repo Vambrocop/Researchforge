@@ -17,6 +17,10 @@ def check_preconditions(fp: DataFingerprint, pre: Precondition) -> tuple[bool, l
         unmet.append("需要时间序列")
     if pre.requires_treatment and not fp.binary_columns:
         unmet.append("需要处理组指示变量")
+    if pre.requires_choice_design and not (
+        getattr(fp, "choice_flag", None) and getattr(fp, "choice_set_cols", None)
+    ):
+        unmet.append("需要离散选择设计（每个选择集内恰好一个备选被选中，或每个匹配层一个病例）")
     if pre.requires_time and fp.time_col is None:
         unmet.append("需要时间变量")
     if pre.min_rows is not None and fp.n_rows < pre.min_rows:

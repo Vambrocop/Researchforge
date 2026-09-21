@@ -155,6 +155,10 @@ _SPECIFIC_PRECOND = {
     # so a ≥3-rater block goes to agreement methods, not ordinal regression.
     "requires_ordinal": ("has_ordinal_outcome", 15.0),
     "requires_geo": ("has_geo", 12.0),
+    # a choice design is about as specific as data structure gets — the signature that
+    # identifies it (exactly one chosen alternative per set) IS the thing conditional logit
+    # conditions on, so matching it is strong evidence rather than a loose affinity.
+    "requires_choice_design": ("has_choice_design", 16.0),
     # gated on outcome_is_binary (not raw has_binary): a binary DESIGN FACTOR alongside a
     # continuous outcome must not lift logistic/epi over the ANOVA/regression modeling the
     # response. Fires when the binary is the role-detected outcome, or the table is pure-binary.
@@ -393,6 +397,19 @@ _CLOSURE_UNSAFE = {
 _CLOSURE_DEMOTE = -22.0
 
 
+def _choice_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, note) for a discrete-choice design. A conjoint table looks like
+    "some categorical attributes and a binary column" to every generic signal, so the family
+    built for it stayed buried on its own shape: measured on a 120x8x3 conjoint,
+    conditional_logit ranked 76 and mnl_choice 44 of 306, while dif_detection (IRT) and four
+    ordinal regressions took the headline slots. The signature that identifies it —
+    exactly one chosen alternative per choice set — is also what makes conditional logit the
+    right estimator, so the same fact both selects and justifies."""
+    if not signals.get("has_choice_design") or entry.family != "choice":
+        return 0.0, ""
+    return 20.0, ""
+
+
 def _compositional_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, disclosure) for closed/compositional data.
 
@@ -517,6 +534,7 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _cluster_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _multilabel_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _compositional_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _choice_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))

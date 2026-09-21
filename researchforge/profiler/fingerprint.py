@@ -79,6 +79,13 @@ class DataFingerprint(BaseModel):
     # cannot vary freely, so ordinary correlations among them are forced negative and mean
     # nothing (Pearson 1897). Empty when the frame is not compositional.
     closed_components: list[str] = Field(default_factory=list)
+    # DISCRETE-CHOICE design: a binary flag that is 1 exactly ONCE inside every stratum, with
+    # >=2 rows per stratum. That is the conditional-logit / McFadden setting — a conjoint or
+    # choice-based survey (respondent x task), and equally a matched case-control study
+    # (one case per matched set). Unmistakable: ordinary binary outcomes, staggered-adoption
+    # panels and one-hot encodings all fail it. Empty/None when the frame is not one.
+    choice_flag: Optional[str] = None
+    choice_set_cols: list[str] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
     # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
     # run-time defaults — only suggest a `config` to the user.

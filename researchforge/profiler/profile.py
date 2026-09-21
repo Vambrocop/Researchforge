@@ -111,6 +111,9 @@ def _label_shape(df: pd.DataFrame, fp: DataFingerprint) -> None:
         fp.label_cardinality = fp.multi_label_row_frac = None
 
 
+_CHOICE_MAX_TRIES = 45   # bounds the pair search; profiling must stay cheap
+
+
 def _closure_shape(df: pd.DataFrame, fp: DataFingerprint) -> None:
     """Largest set of >=3 non-negative numeric columns with a CONSTANT row sum.
 
@@ -154,11 +157,69 @@ def _closure_shape(df: pd.DataFrame, fp: DataFingerprint) -> None:
         fp.closed_components = []
 
 
+def _choice_shape(df: pd.DataFrame, fp: DataFingerprint) -> None:
+    """Find a DISCRETE-CHOICE design: a binary flag that is 1 exactly once per stratum.
+
+    `Sum(flag) == 1` within every group, with >=2 rows per group, is the conditional-logit
+    setting — a conjoint / choice-based survey (grouped by respondent x task) or a matched
+    case-control study (grouped by matched set). Both are genuinely conditional logit, so a
+    single signal serving both is principled rather than a coincidence.
+
+    Measured 5/5 on the design frames: a 120x8x3 conjoint (960 choice sets) and an 80x4
+    matched case-control were found; an ordinary binary outcome, a staggered-adoption panel
+    (`policy_on` sums to more than 1 per unit) and a one-hot encoding were all rejected.
+
+    Bounded work: the flag's mean must be <= 0.5 (a set has >=2 alternatives, so the share of
+    chosen rows is at most a half), candidates are capped, pairs are tried only after singles
+    fail, and the whole search stops after _CHOICE_MAX_TRIES groupbys.
+    """
+    import itertools
+
+    try:
+        n = len(df)
+        if n < 40:
+            return
+        bins, groups = [], []
+        for c in fp.columns:
+            if c.name not in df.columns:
+                continue
+            col = df[c.name].dropna()
+            # {0, 1} covers booleans too: True == 1 and False == 0 in Python, which is
+            # why {0, 1, True, False} was a four-element set with two elements in it.
+            if c.kind == "binary" and set(pd.unique(col)) <= {0, 1}:
+                if 0.0 < float(col.mean()) <= 0.5:
+                    bins.append(c.name)
+            if c.kind in {"id", "categorical", "count"} and 2 <= c.n_unique <= n // 2:
+                groups.append(c.name)
+        bins, groups = bins[:6], groups[:6]
+        if not bins or not groups:
+            return
+
+        tries = 0
+        for r in (1, 2):
+            for b in bins:
+                for combo in itertools.combinations([g for g in groups if g != b], r):
+                    tries += 1
+                    if tries > _CHOICE_MAX_TRIES:
+                        return
+                    g = df.groupby(list(combo), observed=True)[b]
+                    sizes, totals = g.size(), g.sum()
+                    if len(sizes) < 10:
+                        continue
+                    if bool((totals == 1).all()) and bool((sizes >= 2).all()):
+                        fp.choice_flag = b
+                        fp.choice_set_cols = list(combo)
+                        return
+    except Exception:  # noqa: BLE001 — a shape fact must never break profiling
+        fp.choice_flag, fp.choice_set_cols = None, []
+
+
 def _detect_structure(df: pd.DataFrame, fp: DataFingerprint) -> None:
     fp.binary_columns = [c.name for c in fp.columns if c.kind == "binary"]
     fp.has_geo = any(c.kind == "geo" for c in fp.columns)
     _label_shape(df, fp)
     _closure_shape(df, fp)
+    _choice_shape(df, fp)
 
     time_col = _find_time_col(df, fp)
     fp.time_col = time_col

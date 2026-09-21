@@ -34,6 +34,14 @@ class Precondition(BaseModel):
     requires_soil_texture: Optional[bool] = None
     requires_effect_sizes: Optional[bool] = None
     requires_edgelist: Optional[bool] = None
+    # a DISCRETE-CHOICE design: one chosen alternative per choice set (conjoint / choice-based
+    # survey), or one case per matched set. Conditional logit is defined ON that stratification
+    # — without it the method has nothing to condition on, so this is a hard precondition and
+    # not merely a preference. Declared where it is true: an under-declared entry is judged
+    # feasible everywhere AND loses the specificity bonus (measured: conditional_logit declared
+    # only min_rows=10, so on its own conjoint frame it ranked 13 while the less-apt
+    # mnl_choice, which declares one more precondition, ranked 2).
+    requires_choice_design: Optional[bool] = None
 
 
 class ParamSpec(BaseModel):
