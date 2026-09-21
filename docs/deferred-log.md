@@ -817,5 +817,53 @@ classifier_chain 54，共 306 个方法，头条是 descriptive_stats / correlat
 - **结论：维持现状。** 引擎已经发出 💡 提示点名 `yield_kg`，「披露 + 用户覆盖」在这里是对的设计。
   **一个写进 CLAUDE.md 的用户可见约定，不该为一个案例翻掉。**
 
+
+**选模三连（2026-09-20/21）：瓶颈已从「方法不够」变成「选不出来」**
+
+306 个方法 / 48 个族，而 dogfood 一路量下来正解排名 40–144。**建方法不解决问题，
+只要推荐器不把它顶上来。** 三个缺口清完，每个都是「先量、再设计」，而且**两次量完推翻了
+我本来要用的信号**。
+
+| 形状 | 正解 | 修前 | 修后 |
+|---|---|---|---|
+| multilabel | profile / binary_relevance / classifier_chain | 40/53/54 | **2/3/4** |
+| compositional | compositional_profile / aitchison_pca | **不存在** | **3/2** |
+| compositional | `correlation`（**错误**方法，零警告） | **2** | **136** |
+| conjoint | conditional_logit | 76 | **2** |
+| conjoint | mnl_choice | 44 | 3 |
+| 匹配病例对照 | conditional_logit | — | **2** |
+
+- **① multilabel**：判据是 基数 ≥1.4 / 多标签行 ≥0.45 / 无高置信度唯一结果。
+  **平均 |φ| 单独用是反的**——独热多分类的相关性最高（0.500，互斥=强负相关），
+  照直觉写会把最该拒绝的那一类顶上来。
+- **② compositional（能力缺口 0/306）**：`correlation` 排第 2 且零警告，实测它报的
+  corr(sand,silt)=−0.292 / corr(sand,clay)=−0.657 **两个负号都是闭合伪影**——
+  行和恒定 ⇒ 对每个成分 Σⱼcov(xᵢ,xⱼ)=0，**Pearson 1897**。
+  建 CLR/变差矩阵/Aitchison PCA，把原始相关与变差矩阵**并排画**，让伪相关看得见。
+  aitchison_pca **把原始与 CLR 的最小特征值都报出来**（9.26e-06 / 8.91e-32），
+  让「按构造退化」这句话可核对而不是要人信。
+  零值：稀少→乘法替换并披露；>10% **直接拒绝**，那时候「修补」就是编造。
+  **降权按 id 而非 family**：`correlation` 与 `descriptive_stats` 同属 statistics，
+  而描述统计在成分数据上完全正当。理由写进推荐说明本身——**读者看不见的降权不算披露**。
+- **③ conjoint**：判据「每个选择集内恰好一个被选中」**同时**是识别签名和条件 logit
+  所条件化的对象——选模依据与正解理由是同一件事。同样覆盖匹配病例对照（非巧合）。
+  反例 5/5 拒绝，含**交错 DiD 面板**（policy_on 开了不关，每单位合计 >1）。
+  成本有界：5000×18 宽表 profile 0.08s。
+
+**💡 顺带逮到的结构性不公（已修）**：`conditional_logit` 原本只声明 `min_rows: 10` →
+① 在**任何**数值表上被判可行（错的：没有分层就无从条件化）；② 失去 precondition
+特异性加分。于是**它在自己的 conjoint 上排 13，而不那么贴切、只因多声明一条 precondition
+的 mnl_choice 排 2**。新增 `requires_choice_design`（schema+matcher+权重）。
+**「声明得少」不该换来「到处可行 + 排名吃亏」——这和门禁那条「零声明等于免检」是同一个病的两面。**
+
+**💡 形状事实必须在 profiler 里算**：推荐器**只看得到指纹、看不到数据**。
+「3 个共现标签 vs 3 个无关二值协变量」「行和是否恒定」「每层是否恰好一个 1」——
+全都要数据才能判。新增三个形状事实：`label_cardinality`/`multi_label_row_frac`、
+`closed_components`、`choice_flag`/`choice_set_cols`。它们是**形状事实、不是角色主张**。
+
+**✅ 门禁一天就兑现**：新家族缺 affinity/scoring 画像，被昨天才收进门禁的
+`test_affinity`/`test_scoring` **当场逮住**（上一次是全量套件在门禁跑绿之后才发现的）。
+ruff 另逮到 `{0, 1, True, False}`——Python 里 True==1，那其实是个两元素集合。
+
 ---
 *持续追加。受硬件/装包限制绕过的、以及审核时的好点子，都在此留痕。*
