@@ -41,6 +41,11 @@ _FAMILY: dict[str, tuple[int, int, int, int, int]] = {
     # paper on its own (publishability below ml); the metric set is genuinely fiddly, hence
     # difficulty above ml; novelty high for this engine because nothing covered it at all.
     "multilabel": (62, 60, 58, 68, 72),
+    # compositional: a small, well-established literature (Aitchison 1986) that most
+    # practitioners have never met — low popularity, high publishability where it applies
+    # (using it correctly is itself a contribution), genuinely pretty biplots, and hard
+    # because the whole geometry has to be relearned.
+    "compositional": (38, 74, 76, 74, 66),
     "time-series": (70, 62, 66, 62, 42),
     "spatial": (55, 74, 88, 66, 62),
     "ecology": (60, 66, 80, 55, 46),
@@ -377,6 +382,40 @@ def _text_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, st
     return 14.0, ""
 
 
+# Correlation-type methods READ AS PAIRWISE ASSOCIATION between the columns themselves.
+# On closed data that reading is invalid by construction, so these are demoted and the reason
+# is disclosed. Listed by id, not by family: `correlation` lives in `statistics` next to
+# `descriptive_stats`, which is perfectly fine on a composition.
+_CLOSURE_UNSAFE = {
+    "correlation", "pearson_correlation", "correlation_matrix", "partial_correlation",
+    "canonical_correlation",
+}
+_CLOSURE_DEMOTE = -22.0
+
+
+def _compositional_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
+    """(data-fit delta, disclosure) for closed/compositional data.
+
+    Measured on a sand/silt/clay frame (rows summing to 100) before this tilt existed:
+    `correlation` ranked 2 of 306 and said nothing, while the raw coefficients it would have
+    reported were -0.292 and -0.657 — both forced by closure, since Sum_j cov(x_i,x_j)=0 holds
+    for every component. Pearson 1897. Boost the compositional family, demote the
+    correlation-type methods, and say why in the recommendation itself."""
+    if not signals.get("has_closed_composition"):
+        return 0.0, ""
+    if entry.family == "compositional":
+        return 20.0, ""
+    if entry.id in _CLOSURE_UNSAFE:
+        return _CLOSURE_DEMOTE, (
+            "⚠ 检测到**闭合成分数据**（若干非负列的行和恒定）。行和恒定意味着对每个成分都有 "
+            "Σⱼ cov(xᵢ,xⱼ)=0，成分之间的普通相关被**强制**推向负值——与底层量的真实关系无关"
+            "（Pearson 1897 的伪相关陷阱）。本法在这类数据上的系数不可按常规解读；"
+            "请改用 compositional_profile（变差矩阵 τ=Var(ln(xᵢ/xⱼ))，不受闭合影响）"
+            "或 aitchison_pca。已降到成分方法之下。"
+        )
+    return 0.0, ""
+
+
 def _multilabel_relevance_tilt(entry: AnalysisEntry, signals: dict) -> tuple[float, str]:
     """(data-fit delta, note) for the multi-label tilt. A label SET profiles as "several
     binary columns", which carries no signal at all on its own, so the family this engine had
@@ -477,6 +516,7 @@ def _affinity_fit(
     raw = max(0.0, min(100.0, raw + _ecology_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _cluster_relevance_tilt(entry, signals)[0]))
     raw = max(0.0, min(100.0, raw + _multilabel_relevance_tilt(entry, signals)[0]))
+    raw = max(0.0, min(100.0, raw + _compositional_relevance_tilt(entry, signals)[0]))
     if rigor.light == "red":
         return max(0, min(int(round(rigor.score)), int(round(raw))))
     return int(round(raw))
@@ -541,7 +581,8 @@ def score_method(
     fin_note = _finance_relevance_tilt(entry, signals)[1]  # finance-relevance disclosure
     eco_note = _ecology_relevance_tilt(entry, signals)[1]  # community-matrix disclosure
     cl_note = _cluster_relevance_tilt(entry, signals)[1]  # clustering-intent disclosure
-    extra = " ".join(n for n in (sd_note, ct_note, fin_note, eco_note, cl_note) if n)
+    comp_note = _compositional_relevance_tilt(entry, signals)[1]  # closure disclosure
+    extra = " ".join(n for n in (sd_note, ct_note, fin_note, eco_note, cl_note, comp_note) if n)
     note = (
         f"契合 {fit}（本数据）/ 流行 {pop} / 可发表 {pub} / 美观 {aes} / 新颖 {nov} / "
         f"难度 {diff}（越高越难）。{trend_note}。{(' ' + extra) if extra else ''}"

@@ -1,0 +1,59 @@
+# Compositional (closed) data — parts of a whole, where ordinary statistics lie.
+#
+# Dogfood measurement on a sand/silt/clay frame (rows summing to 100), catalog as it stood:
+#   methods for compositional data  0 of 306
+#   `correlation`                   rank 2 of 306, with no warning at all
+#   raw corr(sand,silt) = -0.292, corr(sand,clay) = -0.657 — both artefacts of closure
+#
+# When the parts sum to a constant, Sum_j cov(x_i, x_j) = 0 for every component: the
+# covariances of any one part with the rest are FORCED to sum to zero, so most pairs come out
+# negative whatever the underlying quantities do. Pearson described this in 1897.
+
+- id: compositional_profile
+  method: Compositional structure profile (CLR, variation matrix, Aitchison mean)
+  domain: statistics
+  family: compositional
+  goal: describe
+  description: 'Structure of closed (compositional) data — parts of a whole such as percentages, proportions, mineral or budget shares. Confirms closure, applies the centered log-ratio (CLR) transform, and reports Aitchison''s VARIATION MATRIX tau_ij = Var(ln(x_i/x_j)), which is scale-invariant and free of closure artefacts (tau near 0 means two parts move proportionally), alongside total variance and the Aitchison (closed geometric) mean. Shows the raw correlation matrix beside the variation matrix so the closure-induced negative correlations are visible rather than merely described. Zeros are repaired by multiplicative replacement when rare and refused outright when common, because log-ratios require strictly positive parts.'
+  preconditions:
+    min_continuous: 3
+    min_rows: 20
+  produces:
+    - variation matrix tau_ij = Var(ln(x_i/x_j)) (closure-free association)
+    - total variance + Aitchison (closed geometric) mean vs arithmetic mean
+    - raw-correlation vs variation-matrix comparison plot
+  executor_ref: numpy
+  params:
+    - name: components
+      type: columns
+      description: 闭合成分列（非负、行和为常数）
+      default: profiler 检测到的闭合成分集
+  biases:
+    - log-ratio methods require strictly positive parts; zeros are multiplicatively replaced when rare (disclosed) and refused above 10%
+    - subcompositions (re-closing a subset) change most statistics except the variation matrix
+    - distances between compositions are Aitchison distances, not Euclidean ones
+    - the component set is taken from the profiler's closure detection unless config components is given
+
+- id: aitchison_pca
+  method: Aitchison PCA / compositional biplot (PCA on CLR coordinates)
+  domain: statistics
+  family: compositional
+  goal: describe
+  description: 'Principal components of closed data done properly — on centered log-ratio (CLR) coordinates rather than on the raw parts. PCA applied directly to parts that sum to a constant inherits a singular covariance structure whose last component is degenerate BY CONSTRUCTION, so the decomposition partly describes the constraint instead of the data; the run reports the measured smallest eigenvalue of both the raw and CLR versions so the claim can be checked rather than taken on faith. Produces the standard compositional biplot, where angles between component rays reflect log-ratio association and point distances are Aitchison distances.'
+  preconditions:
+    min_continuous: 3
+    min_rows: 20
+  produces:
+    - explained variance of the CLR principal components + PC1 loadings
+    - compositional biplot (CLR coordinates)
+    - smallest eigenvalue of the raw-parts vs CLR decomposition (the degeneracy check)
+  executor_ref: numpy
+  params:
+    - name: components
+      type: columns
+      description: 闭合成分列（非负、行和为常数）
+      default: profiler 检测到的闭合成分集
+  biases:
+    - CLR coordinates carry a zero-sum constraint of their own, so the smallest CLR eigenvalue is also near zero — interpret only the first D-1 directions
+    - biplot angles are log-ratio associations; point distances are Aitchison, not Euclidean
+    - zeros are multiplicatively replaced when rare (disclosed) and refused above 10%

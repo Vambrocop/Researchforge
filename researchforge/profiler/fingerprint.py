@@ -73,6 +73,12 @@ class DataFingerprint(BaseModel):
     # a role claim: they say what the table looks like, not what anything means.
     label_cardinality: Optional[float] = None
     multi_label_row_frac: Optional[float] = None
+    # CLOSED (compositional) components: the largest set of >=3 non-negative numeric columns
+    # whose ROW SUM is constant — parts of a whole (percentages, proportions, mineral or
+    # budget shares). Closure is a shape fact with a hard statistical consequence: the parts
+    # cannot vary freely, so ordinary correlations among them are forced negative and mean
+    # nothing (Pearson 1897). Empty when the frame is not compositional.
+    closed_components: list[str] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
     # Non-binding semantic role hints (see profiler/roles.py). They do NOT change
     # run-time defaults — only suggest a `config` to the user.

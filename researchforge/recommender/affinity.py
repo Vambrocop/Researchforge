@@ -102,6 +102,10 @@ FAMILY_AFFINITY: dict[str, FamilyAffinity] = {
     # min_rows matches the family's own guard (60) — k-fold CV over several labels needs it.
     "multilabel": _a("cross_section", ("binary", "multi_numeric"), needs_predictors=True,
                      min_rows=60),
+    # compositional: >=3 non-negative parts with a constant row sum. Descriptive (no outcome
+    # needed, no predictors), and log-ratios want a reasonable n — min_rows matches the
+    # family's own guard (20).
+    "compositional": _a("cross_section", ("none", "multi_numeric"), min_rows=20),
     "causal": _a("cross_section", ("continuous", "binary"), needs_predictors=True, min_rows=30),
     "time-series": _a("timeseries", ("continuous",), min_rows=20),
     # "any" not "panel": this family also holds ols_regression (a cross-section method),
@@ -205,6 +209,15 @@ def has_efficiency_signal(fp: DataFingerprint) -> bool:
         has_in = has_in or bool(toks & _EFF_INPUT_TOKENS)
         has_out = has_out or bool(toks & _EFF_OUTPUT_TOKENS)
     return has_in and has_out
+
+
+def has_closed_composition(fp: DataFingerprint) -> bool:
+    """True iff the frame carries CLOSED (compositional) columns — parts of a whole.
+
+    Reads the profiler's shape fact rather than re-deriving it: closure needs the data
+    (constant row sums), and the recommender only ever sees a fingerprint. See
+    profiler.profile._closure_shape for the greedy subset search and its measured behaviour."""
+    return len(getattr(fp, "closed_components", None) or []) >= 3
 
 
 def has_multilabel_target(fp: DataFingerprint) -> bool:
@@ -482,6 +495,11 @@ def data_signals(fp: DataFingerprint) -> dict:
         # (measured on its own dogfood frame: profile 40 / binary_relevance 53 /
         # classifier_chain 54 out of 306, with descriptive_stats and correlation on top).
         "has_multilabel_target": has_multilabel_target(fp),
+        # CLOSED (compositional) columns: parts summing to a constant. Ordinary correlation
+        # among them is forced negative by the constraint (measured on sand/silt/clay:
+        # -0.292 and -0.657, both artefacts), and `correlation` ranked 2 of 306 there with no
+        # warning at all. Boosts the compositional family and demotes correlation methods.
+        "has_closed_composition": has_closed_composition(fp),
         # DEA/SFA input→output DMU shape → boost the efficiency family over generic regressors
         # (Wave M14 tilt), which the outlier diagnostic otherwise buries on frontier data.
         "has_efficiency_signal": has_efficiency_signal(fp),
