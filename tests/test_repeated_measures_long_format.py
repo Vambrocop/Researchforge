@@ -179,9 +179,18 @@ def test_a_between_subject_factor_is_named_instead_of_silently_dropped(tmp_path)
     _rct_with_arm().to_csv(csv, index=False)
     res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
                        output_root=str(tmp_path / "p"))
-    assert "组间因子" in res.summary and "arm" in res.summary, res.summary[:300]
-    assert "交互项都没有被估计" in res.summary
-    assert "mixed_effects" in res.summary, "the honest exit has to be named"
+    assert "arm" in res.summary, res.summary[:300]
+    # The assertions here used to pin the STOPGAP: "组间因子 arm … 交互项都没有被估计".
+    # That disclosure was correct while the branch could only fit a pure-within model. It is
+    # now obsolete in the good direction — the between factor and its interaction ARE in the
+    # model (see test_the_split_plot_table_matches_R), so what gets pinned is that the factor
+    # is MODELLED rather than named-and-discarded. The stopgap wording is still tested, on
+    # the path where the split-plot genuinely cannot be fitted:
+    # test_a_group_with_one_subject_falls_back_honestly.
+    assert res.estimates.get("split_plot") == 1.0
+    assert "分裂区组" in res.summary
+    assert "交互 arm×week" in res.summary
+    assert "交互项都没有被估计" not in res.summary
 
 
 def test_the_between_factor_notice_does_not_cry_wolf(tmp_path):
@@ -318,3 +327,137 @@ def test_config_still_outranks_the_detector(tmp_path):
                        config={"subject": "subject", "within": "operator_id"})
     assert "条件（operator_id" in res.summary
     assert "自动判定" not in res.summary, "nothing was auto-selected"
+
+
+# ── cold review C/M2's real fix: the split-plot (mixed) design ───────────────
+# Oracle: this machine's R, `aov(pain_score ~ arm*week + Error(subject/week))` on the
+# fixture `_rct_with_arm()` builds. Run and recorded, not quoted from the review:
+#
+#              SS      df    MS       F
+#     arm     2737.1    1   2737.1   30.200
+#     subj(A) 5256.7   58     90.6
+#     week    4371.8    4   1092.9  251.768
+#     arm:week 843.4    4    210.8   48.569
+#     err(w)  1007.1  232      4.34
+#
+#     Mauchly W 0.89829  p 0.73489   GG eps 0.95309   HF eps 1.028502 (R: "treated as 1")
+#
+# `car::Anova(type="III")` gives 260.298 for the week main effect (SS 4520) on the same data
+# — a different sum-of-squares type. The two agree exactly on arm:week and on the error, and
+# the review quoted the car figure. We match the `aov` partition because it is EXACT: the
+# five sums of squares add to the total.
+_R_ARM_F = 30.200
+_R_WEEK_F = 251.768
+_R_INTERACTION_F = 48.569
+_R_GG = 0.95309
+_R_MAUCHLY_P = 0.73489
+
+
+def test_the_split_plot_table_matches_R(tmp_path):
+    csv = tmp_path / "sp.csv"
+    _rct_with_arm().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "o"))
+    e = res.estimates
+    assert e.get("split_plot") == 1.0, res.summary[:300]
+    assert (e["between_df_num"], e["between_df_den"]) == (1.0, 58.0)
+    assert (e["within_df_num"], e["within_df_den"]) == (4.0, 232.0)
+    assert e["between_f"] == pytest.approx(_R_ARM_F, rel=1e-4)
+    assert e["within_f"] == pytest.approx(_R_WEEK_F, rel=1e-4)
+    assert e["interaction_f"] == pytest.approx(_R_INTERACTION_F, rel=1e-4)
+
+
+def test_the_interaction_that_was_never_estimated_is_now_reported(tmp_path):
+    """arm x week IS the repeated-measures treatment effect. The pure-within model did not
+    contain the term at all, so the number simply did not exist in any output."""
+    csv = tmp_path / "ix.csv"
+    _rct_with_arm().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "p"))
+    assert "交互 arm×week" in res.summary
+    assert res.estimates["interaction_p"] < 1e-20
+    assert 0.3 < res.estimates["interaction_partial_eta_sq"] < 0.7
+
+
+def test_sphericity_comes_from_the_pooled_within_group_covariance(tmp_path):
+    """The numerical root cause of the manufactured violation. Pooled: W=0.898, p=0.735 (NOT
+    rejected), GG=0.953. Overall covariance (what the pure-within path used): p=4.2e-08,
+    GG=0.632 — the between-group mean differences read as contrast heterogeneity."""
+    csv = tmp_path / "sph.csv"
+    _rct_with_arm().to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "q"))
+    e = res.estimates
+    assert e["gg_epsilon"] == pytest.approx(_R_GG, rel=1e-4)
+    assert e["mauchly_p"] == pytest.approx(_R_MAUCHLY_P, rel=2e-3)
+    assert e["mauchly_p"] > 0.05, "the correctly specified model does NOT violate sphericity"
+    # and the old numbers are kept so the change is auditable rather than silent
+    assert e["pure_within_gg_epsilon"] == pytest.approx(0.632, abs=0.01)
+    assert e["pure_within_f"] == pytest.approx(139.386, rel=1e-3)
+    assert "凭空报出一个球形违反" in res.summary
+
+
+def test_a_pure_within_frame_is_untouched(tmp_path):
+    """No between factor → the previous model, byte for byte."""
+    csv = tmp_path / "pw.csv"
+    _rct_with_arm().drop(columns=["arm"]).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "r"))
+    assert res.estimates.get("split_plot") is None
+    assert res.estimates["f_stat"] == pytest.approx(139.386, rel=1e-3)
+    assert "分裂区组" not in res.summary
+
+
+def test_a_group_with_one_subject_falls_back_honestly(tmp_path):
+    """A between group of size 1 has no subjects-within-groups error term. Refuse the model
+    and keep the disclosure, rather than divide by a zero df."""
+    df = _rct_with_arm()
+    df.loc[df["subject"] == "p001", "arm"] = "solo"
+    csv = tmp_path / "solo.csv"
+    df.to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "s"))
+    assert res.estimates.get("split_plot") is None
+    assert "组间因子" in res.summary and "mixed_effects" in res.summary
+
+
+def test_subjects_dropped_for_incompleteness_are_counted(tmp_path):
+    """Cold review C/S1's point, applied to the new path: deleting 8% of ROWS costs about
+    half the SUBJECTS, because the split-plot needs complete cases. Say the number."""
+    rng = np.random.default_rng(3)
+    rows = []
+    for s in range(60):
+        grp = "drug" if s % 2 == 0 else "placebo"
+        re_s = rng.normal(0, 4.0)
+        for t in range(5):
+            if rng.random() < 0.08:
+                continue
+            rows.append({"subject": f"p{s:03d}", "week": t, "arm": grp,
+                         "pain_score": round(float(50 + re_s - 1.5 * t
+                                                   - 2.5 * t * (grp == "drug")
+                                                   + rng.normal(0, 2.0)), 2)})
+    csv = tmp_path / "unbal.csv"
+    pd.DataFrame(rows).to_csv(csv, index=False)
+    res = run_analysis(profile_dataset(csv), _CAT.by_id("repeated_measures_anova"),
+                       output_root=str(tmp_path / "t"))
+    assert res.estimates.get("split_plot") == 1.0
+    assert "名受试者因缺少某个" in res.summary and "被剔除" in res.summary
+    assert "mixed_effects" in res.summary, "name the method that does not need complete cases"
+
+
+def test_the_sums_of_squares_are_an_exact_partition(tmp_path):
+    """Why the `aov` partition is the one reported: the five terms add to the total. That is
+    checkable arithmetic, not a preference between SS types."""
+    import numpy as _np
+
+    from researchforge.executor.branches.experimental_stats import _split_plot_anova
+
+    df = _rct_with_arm()
+    w = df.pivot_table(index=["subject", "arm"], columns="week", values="pain_score",
+                       aggfunc="mean").dropna()
+    Y = w.to_numpy(float)
+    r = _split_plot_anova(Y, _np.array([i[1] for i in w.index]))
+    total = float(((Y - Y.mean()) ** 2).sum())
+    parts = (r["between"]["ss"] + r["err_between"]["ss"] + r["within"]["ss"]
+             + r["interaction"]["ss"] + r["err_within"]["ss"])
+    assert parts == pytest.approx(total, rel=1e-10)

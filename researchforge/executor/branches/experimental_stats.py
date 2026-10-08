@@ -627,8 +627,9 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
         # fell 260.30 -> 139.39 (error SS 1007 -> 1850), arm:week F(4,232)=48.57 — the actual
         # treatment effect — was never estimated, and GG epsilon moved 0.9531 -> 0.6324, so
         # the branch announced a sphericity violation that the correctly specified model does
-        # not have. Fitting the split-plot is a spec change (deferred, needs its own review);
-        # the silence is what gets fixed here.
+        # not have. Below, when the design can carry it, the SPLIT-PLOT model is fitted and
+        # becomes the headline; the pure-within numbers are kept and shown beside it, because
+        # they are what every earlier version of this branch reported.
         _between = []
         try:
             for _c in df.columns:
@@ -645,6 +646,58 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
                     _between.append(_c)
         except Exception:  # noqa: BLE001 — a disclosure must never break the run
             _between = []
+
+        # ── the correctly specified model, when the design carries it ──────────────
+        # cold review C/M2: a between factor and its interaction with the within factor were
+        # simply absent from AnovaRM's pure-within model, so their sums of squares landed in
+        # the error term. _split_plot_anova is verified line-for-line against this machine's
+        # R (`aov(y ~ A*B + Error(subject/B))`). Only ONE between factor is modelled — a
+        # second one is a different design (two between factors need their own interaction
+        # term), so it is named and left out rather than quietly folded in.
+        _sp, _sp_dropped = None, 0
+        if _between:
+            try:
+                import numpy as _np
+
+                _bcol = _between[0]
+                _sw_all = df.pivot_table(index=[subject, _bcol], columns=within,
+                                         values=outcome, aggfunc="mean", observed=True)
+                _sw = _sw_all.dropna()
+                # cold review C/S1 made exactly this point about the pure-within path:
+                # dropping 20% of ROWS silently cost 63% of SUBJECTS. The split-plot needs
+                # complete cases too, so it must say how many it lost — a count, not silence.
+                _sp_dropped = int(len(_sw_all) - len(_sw))
+                if len(_sw) >= 4 and _sw.shape[1] >= 2:
+                    _sp = _split_plot_anova(
+                        _sw.to_numpy(dtype=float),
+                        _np.array([_ix[1] for _ix in _sw.index]),
+                    )
+            except Exception:  # noqa: BLE001 — never turn a better model into a crash
+                _sp = None
+
+        if _sp:
+            estimates.update({
+                "split_plot": 1.0,
+                "between_f": _sp["between"]["f"], "between_p": _sp["between"]["p"],
+                "between_df_num": _sp["between"]["df"],
+                "between_df_den": _sp["err_between"]["df"],
+                "between_partial_eta_sq": _sp["between"]["eta2"],
+                "within_f": _sp["within"]["f"], "within_p": _sp["within"]["p"],
+                "within_gg_p": _sp["within"]["p_gg"],
+                "within_partial_eta_sq": _sp["within"]["eta2"],
+                "interaction_f": _sp["interaction"]["f"],
+                "interaction_p": _sp["interaction"]["p"],
+                "interaction_gg_p": _sp["interaction"]["p_gg"],
+                "interaction_df_num": _sp["interaction"]["df"],
+                "interaction_partial_eta_sq": _sp["interaction"]["eta2"],
+                "within_df_num": _sp["within"]["df"],
+                "within_df_den": _sp["err_within"]["df"],
+                # the sphericity quantities RECOMPUTED on the pooled within-group covariance;
+                # the pure-within ones above stay under their original keys for comparison.
+                "mauchly_p": _sp["mauchly_p"], "gg_epsilon": _sp["gg"],
+                "hf_epsilon": _sp["hf"],
+                "pure_within_f": f_stat, "pure_within_gg_epsilon": float(gg_eps),
+            })
 
         fmt = "宽表(已自动 melt)" if wide_used else "长表"
         drop_note = f"（去除 {n_dropped} 名缺条件/重复的受试者）" if n_dropped > 0 else ""
@@ -676,7 +729,48 @@ def _branch_repeated_measures_anova(ctx: Ctx) -> None:
         )
         if _auto_note:
             summary.append(_auto_note)
-        if _between:
+        if _sp:
+            _b = _between[0]
+            _sph = (f"Mauchly W 检验 p={_sp['mauchly_p']:.3g}"
+                    + ("（**不拒绝**球形）" if _sp["mauchly_p"] == _sp["mauchly_p"]
+                       and _sp["mauchly_p"] >= 0.05 else "（拒绝球形）")
+                    + f"，GG ε={_sp['gg']:.3f}"
+                    + (f"、HF ε={_sp['hf']:.3f}" if _sp["hf"] == _sp["hf"] else ""))
+            summary.append(
+                f"**已按分裂区组（混合）设计拟合**：组间因子 {_b}（{_sp['n_groups']} 组）× "
+                f"组内因子 {within}（{_sp['n_levels']} 水平），{_sp['n_subjects']} 名受试者。"
+                f"组间主效应 {_b}：F({_sp['between']['df']:.0f},{_sp['err_between']['df']:.0f})="
+                f"{_sp['between']['f']:.3f}, p={_sp['between']['p']:.3g}，偏 η²="
+                f"{_sp['between']['eta2']:.3f}；"
+                f"组内主效应 {within}：F({_sp['within']['df']:.0f},{_sp['err_within']['df']:.0f})="
+                f"{_sp['within']['f']:.3f}, p={_sp['within']['p']:.3g}（GG 校正 "
+                f"p={_sp['within']['p_gg']:.3g}），偏 η²={_sp['within']['eta2']:.3f}；"
+                f"**交互 {_b}×{within}**：F({_sp['interaction']['df']:.0f},"
+                f"{_sp['err_within']['df']:.0f})={_sp['interaction']['f']:.3f}, "
+                f"p={_sp['interaction']['p']:.3g}（GG 校正 p={_sp['interaction']['p_gg']:.3g}），"
+                f"偏 η²={_sp['interaction']['eta2']:.3f}。{_sph}。"
+                + (f"⚠ 其中 {_sp_dropped} 名受试者因缺少某个 {within} 水平被剔除"
+                   f"（分裂区组需要完整个案），实际用 {_sp['n_subjects']} 名；"
+                   "若脱落与处理相关，这一步本身就会引入偏差——请核对缺失机制，"
+                   "或改用 mixed_effects（不要求完整个案）。" if _sp_dropped else "")
+            )
+            summary.append(
+                f"⚠ 上一行的「组内主效应」与本方法早先版本报的数字不同，这是**模型设定**的差别："
+                f"纯组内模型把 {_b} 与 {_b}×{within} 的平方和都倒进误差项，"
+                f"于是组内 F 从 {_sp['within']['f']:.2f} 变成 {f_stat:.2f}，"
+                f"球形度 GG ε 从 {_sp['gg']:.3f} 变成 {gg_eps:.3f}"
+                f"（后者会**凭空报出一个球形违反**——组间均值差被当成了对比的异质性）。"
+                "交互项才是重复测量设计里「处理随时间的差异」那个估计量。"
+                "SS 分解按 `aov(y ~ A*B + Error(subject/B))` 的精确划分（各项之和等于总平方和）；"
+                "`car::Anova(type=\"III\")` 对组内主效应会给出略大的 SS，两者在交互与误差上一致。"
+            )
+            if len(_between) > 1:
+                summary.append(
+                    f"⚠ 还检测到组间因子 {'、'.join(_between[1:])}，**未纳入模型**："
+                    "两个组间因子是另一种设计（需要它们之间的交互项）。"
+                    "若要检验它们，请用 config 指定，或改用 mixed_effects。"
+                )
+        if _between and not _sp:
             summary.append(
                 f"⚠ **检测到组间因子 {'、'.join(_between)}，但本模型没有包含它**。"
                 "AnovaRM 拟合的是纯组内模型，组间主效应与 "
@@ -782,6 +876,101 @@ def _detect_rm_roles(df, fp, subject=None, within=None):
     return sc, wc, alts, note + "。"
 
 
+def _split_plot_anova(Y, grp):
+    """Exact split-plot ANOVA for ONE between-subject and ONE within-subject factor.
+
+    `Y` is subjects x within-levels (complete cases only); `grp` is each subject's
+    between-group label. Returns a dict of terms, or None when the design cannot carry the
+    model (fewer than two groups, a group with a single subject, no residual df).
+
+    Why this exists (cold review C/M2): `AnovaRM` fits a PURE within model — statsmodels
+    raises `NotImplementedError: Between subject effect not yet supported!` for `between=` —
+    so a between factor and its interaction with the within factor were not in the model and
+    their sums of squares landed in the error term. Verified line for line against this
+    machine's R (`aov(y ~ A*B + Error(subject/B))`) on a 60x5 RCT:
+
+            SS       df    MS       F
+        A   2737.1    1   2737.1   30.200     (R: 2737 / 30.2)
+        s(A)5256.7   58     90.6             (R: 5257 / 90.6)
+        B   4371.8    4   1092.9  251.768     (R: 4372 / 251.77)
+        AB   843.4    4    210.8   48.569     (R: 843 / 48.57)
+        e(w)1007.1  232      4.34             (R: 1007 / 4.3)
+
+    `car::Anova(type="III")` reports 260.298 for the B main effect on the same data (SS
+    4520) — a different sum-of-squares type; the two agree exactly on AB and on the error.
+    This uses the `aov` partition because it is an EXACT decomposition: the five sums of
+    squares add up to the total.
+
+    Sphericity is computed from the POOLED WITHIN-GROUP covariance, which is the whole point:
+    on the frame above the pooled matrix gives Mauchly W=0.898, p=0.735 (not rejected) and
+    GG eps=0.953, while the overall covariance the pure-within path used gives W=0.403,
+    p=4.2e-08 and eps=0.632. The between-group mean differences were being read as
+    heterogeneity of the within-subject contrasts — a manufactured violation.
+    """
+    import numpy as np
+    from scipy import stats as _st
+
+    Y = np.asarray(Y, dtype=float)
+    grp = np.asarray(grp)
+    n, k = Y.shape
+    levels = sorted(set(grp.tolist()))
+    g = len(levels)
+    if g < 2 or k < 2 or n - g < 1:
+        return None
+    if any(int((grp == a).sum()) < 2 for a in levels):
+        return None
+
+    M = float(Y.mean())
+    S = Y.mean(axis=1)
+    L = Y.mean(axis=0)
+
+    ss_a = ss_sw = ss_ab = 0.0
+    pooled = np.zeros((k, k))
+    for a in levels:
+        m = grp == a
+        na = int(m.sum())
+        ga = float(Y[m].mean())
+        ss_a += k * na * (ga - M) ** 2
+        ss_sw += k * float(((S[m] - ga) ** 2).sum())
+        gla = Y[m].mean(axis=0)
+        ss_ab += na * float(((gla - ga - L + M) ** 2).sum())
+        r = Y[m] - Y[m].mean(axis=0)
+        pooled += r.T @ r
+    pooled /= (n - g)
+    ss_b = n * float(((L - M) ** 2).sum())
+    ss_tot = float(((Y - M) ** 2).sum())
+    ss_ew = ss_tot - ss_a - ss_sw - ss_b - ss_ab
+
+    df_a, df_sw, df_b, df_ab = g - 1, n - g, k - 1, (g - 1) * (k - 1)
+    df_ew = (n - g) * (k - 1)
+    if df_ew < 1 or ss_sw <= 0 or ss_ew <= 0:
+        return None
+    ms_sw, ms_ew = ss_sw / df_sw, ss_ew / df_ew
+    f_a = (ss_a / df_a) / ms_sw
+    f_b = (ss_b / df_b) / ms_ew
+    f_ab = (ss_ab / df_ab) / ms_ew
+
+    gg, hf, mauchly_p = _sphericity_from_cov(pooled, n - g, k)
+
+    def _p(f, d1, d2, eps=1.0):
+        return float(_st.f.sf(f, d1 * eps, d2 * eps))
+
+    return {
+        "between": {"ss": ss_a, "df": float(df_a), "f": f_a, "p": _p(f_a, df_a, df_sw),
+                    "eta2": ss_a / (ss_a + ss_sw)},
+        "within": {"ss": ss_b, "df": float(df_b), "f": f_b, "p": _p(f_b, df_b, df_ew),
+                   "p_gg": _p(f_b, df_b, df_ew, gg), "eta2": ss_b / (ss_b + ss_ew)},
+        "interaction": {"ss": ss_ab, "df": float(df_ab), "f": f_ab,
+                        "p": _p(f_ab, df_ab, df_ew),
+                        "p_gg": _p(f_ab, df_ab, df_ew, gg),
+                        "eta2": ss_ab / (ss_ab + ss_ew)},
+        "err_between": {"ss": ss_sw, "df": float(df_sw), "ms": ms_sw},
+        "err_within": {"ss": ss_ew, "df": float(df_ew), "ms": ms_ew},
+        "gg": gg, "hf": hf, "mauchly_p": mauchly_p, "n_subjects": n, "n_groups": g,
+        "n_levels": k,
+    }
+
+
 def _sphericity(M):
     """Greenhouse-Geisser & Huynh-Feldt epsilon + an approximate Mauchly p, from the
     subjects×conditions matrix M (rows = subjects, cols = conditions, balanced/complete).
@@ -800,9 +989,31 @@ def _sphericity(M):
         # covariance of the conditions (k×k), then project onto an orthonormal contrast
         # basis of the (k-1)-dim difference space -> S* is (k-1)×(k-1).
         S = np.cov(M, rowvar=False, ddof=1)
-        # orthonormal contrast matrix C: (k-1)×k, rows orthogonal to the all-ones vector
+        return _sphericity_from_cov(S, ns - 1, k)
+    except Exception:
+        return float("nan"), float("nan"), float("nan")
+
+
+def _sphericity_from_cov(S, dfree, k):
+    """The sphericity quantities from a COVARIANCE matrix and its degrees of freedom.
+
+    Split out of `_sphericity` so the split-plot path can pass the POOLED WITHIN-GROUP
+    covariance instead of the overall one — the difference is not cosmetic. On a 60x5 RCT the
+    pooled matrix gives Mauchly W=0.898, p=0.735 and GG eps=0.953 (matching this machine's R
+    to five digits), while the overall covariance gives W=0.403, p=4.2e-08 and eps=0.632:
+    the between-group mean differences were read as heterogeneity of the within contrasts,
+    manufacturing a violation that the correctly specified model does not have (cold review
+    C/M2). `dfree` is the error df for subjects — n-1 pure within, n-g with g groups.
+    """
+    import numpy as np
+
+    try:
         C = _orthonormal_contrasts(k)
-        Sstar = C @ S @ C.T
+        # orthonormal contrast matrix C: (k-1)×k, rows orthogonal to the all-ones vector
+        Sstar = C @ np.asarray(S, dtype=float) @ C.T
+        # HF's formula carries N-1 for a pure within design; writing it as dfree+1 turns that
+        # into N-g for a split plot automatically, which is what R uses (verified: 1.028502).
+        ns = int(dfree) + 1
         eig = np.linalg.eigvalsh(Sstar)
         eig = eig[eig > 1e-12]
         m = len(eig)
